@@ -161,6 +161,8 @@ class LocaleTest(unittest.TestCase):
         expected += list(constants.MESSAGE_VIEWS) + list(constants.PRIVACY_LEVELS)
         expected += [key for _, key in constants.MEMBER_LISTS]
         expected += [key for keys in constants.MEMBER_ACTION_TEXTS.values() for key in keys]
+        expected += list(constants.CODE_DELIVERY_KEYS.values()) + list(constants.NEXT_CODE_DELIVERY_KEYS.values())
+        expected += [constants.MEMBER_PERMISSION_KEY_PREFIX + name for name in constants.MEMBER_PERMISSIONS]
         self.assertEqual([key for key in expected if key not in strings], [])
 
     def test_secrets_are_ignored_by_git(self):

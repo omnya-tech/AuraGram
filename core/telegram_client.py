@@ -8,7 +8,8 @@ from telethon.errors import (
     SessionPasswordNeededError, PasswordHashInvalidError, FloodWaitError,
     MessageNotModifiedError, ChatAdminRequiredError, ChatWriteForbiddenError,
     ChatNotModifiedError, ChatAboutNotModifiedError, UserAdminInvalidError,
-    RightForbiddenError, UserCreatorError, MessageDeleteForbiddenError, RPCError
+    RightForbiddenError, UserCreatorError, MessageDeleteForbiddenError, RPCError,
+    SendCodeUnavailableError
 )
 from telethon.tl import functions, types
 from telethon.utils import get_display_name, get_input_peer, get_peer_id
@@ -29,7 +30,8 @@ from core.constants import (
     PRIVACY_EVERYONE, PRIVACY_CONTACTS, PRIVACY_NOBODY, ERR_CHAT_NOT_FOUND_KEY,
     MESSAGE_VIEW_PINNED, MESSAGE_VIEW_SCHEDULED, MESSAGE_VIEW_PHOTOS, MESSAGE_VIEW_FILES,
     MESSAGE_VIEW_VOICE, MESSAGE_VIEW_MUSIC, MESSAGE_VIEW_LINKS, ADMIN_LOG_LIMIT, MEMBER_PERMISSIONS,
-    INVITE_LINKS_LIMIT,
+    INVITE_LINKS_LIMIT, CODE_DELIVERY_KEYS, NEXT_CODE_DELIVERY_KEYS, CODE_DELIVERY_OTHER_KEY,
+    ERR_NO_OTHER_DELIVERY_KEY,
     EVENT_NEW_MESSAGE, EVENT_MESSAGE_EDITED, EVENT_MESSAGES_DELETED
 )
 
@@ -83,6 +85,9 @@ class TelegramManager(threading.Thread):
         self.client = None
         self.phone = None
         self.phone_hash = None
+        # Locale keys describing the login code: how it was sent, and the next way on offer.
+        self.code_delivery = CODE_DELIVERY_OTHER_KEY
+        self.next_code_delivery = None
         self.entities = {}
         # Members of the chat whose member list was loaded last.
         self.member_entities = {}
@@ -117,6 +122,10 @@ class TelegramManager(threading.Thread):
 
     def send_code(self, code):
         asyncio.run_coroutine_threadsafe(self._send_code_async(code), self.loop)
+
+    def resend_code(self):
+        """Ask Telegram to deliver the login code another way, e.g. by voice call."""
+        asyncio.run_coroutine_threadsafe(self._resend_code_async(), self.loop)
 
     def send_password(self, password):
         asyncio.run_coroutine_threadsafe(self._send_password_async(password), self.loop)
@@ -870,7 +879,7 @@ class TelegramManager(threading.Thread):
             await self._ensure_connected()
             result = await self.client.send_code_request(phone)
             self.phone = phone
-            self.phone_hash = result.phone_code_hash
+            self._remember_code_delivery(result)
             self.ui_callback(STEP_CODE)
         except PhoneNumberInvalidError:
             self.ui_callback(STEP_PHONE, ERR_PHONE_INVALID_KEY)
@@ -880,6 +889,32 @@ class TelegramManager(threading.Thread):
             self.ui_callback(STEP_PHONE, ERR_CONNECTION_KEY)
         except Exception:
             self.ui_callback(STEP_PHONE, ERR_GENERAL_KEY)
+
+    def _remember_code_delivery(self, sent_code):
+        """Keep what Telegram said about the login code: how it was sent, and what it would try next."""
+        self.phone_hash = sent_code.phone_code_hash
+        self.code_delivery = CODE_DELIVERY_KEYS.get(type(sent_code.type).__name__, CODE_DELIVERY_OTHER_KEY)
+        # None when Telegram offers no further way for this number.
+        self.next_code_delivery = NEXT_CODE_DELIVERY_KEYS.get(type(sent_code.next_type).__name__)
+
+    async def _resend_code_async(self):
+        try:
+            await self._ensure_connected()
+            # Telegram picks the method itself: each request moves on to the next one it
+            # allows for this number (typically app, then SMS, then a voice call).
+            result = await self.client(functions.auth.ResendCodeRequest(self.phone, self.phone_hash))
+            self._remember_code_delivery(result)
+            self.ui_callback(STEP_CODE)
+        except SendCodeUnavailableError:
+            self.ui_callback(STEP_CODE, ERR_NO_OTHER_DELIVERY_KEY)
+        except PhoneCodeExpiredError:
+            self.ui_callback(STEP_PHONE, ERR_CODE_EXPIRED_KEY)
+        except FloodWaitError:
+            self.ui_callback(STEP_CODE, ERR_FLOOD_KEY)
+        except (ConnectionError, OSError):
+            self.ui_callback(STEP_CODE, ERR_CONNECTION_KEY)
+        except Exception:
+            self.ui_callback(STEP_CODE, ERR_GENERAL_KEY)
 
     async def _send_code_async(self, code):
         try:

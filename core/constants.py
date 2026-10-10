@@ -106,6 +106,27 @@ TRAY_TOOLTIP_KEY = "TRAY_TOOLTIP"
 MSG_IN_BACKGROUND_FORMAT_KEY = "MSG_IN_BACKGROUND_FORMAT"
 ERR_HOTKEY_TAKEN_FORMAT_KEY = "ERR_HOTKEY_TAKEN_FORMAT"
 
+# How Telegram says it delivered the login code, by the name of its answer type,
+# and the text that tells the user where to look for it.
+CODE_DELIVERY_OTHER_KEY = "CODE_DELIVERY_OTHER"
+CODE_DELIVERY_KEYS = {
+    "SentCodeTypeApp": "CODE_DELIVERY_APP",
+    "SentCodeTypeSms": "CODE_DELIVERY_SMS",
+    "SentCodeTypeCall": "CODE_DELIVERY_CALL",
+    "SentCodeTypeFlashCall": "CODE_DELIVERY_MISSED_CALL",
+    "SentCodeTypeMissedCall": "CODE_DELIVERY_MISSED_CALL",
+    "SentCodeTypeEmailCode": "CODE_DELIVERY_EMAIL",
+}
+# The way Telegram would use if asked again, and the label that offers it on the button.
+NEXT_CODE_DELIVERY_KEYS = {
+    "CodeTypeSms": "BTN_RESEND_SMS",
+    "CodeTypeCall": "BTN_RESEND_CALL",
+    "CodeTypeFlashCall": "BTN_RESEND_MISSED_CALL",
+    "CodeTypeMissedCall": "BTN_RESEND_MISSED_CALL",
+}
+BTN_RESEND_OTHER_KEY = "BTN_RESEND_OTHER"
+ERR_NO_OTHER_DELIVERY_KEY = "ERR_NO_OTHER_DELIVERY"
+
 API_SETUP_TITLE_KEY = "API_SETUP_TITLE"
 API_SETUP_NOTE_KEY = "API_SETUP_NOTE"
 API_ID_LABEL_KEY = "API_ID_LABEL"
