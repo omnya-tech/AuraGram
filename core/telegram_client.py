@@ -26,6 +26,8 @@ from core.constants import (
     MEMBER_ACTION_MUTE, MEMBER_ACTION_UNMUTE, MEMBER_ACTION_APPROVE, MEMBER_ACTION_DECLINE,
     CATEGORY_CONTACTS, CATEGORY_NON_CONTACTS, CATEGORY_GROUPS, CATEGORY_BROADCASTS, CATEGORY_BOTS,
     PRIVACY_EVERYONE, PRIVACY_CONTACTS, PRIVACY_NOBODY, ERR_CHAT_NOT_FOUND_KEY,
+    MESSAGE_VIEW_PINNED, MESSAGE_VIEW_SCHEDULED, MESSAGE_VIEW_PHOTOS, MESSAGE_VIEW_FILES,
+    MESSAGE_VIEW_VOICE, MESSAGE_VIEW_MUSIC, MESSAGE_VIEW_LINKS, ADMIN_LOG_LIMIT,
     EVENT_NEW_MESSAGE, EVENT_MESSAGE_EDITED, EVENT_MESSAGES_DELETED
 )
 
@@ -33,6 +35,17 @@ STOP_TIMEOUT_SECONDS = 5
 
 class ChatNotFoundError(Exception):
     """No user or chat matches what was typed."""
+
+# Telegram's server-side filter for each message view that has one.
+MESSAGE_VIEW_FILTERS = {
+    MESSAGE_VIEW_PINNED: types.InputMessagesFilterPinned,
+    MESSAGE_VIEW_PHOTOS: types.InputMessagesFilterPhotoVideo,
+    MESSAGE_VIEW_FILES: types.InputMessagesFilterDocument,
+    MESSAGE_VIEW_VOICE: types.InputMessagesFilterVoice,
+    MESSAGE_VIEW_MUSIC: types.InputMessagesFilterMusic,
+    MESSAGE_VIEW_LINKS: types.InputMessagesFilterUrl,
+}
+ADMIN_LOG_ACTION_PREFIX = "ChannelAdminLogEventAction"
 
 # Privacy settings offered in the app, by the name the UI uses for each.
 PRIVACY_KEYS = {
@@ -128,6 +141,25 @@ class TelegramManager(threading.Thread):
         `which` is one of the MEMBERS_* constants: current members, banned users, or join requests.
         """
         self._request(on_result, self._load_members_async, dialog_id, search, which)
+
+    def load_message_view(self, dialog_id, view, on_result):
+        """Loads one of the MESSAGE_VIEW_* lists of a chat: pinned, scheduled, or one kind of shared media."""
+        self._request(on_result, self._load_message_view_async, dialog_id, view)
+
+    def delete_scheduled(self, dialog_id, message_id, on_result):
+        """Cancels a scheduled message before it is sent."""
+        self._request(on_result, self._delete_scheduled_async, dialog_id, message_id)
+
+    def vote(self, dialog_id, message_id, option_indexes, on_result):
+        """Votes in a poll (an empty list retracts the vote); the result is the refreshed message."""
+        self._request(on_result, self._vote_async, dialog_id, message_id, option_indexes)
+
+    def send_poll(self, dialog_id, question, options, on_result):
+        self._request(on_result, self._send_poll_async, dialog_id, question, options)
+
+    def load_admin_log(self, dialog_id, on_result):
+        """The result is the recent admin actions in a channel or large group, newest first."""
+        self._request(on_result, self._load_admin_log_async, dialog_id)
 
     def leave_chat(self, dialog_id, on_result):
         """Leaves a group or channel; for a private chat, deletes it from this account's list."""
@@ -603,6 +635,7 @@ class TelegramManager(threading.Thread):
             "pinned": bool(getattr(message, "pinned", False)),
             "reply_to": getattr(message, "reply_to_msg_id", None),
             "reactions": self._describe_reactions(message),
+            "poll": self._describe_poll(message),
         }
 
     def _describe_media(self, message):
@@ -646,6 +679,73 @@ class TelegramManager(threading.Thread):
         await self.client.send_message(
             self.entities[dialog_id], text, reply_to=reply_to, schedule=schedule
         )
+
+    async def _load_message_view_async(self, dialog_id, view):
+        entity = self.entities[dialog_id]
+        if view == MESSAGE_VIEW_SCHEDULED:
+            messages = await self.client.get_messages(entity, scheduled=True)
+        else:
+            messages = await self.client.get_messages(
+                entity, limit=MESSAGES_LIMIT, filter=MESSAGE_VIEW_FILTERS[view]
+            )
+        return [self._describe_message(message, message.sender) for message in reversed(messages)]
+
+    async def _delete_scheduled_async(self, dialog_id, message_id):
+        await self.client(functions.messages.DeleteScheduledMessagesRequest(
+            peer=self.entities[dialog_id], id=[message_id]
+        ))
+
+    def _describe_poll(self, message):
+        media = getattr(message, "poll", None)
+        if not media:
+            return None
+        poll, results = media.poll, media.results
+        votes = {result.option: result for result in getattr(results, "results", None) or []}
+        return {
+            # Newer Telegram layers wrap these texts in a formatted-text object.
+            "question": getattr(poll.question, "text", poll.question),
+            "options": [
+                {
+                    "text": getattr(answer.text, "text", answer.text),
+                    # None while Telegram hides the results (before voting).
+                    "voters": getattr(votes.get(answer.option), "voters", None),
+                    "chosen": bool(getattr(votes.get(answer.option), "chosen", False)),
+                }
+                for answer in poll.answers
+            ],
+            "closed": bool(poll.closed),
+            "multiple": bool(poll.multiple_choice),
+        }
+
+    async def _vote_async(self, dialog_id, message_id, option_indexes):
+        entity = self.entities[dialog_id]
+        message = await self.client.get_messages(entity, ids=message_id)
+        answers = message.poll.poll.answers
+        await self.client(functions.messages.SendVoteRequest(
+            peer=entity, msg_id=message_id, options=[answers[index].option for index in option_indexes]
+        ))
+        message = await self.client.get_messages(entity, ids=message_id)
+        return self._describe_message(message, message.sender)
+
+    async def _send_poll_async(self, dialog_id, question, options):
+        def formatted(text):
+            return types.TextWithEntities(text, [])
+        poll = types.Poll(
+            id=0, hash=0, question=formatted(question),
+            answers=[types.PollAnswer(formatted(text), bytes([index])) for index, text in enumerate(options)]
+        )
+        await self.client.send_message(self.entities[dialog_id], file=types.InputMediaPoll(poll))
+
+    async def _load_admin_log_async(self, dialog_id):
+        events = []
+        async for event in self.client.iter_admin_log(self.entities[dialog_id], limit=ADMIN_LOG_LIMIT):
+            events.append({
+                "user": get_display_name(event.user) if event.user else EMPTY_STRING,
+                "date": event.date,
+                # E.g. "ChannelAdminLogEventActionParticipantInvite" -> "ParticipantInvite".
+                "action": type(event.action).__name__.replace(ADMIN_LOG_ACTION_PREFIX, EMPTY_STRING),
+            })
+        return events
 
     async def _leave_chat_async(self, dialog_id):
         await self.client.delete_dialog(self.entities[dialog_id])

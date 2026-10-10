@@ -12,6 +12,13 @@ from ui.chat_info_dialog import ChatInfoDialog
 from core.chat_views import build_views
 from core.schedule import parse_send_time
 from core.constants import (
+    MESSAGE_VIEWS, MESSAGE_VIEW_SEARCH, MESSAGE_VIEW_SCHEDULED, MENU_CHAT_VIEWS_KEY,
+    MSG_VIEW_RESULTS_FORMAT_KEY, MSG_VIEW_EMPTY_KEY, MSG_CONFIRM_CANCEL_SCHEDULED_KEY,
+    MSG_SCHEDULED_CANCELLED_KEY, MENU_NEW_POLL_KEY, MSG_POLL_QUESTION_PROMPT_KEY,
+    MSG_POLL_OPTIONS_PROMPT_KEY, MSG_POLL_SENT_KEY, MSG_POLL_CLOSED_KEY, MSG_VOTED_KEY,
+    ERR_POLL_OPTIONS_KEY, POLL_FORMAT_KEY, POLL_OPTION_FORMAT_KEY, POLL_CHOSEN_KEY,
+    POLL_VOTERS_FORMAT_KEY,
+    POLL_CLOSED_SUFFIX_KEY, CONTEXT_VOTE_KEY, POLL_MIN_OPTIONS, POLL_MAX_OPTIONS,
     CATEGORY_GROUPS, CATEGORY_BROADCASTS, CONTEXT_LEAVE_KEY, CONTEXT_DELETE_CHAT_KEY,
     MSG_CONFIRM_LEAVE_KEY, MSG_CONFIRM_DELETE_CHAT_KEY, MSG_LEFT_KEY, MENU_REACT_KEY,
     CONTEXT_REACT_KEY, MSG_CHOOSE_REACTION_KEY, REACTION_REMOVE_KEY, REACTION_CHOICE_FORMAT_KEY,
@@ -70,6 +77,8 @@ class MainFrame(wx.Frame):
         self.find_text = ""
         # Set while the message list shows search results instead of the conversation.
         self.search_query = None
+        # None for the conversation itself, otherwise which MESSAGE_VIEW_* list is showing.
+        self.message_view = None
         self.player = audio.Player()
         self.recorder = audio.Recorder()
         self.recording_dialog_id = None
@@ -156,6 +165,7 @@ class MainFrame(wx.Frame):
             (MENU_FORWARD_KEY, self.on_forward_menu),
             (MENU_REACT_KEY, self.on_react_menu),
             (MENU_SCHEDULE_KEY, self.on_schedule_menu),
+            (MENU_NEW_POLL_KEY, self.on_new_poll_menu),
             (MENU_RECORD_KEY, self.on_record_menu),
         ):
             item = message_menu.Append(wx.ID_ANY, self.i18n.get_string(label_key))
@@ -178,9 +188,15 @@ class MainFrame(wx.Frame):
             item = chats_menu.Append(wx.ID_ANY, self.i18n.get_string(label_key))
             self.Bind(wx.EVT_MENU, handler, item)
 
+        views_menu = wx.Menu()
+        for view in MESSAGE_VIEWS:
+            item = views_menu.Append(wx.ID_ANY, self.i18n.get_string(view))
+            self.Bind(wx.EVT_MENU, lambda event, view=view: self.open_message_view(view), item)
+
         menu_bar = wx.MenuBar()
         menu_bar.Append(file_menu, self.i18n.get_string(MENU_FILE_KEY))
         menu_bar.Append(chats_menu, self.i18n.get_string(MENU_CHATS_KEY))
+        menu_bar.Append(views_menu, self.i18n.get_string(MENU_CHAT_VIEWS_KEY))
         menu_bar.Append(message_menu, self.i18n.get_string(MENU_MESSAGE_KEY))
         menu_bar.Append(search_menu, self.i18n.get_string(MENU_SEARCH_KEY))
         self.SetMenuBar(menu_bar)
@@ -281,7 +297,7 @@ class MainFrame(wx.Frame):
         self.announce(self.i18n.get_string(MSG_LEFT_KEY).format(title=dialog["title"]))
 
     def on_react_menu(self, event):
-        message = self.selected_message()
+        message = self.actionable_message()
         if message is None or self.is_busy:
             return
         names = [
@@ -371,8 +387,18 @@ class MainFrame(wx.Frame):
         message = self.selected_message()
         if message is None:
             return
+        if self.message_view == MESSAGE_VIEW_SCHEDULED:
+            # Not sent yet, so there is nothing to reply to, pin or forward.
+            entries = [(CONTEXT_DELETE_KEY, self.on_delete_menu)]
+            if message["text"]:
+                entries.append((CONTEXT_COPY_KEY, self.on_copy_message))
+            self.show_context_menu(entries)
+            return
         # Only offer what will actually work on this message.
-        entries = [
+        entries = []
+        if message["poll"] and not message["poll"]["closed"]:
+            entries.append((CONTEXT_VOTE_KEY, self.on_vote_menu))
+        entries += [
             (CONTEXT_REPLY_KEY, self.on_reply_menu), (CONTEXT_REACT_KEY, self.on_react_menu),
             (CONTEXT_FORWARD_KEY, self.on_forward_menu),
         ]
@@ -399,7 +425,7 @@ class MainFrame(wx.Frame):
         return message["outgoing"] or self.current_dialog()["can_delete_others"]
 
     def on_pin_menu(self, event):
-        message = self.selected_message()
+        message = self.actionable_message()
         if message is None or self.is_busy:
             return
         if not self.current_dialog()["can_pin"]:
@@ -540,26 +566,141 @@ class MainFrame(wx.Frame):
             self.notify(MSG_SEARCH_NO_RESULTS_KEY)
             return
         self.search_query = query
-        self.set_compose()
-        self.messages = results
-        self.has_older = False
-        self.render_messages(len(results) - 1)
-        self.messages_list.SetFocus()
+        self.show_message_list(MESSAGE_VIEW_SEARCH, results)
         self.announce(
             self.i18n.get_string(MSG_SEARCH_RESULTS_FORMAT_KEY).format(count=len(results))
         )
+
+    def show_message_list(self, view, messages):
+        """Replace the conversation in the message area with another list; Escape brings it back."""
+        self.message_view = view
+        self.set_compose()
+        self.messages = messages
+        self.has_older = False
+        self.render_messages(len(messages) - 1)
+        self.messages_list.SetFocus()
 
     def close_search(self):
         self.notify(MSG_SEARCH_CLOSED_KEY)
         self.load_messages(focus_messages=True)
 
+    def open_message_view(self, view):
+        if self.current_dialog_id is None or self.is_busy:
+            return
+        self.is_busy = True
+        self.set_status(MSG_LOADING_KEY)
+        dialog_id = self.current_dialog_id
+        self.telegram_manager.load_message_view(
+            dialog_id, view, self.on_ui_thread(self.on_message_view_loaded, dialog_id, view)
+        )
+
+    def on_message_view_loaded(self, messages, dialog_id, view):
+        self.is_busy = False
+        if dialog_id != self.current_dialog_id:
+            return
+        name = self.i18n.get_string(view)
+        if not messages:
+            self.announce(self.i18n.get_string(MSG_VIEW_EMPTY_KEY).format(view=name))
+            return
+        self.show_message_list(view, messages)
+        self.announce(
+            self.i18n.get_string(MSG_VIEW_RESULTS_FORMAT_KEY).format(view=name, count=len(messages))
+        )
+
+    def actionable_message(self):
+        """The selected message, unless it is a scheduled one: those are not in the chat yet,
+        so they can only be cancelled or copied."""
+        if self.message_view == MESSAGE_VIEW_SCHEDULED:
+            return None
+        return self.selected_message()
+
+    def cancel_scheduled(self, message):
+        answer = wx.MessageBox(
+            self.i18n.get_string(MSG_CONFIRM_CANCEL_SCHEDULED_KEY).format(text=self.message_snippet(message)),
+            self.i18n.get_string(APP_TITLE_KEY),
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION, self
+        )
+        if answer != wx.YES:
+            return
+        self.is_busy = True
+        dialog_id = self.current_dialog_id
+        self.telegram_manager.delete_scheduled(
+            dialog_id, message["id"],
+            self.on_ui_thread(self.on_scheduled_cancelled, dialog_id, message["id"])
+        )
+
+    def on_scheduled_cancelled(self, result, dialog_id, message_id):
+        self.is_busy = False
+        if dialog_id == self.current_dialog_id and self.message_view == MESSAGE_VIEW_SCHEDULED:
+            self.remove_message(message_id)
+        self.notify(MSG_SCHEDULED_CANCELLED_KEY)
+
+    def on_new_poll_menu(self, event):
+        if self.current_dialog_id is None:
+            return
+        title = self.i18n.get_string(APP_TITLE_KEY)
+        with wx.TextEntryDialog(self, self.i18n.get_string(MSG_POLL_QUESTION_PROMPT_KEY), title) as question_dialog:
+            if question_dialog.ShowModal() != wx.ID_OK:
+                return
+            question = question_dialog.GetValue().strip()
+        if not question:
+            return
+        with wx.TextEntryDialog(
+            self, self.i18n.get_string(MSG_POLL_OPTIONS_PROMPT_KEY), title, style=wx.TextEntryDialogStyle|wx.TE_MULTILINE
+        ) as options_dialog:
+            if options_dialog.ShowModal() != wx.ID_OK:
+                return
+            options = [line.strip() for line in options_dialog.GetValue().splitlines() if line.strip()]
+        if not POLL_MIN_OPTIONS <= len(options) <= POLL_MAX_OPTIONS:
+            self.show_error(ERR_POLL_OPTIONS_KEY)
+            return
+        dialog_id = self.current_dialog_id
+        self.telegram_manager.send_poll(
+            dialog_id, question, options, self.on_ui_thread(self.on_file_sent, dialog_id, MSG_POLL_SENT_KEY)
+        )
+
+    def on_vote_menu(self, event):
+        message = self.actionable_message()
+        if message is None or not message["poll"] or self.is_busy:
+            return
+        poll = message["poll"]
+        if poll["closed"]:
+            self.notify(MSG_POLL_CLOSED_KEY)
+            return
+        title = self.i18n.get_string(APP_TITLE_KEY)
+        texts = [option["text"] for option in poll["options"]]
+        chosen = [index for index, option in enumerate(poll["options"]) if option["chosen"]]
+        if poll["multiple"]:
+            with wx.MultiChoiceDialog(self, poll["question"], title, texts) as vote_dialog:
+                vote_dialog.SetSelections(chosen)
+                if vote_dialog.ShowModal() != wx.ID_OK:
+                    return
+                indexes = list(vote_dialog.GetSelections())
+        else:
+            with wx.SingleChoiceDialog(self, poll["question"], title, texts) as vote_dialog:
+                if chosen:
+                    vote_dialog.SetSelection(chosen[0])
+                if vote_dialog.ShowModal() != wx.ID_OK:
+                    return
+                indexes = [vote_dialog.GetSelection()]
+        self.is_busy = True
+        dialog_id = self.current_dialog_id
+        self.telegram_manager.vote(
+            dialog_id, message["id"], indexes, self.on_ui_thread(self.on_voted, dialog_id)
+        )
+
+    def on_voted(self, message, dialog_id):
+        self.is_busy = False
+        self.on_message_edited(dialog_id, message)
+        self.notify(MSG_VOTED_KEY)
+
     def on_reply_menu(self, event):
-        message = self.selected_message()
+        message = self.actionable_message()
         if message is not None:
             self.set_compose(reply_to=message)
 
     def on_edit_menu(self, event):
-        message = self.selected_message()
+        message = self.actionable_message()
         if message is None:
             return
         if not message["outgoing"] or not message["text"]:
@@ -598,6 +739,9 @@ class MainFrame(wx.Frame):
     def on_delete_menu(self, event):
         message = self.selected_message()
         if message is None or self.is_busy:
+            return
+        if self.message_view == MESSAGE_VIEW_SCHEDULED:
+            self.cancel_scheduled(message)
             return
         if not self.can_delete(message):
             self.notify(MSG_CANNOT_DELETE_KEY)
@@ -847,7 +991,7 @@ class MainFrame(wx.Frame):
             self.telegram_manager.find_chat(query, self.on_ui_thread(self.open_chat))
 
     def on_forward_menu(self, event):
-        message = self.selected_message()
+        message = self.actionable_message()
         if message is None or not self.all_dialogs:
             return
         target = self.choose_chat(MSG_FORWARD_TO_KEY, self.all_dialogs)
@@ -890,7 +1034,7 @@ class MainFrame(wx.Frame):
         elif self.reply_to or self.editing:
             self.set_compose()
             self.notify(MSG_REPLY_CANCELLED_KEY)
-        elif self.search_query is not None:
+        elif self.message_view is not None:
             self.close_search()
         else:
             return False
@@ -932,7 +1076,7 @@ class MainFrame(wx.Frame):
         self.load_messages(focus_messages)
 
     def load_messages(self, focus_messages=False):
-        self.search_query = None
+        self.message_view = None
         self.set_status(MSG_LOADING_KEY)
         dialog_id = self.current_dialog_id
         mark_read = self.settings.get(SETTING_MARK_READ_ON_OPEN)
@@ -979,7 +1123,9 @@ class MainFrame(wx.Frame):
         if self.stop_playback():
             return
         message = self.messages[index - self.message_offset()]
-        if message["media"] in DOWNLOADABLE_MEDIA:
+        if message["poll"]:
+            self.on_vote_menu(event)
+        elif message["media"] in DOWNLOADABLE_MEDIA:
             self.download_media(message)
 
     def load_older_messages(self):
@@ -1103,7 +1249,7 @@ class MainFrame(wx.Frame):
 
     def append_message(self, message):
         # Search results are a fixed list; the message shows up once the search is closed.
-        if self.search_query is not None:
+        if self.message_view is not None:
             return
         if any(shown["id"] == message["id"] for shown in self.messages):
             return
@@ -1148,7 +1294,29 @@ class MainFrame(wx.Frame):
             return self.i18n.get_string(SENDER_YOU_KEY)
         return message["sender"]
 
+    def poll_text(self, poll):
+        options = []
+        for option in poll["options"]:
+            details = []
+            if option["chosen"]:
+                details.append(self.i18n.get_string(POLL_CHOSEN_KEY))
+            # Telegram hides the counts until this account has voted.
+            if option["voters"] is not None:
+                details.append(self.i18n.get_string(POLL_VOTERS_FORMAT_KEY).format(count=option["voters"]))
+            if details:
+                options.append(self.i18n.get_string(POLL_OPTION_FORMAT_KEY).format(
+                    text=option["text"], details="، ".join(details)
+                ))
+            else:
+                options.append(option["text"])
+        return self.i18n.get_string(POLL_FORMAT_KEY).format(
+            closed=self.i18n.get_string(POLL_CLOSED_SUFFIX_KEY) if poll["closed"] else "",
+            question=poll["question"], options="، ".join(options)
+        )
+
     def message_text(self, message):
+        if message["poll"]:
+            return self.poll_text(message["poll"])
         text = message["text"]
         if message["media"]:
             text = self.i18n.get_string(MEDIA_FORMAT_KEY).format(

@@ -1,5 +1,6 @@
 import wx
 from core.speech import speak
+from ui.admin_log_dialog import AdminLogDialog
 from core.constants import (
     APP_TITLE_KEY, MSG_LOADING_KEY, CHAT_KIND_USER, CHAT_KIND_GROUP,
     MEMBER_ROLE_OWNER, MEMBER_ROLE_ADMIN, MEMBER_ACTION_KICK, MEMBER_ACTION_BAN,
@@ -9,7 +10,7 @@ from core.constants import (
     MSG_CHOOSE_RIGHTS_FORMAT_KEY, MSG_NO_RIGHTS_CHOSEN_KEY, INFO_MEMBER_LIST_LABEL_KEY,
     MEMBERS_CURRENT, MEMBERS_BANNED, MEMBERS_REQUESTS, MEMBER_LISTS, MEMBER_ROLE_PENDING,
     MEMBER_ROLE_RESTRICTED, MEMBER_ACTION_MUTE, MEMBER_ACTION_UNMUTE, MEMBER_ACTION_APPROVE,
-    MEMBER_ACTION_DECLINE, CHAT_KIND_SUPERGROUP,
+    MEMBER_ACTION_DECLINE, CHAT_KIND_SUPERGROUP, BTN_ADMIN_LOG_KEY,
     BTN_COPY_INVITE_KEY, MSG_INVITE_COPIED_KEY, CHAT_KIND_CHANNEL,
     INFO_TITLE_FORMAT_KEY, INFO_SUMMARY_LABEL_KEY, INFO_KIND_FORMAT_KEY,
     INFO_USERNAME_FORMAT_KEY, INFO_MEMBERS_COUNT_FORMAT_KEY, INFO_ROLE_MANAGER_KEY,
@@ -87,12 +88,15 @@ class ChatInfoDialog(wx.Dialog):
         self.invite_btn = wx.Button(self, label=self.i18n.get_string(BTN_COPY_INVITE_KEY))
         self.invite_btn.Bind(wx.EVT_BUTTON, self.on_copy_invite)
         buttons.Add(self.invite_btn, flag=wx.RIGHT, border=10)
+        self.log_btn = wx.Button(self, label=self.i18n.get_string(BTN_ADMIN_LOG_KEY))
+        self.log_btn.Bind(wx.EVT_BUTTON, self.on_admin_log)
+        buttons.Add(self.log_btn, flag=wx.RIGHT, border=10)
         buttons.Add(wx.Button(self, wx.ID_CANCEL, self.i18n.get_string(BTN_CLOSE_KEY)))
         sizer.Add(buttons, flag=wx.ALL, border=10)
 
         # Nothing can be edited or searched until the chat's details arrive.
         for control in (
-            self.title_input, self.about_input, self.save_btn, self.invite_btn,
+            self.title_input, self.about_input, self.save_btn, self.invite_btn, self.log_btn,
             self.list_label, self.list_choice, *self.members_controls
         ):
             control.Disable()
@@ -163,9 +167,12 @@ class ChatInfoDialog(wx.Dialog):
         self.list_choice.Set([self.i18n.get_string(dict(MEMBER_LISTS)[mode]) for mode in self.list_modes])
         self.list_choice.SetSelection(0)
         has_choice = len(self.list_modes) > 1
+        # Telegram keeps an admin log only for channels and large groups, and shows it to admins.
+        is_admin = info["can_edit"] or info["can_ban"] or info["can_promote"] or info["can_invite"]
+        has_log = is_admin and info["kind"] in (CHAT_KIND_CHANNEL, CHAT_KIND_SUPERGROUP)
         for control, usable in (
             (self.list_label, has_choice), (self.list_choice, has_choice),
-            (self.invite_btn, info["can_invite"])
+            (self.invite_btn, info["can_invite"]), (self.log_btn, has_log)
         ):
             control.Show(usable)
             control.Enable(usable)
@@ -185,6 +192,12 @@ class ChatInfoDialog(wx.Dialog):
             self.on_ui_thread(self.show_members, on_error=self.members_list.Clear),
             which=self.list_modes[max(self.list_choice.GetSelection(), 0)]
         )
+
+    def on_admin_log(self, event):
+        with AdminLogDialog(
+            self, self.i18n, self.telegram_manager, self.dialog_id, self.info["title"]
+        ) as log_dialog:
+            log_dialog.ShowModal()
 
     def on_copy_invite(self, event):
         self.telegram_manager.load_invite_link(self.dialog_id, self.on_ui_thread(self.copy_invite))
