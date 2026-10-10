@@ -12,8 +12,9 @@ from telethon.errors import (
 )
 from telethon.tl import functions, types
 from telethon.utils import get_display_name, get_input_peer, get_peer_id
+from core.config import load_credentials
 from core.constants import (
-    API_ID, API_HASH, SESSION_NAME, EMPTY_STRING, DIALOGS_LIMIT, MESSAGES_LIMIT,
+    SESSION_NAME, EMPTY_STRING, DIALOGS_LIMIT, MESSAGES_LIMIT,
     STEP_PHONE, STEP_CODE, STEP_PASSWORD, STEP_DONE,
     ERR_CODE_INVALID_KEY, ERR_CODE_EXPIRED_KEY, ERR_PHONE_INVALID_KEY,
     ERR_PASSWORD_INVALID_KEY, ERR_FLOOD_KEY, ERR_CONNECTION_KEY, ERR_GENERAL_KEY,
@@ -77,6 +78,7 @@ class TelegramManager(threading.Thread):
     def __init__(self, ui_callback):
         super().__init__(daemon=True)
         self.ui_callback = ui_callback
+        self.api_id, self.api_hash = load_credentials()
         self.loop = asyncio.new_event_loop()
         self.client = None
         self.phone = None
@@ -93,7 +95,7 @@ class TelegramManager(threading.Thread):
         self.loop.run_forever()
 
     def _create_client(self):
-        self.client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+        self.client = TelegramClient(SESSION_NAME, self.api_id, self.api_hash)
         self.client.add_event_handler(self._on_new_message, events.NewMessage())
         self.client.add_event_handler(self._on_message_edited, events.MessageEdited())
         self.client.add_event_handler(self._on_message_deleted, events.MessageDeleted())

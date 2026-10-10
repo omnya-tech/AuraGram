@@ -1,26 +1,36 @@
 import os
-import json
+import sys
+
+APP_NAME = "AuraGram"
+APP_VERSION = "1.0.0"
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# True when running as the built program rather than from source.
+IS_FROZEN = getattr(sys, "frozen", False)
+if IS_FROZEN:
+    # Bundled files are read-only next to the program; everything the user
+    # creates goes to their own profile, since Program Files is not writable.
+    RESOURCE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    DATA_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), APP_NAME)
+    DOWNLOADS_DIR = os.path.join(os.path.expanduser("~"), "Downloads", APP_NAME)
+    os.makedirs(DATA_DIR, exist_ok=True)
+else:
+    RESOURCE_DIR = BASE_DIR
+    DATA_DIR = BASE_DIR
+    DOWNLOADS_DIR = os.path.join(BASE_DIR, "downloads")
 
-LOCALES_DIR = os.path.join(BASE_DIR, "locales")
+LOCALES_DIR = os.path.join(RESOURCE_DIR, "locales")
+ASSETS_DIR = os.path.join(RESOURCE_DIR, "assets")
+SOUNDS_DIR = os.path.join(ASSETS_DIR, "sounds")
+ICON_FILE = os.path.join(ASSETS_DIR, "auragram.ico")
 DEFAULT_LANG = "ar"
 JSON_EXT = ".json"
 READ_MODE = "r"
 ENCODING_UTF8 = "utf-8"
 EMPTY_STRING = ""
 
-API_ID = 0
-API_HASH = EMPTY_STRING
-CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
-
-if os.path.exists(CONFIG_FILE):
-    with open(CONFIG_FILE, READ_MODE, encoding=ENCODING_UTF8) as config_file:
-        config_data = json.load(config_file)
-        API_ID = config_data.get("API_ID", 0)
-        API_HASH = config_data.get("API_HASH", EMPTY_STRING)
-
-SESSION_NAME = os.path.join(BASE_DIR, "auragram_session")
+CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
+SESSION_NAME = os.path.join(DATA_DIR, "auragram_session")
 
 APP_TITLE_KEY = "APP_NAME"
 LOGIN_TITLE_KEY = "LOGIN_WINDOW_TITLE"
@@ -80,7 +90,31 @@ MSG_REPLY_CANCELLED_KEY = "MSG_REPLY_CANCELLED"
 ANNOUNCE_FORMAT_KEY = "ANNOUNCE_FORMAT"
 SNIPPET_LENGTH = 60
 
-SETTINGS_FILE = os.path.join(BASE_DIR, "settings.json")
+SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
+
+# The hidden window that owns the tray icon and the global shortcut. A second
+# copy of the program finds it by this title to ask the first one to come forward.
+BACKGROUND_WINDOW_TITLE = "AuraGramBackgroundWindow"
+SHOW_HOTKEY_ID = 1
+SHOW_HOTKEY_TEXT = "Ctrl+Alt+Shift+A"
+BACKGROUND_FLAG = "--background"
+SETTINGS_KEEP_IN_BACKGROUND_KEY = "SETTINGS_KEEP_IN_BACKGROUND"
+TRAY_OPEN_KEY = "TRAY_OPEN"
+TRAY_EXIT_KEY = "TRAY_EXIT"
+TRAY_TOOLTIP_KEY = "TRAY_TOOLTIP"
+MSG_IN_BACKGROUND_FORMAT_KEY = "MSG_IN_BACKGROUND_FORMAT"
+ERR_HOTKEY_TAKEN_FORMAT_KEY = "ERR_HOTKEY_TAKEN_FORMAT"
+
+API_SETUP_TITLE_KEY = "API_SETUP_TITLE"
+API_SETUP_NOTE_KEY = "API_SETUP_NOTE"
+API_ID_LABEL_KEY = "API_ID_LABEL"
+API_HASH_LABEL_KEY = "API_HASH_LABEL"
+ERR_API_ID_KEY = "ERR_API_ID"
+
+SOUND_MESSAGE = "message"
+SOUND_MESSAGE_IN_CHAT = "message_in_chat"
+SOUND_SENT = "sent"
+SETTINGS_SENT_SOUND_KEY = "SETTINGS_SENT_SOUND"
 
 MENU_SETTINGS_KEY = "MENU_SETTINGS"
 SETTINGS_TITLE_KEY = "SETTINGS_TITLE"
@@ -414,7 +448,6 @@ MSG_NOT_FOUND_KEY = "MSG_NOT_FOUND"
 MSG_LOAD_OLDER_KEY = "MSG_LOAD_OLDER"
 MSG_DOWNLOADING_KEY = "MSG_DOWNLOADING"
 
-DOWNLOADS_DIR = os.path.join(BASE_DIR, "downloads")
 VOICE_NOTE_FILE = os.path.join(DOWNLOADS_DIR, "recording.oga")
 DOWNLOADABLE_MEDIA = {
     "MEDIA_PHOTO", "MEDIA_GIF", "MEDIA_VOICE", "MEDIA_VIDEO_NOTE",

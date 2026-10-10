@@ -80,6 +80,64 @@ class FolderRulesTest(unittest.TestCase):
         self.assertTrue(views[3].matches(chat(1, "bots")))
 
 
+class CredentialsTest(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from unittest import mock
+        self.path = os.path.join(tempfile.mkdtemp(), "config.json")
+        patch = mock.patch("core.config.CONFIG_FILE", self.path)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_missing_file_means_not_set_up(self):
+        from core.config import load_credentials
+        self.assertEqual(load_credentials(), (0, ""))
+
+    def test_saved_credentials_load_back(self):
+        from core.config import load_credentials, save_credentials
+        save_credentials(12345, "abcdef")
+        self.assertEqual(load_credentials(), (12345, "abcdef"))
+
+    def test_damaged_file_is_treated_as_missing(self):
+        from core.config import load_credentials
+        with open(self.path, "w", encoding="utf-8") as file:
+            file.write("{not json")
+        self.assertEqual(load_credentials(), (0, ""))
+
+
+class ApiSetupDialogTest(unittest.TestCase):
+    def setUp(self):
+        from unittest import mock
+        from tests.harness import get_app
+        from ui.api_setup_dialog import ApiSetupDialog
+        get_app()
+        self.errors = []
+        patch = mock.patch("wx.MessageBox", lambda message, *args, **kwargs: self.errors.append(message))
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.dialog = ApiSetupDialog(I18NManager("ar"))
+        self.addCleanup(self.dialog.Destroy)
+        self.ended = []
+        self.dialog.EndModal = self.ended.append
+
+    def fill(self, api_id, api_hash):
+        self.dialog.id_input.SetValue(api_id)
+        self.dialog.hash_input.SetValue(api_hash)
+        self.dialog.on_ok(None)
+
+    def test_rejects_a_non_numeric_id_or_empty_hash(self):
+        self.fill("abc", "hash")
+        self.fill("123", "  ")
+        self.assertEqual(len(self.errors), 2)
+        self.assertEqual(self.ended, [])
+        self.assertIsNone(self.dialog.credentials)
+
+    def test_accepts_valid_values_trimmed(self):
+        self.fill(" 123 ", " hash ")
+        self.assertEqual(self.dialog.credentials, (123, "hash"))
+        self.assertEqual(len(self.ended), 1)
+
+
 class LocaleTest(unittest.TestCase):
     """Every text key the code names must exist, or the UI shows the raw key."""
 

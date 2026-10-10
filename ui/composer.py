@@ -1,8 +1,11 @@
 import datetime
 import wx
+from core import sounds
 from core.speech import speak
+from core.settings import SETTING_SENT_SOUND
 from core.schedule import parse_send_time
 from core.constants import (
+    SOUND_SENT,
     MSG_POLL_QUESTION_PROMPT_KEY, MSG_POLL_OPTIONS_PROMPT_KEY, MSG_POLL_SENT_KEY,
     ERR_POLL_OPTIONS_KEY, POLL_MIN_OPTIONS, POLL_MAX_OPTIONS, MSG_SCHEDULE_PROMPT_KEY,
     MSG_SCHEDULED_FORMAT_KEY, MSG_NOTHING_TO_SCHEDULE_KEY, ERR_BAD_TIME_KEY, REPLY_LABEL_FORMAT_KEY,
@@ -77,6 +80,8 @@ class ComposerMixin:
     def on_message_sent(self, result, dialog_id):
         # It was sent, so it is no longer a draft, even if another chat is open by now.
         self.drafts.pop(dialog_id, None)
+        if self.settings.get(SETTING_SENT_SOUND):
+            sounds.play(SOUND_SENT)
         if dialog_id != self.current_dialog_id:
             return
         self.set_compose()

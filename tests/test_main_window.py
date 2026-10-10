@@ -114,8 +114,10 @@ class ChatListTest(WindowTestCase):
 
     def test_new_message_in_the_open_chat_is_appended_and_read(self):
         self.open_chat(0)
-        self.incoming(ALI, 60, "hello again")
-        self.assertTrue(pump(lambda: self.frame.messages_list.GetCount() == 4))
+        # The test window is never really shown; this message arrives as if it were on screen.
+        with mock.patch.object(type(self.frame), "IsShown", return_value=True):
+            self.incoming(ALI, 60, "hello again")
+            self.assertTrue(pump(lambda: self.frame.messages_list.GetCount() == 4))
         self.assertIn("hello again", self.frame.messages_list.GetString(3))
         self.assertEqual(self.frame.find_known_dialog(1)["unread"], 0)
 
@@ -417,6 +419,91 @@ class DraftAndReadingTest(WindowTestCase):
                     shortcuts.append(accelerator)
         self.assertGreater(len(shortcuts), 15)
         self.assertEqual([shortcut for shortcut in shortcuts if shortcut not in text], [])
+
+
+class SoundsAndBackgroundTest(WindowTestCase):
+    chats = [(ALI, 0, False), (MY_GROUP, 0, False)]
+    history = {1: [make_message(1, "first", sender=ALI)]}
+
+    def incoming(self, entity, message_id):
+        async def value(result):
+            return result
+        event = Record(
+            chat_id=telegram_client.get_peer_id(entity),
+            get_sender=lambda: value(None), get_chat=lambda: value(entity), get_input_chat=lambda: value(None),
+            message=make_message(message_id, "live")
+        )
+        asyncio.run_coroutine_threadsafe(self.manager.client.handlers["NewMessage"](event), self.manager.loop)
+
+    def test_message_in_another_chat_plays_the_full_chime(self):
+        self.open_chat(0)
+        self.incoming(MY_GROUP, 50)
+        self.assertTrue(pump(lambda: self.played == [c.SOUND_MESSAGE]))
+
+    def test_message_in_the_chat_being_read_plays_the_quiet_tick(self):
+        self.open_chat(0)
+        self.frame.Show = lambda *args: None
+        with mock.patch.object(type(self.frame), "IsShown", return_value=True), \
+                mock.patch.object(type(self.frame), "IsActive", return_value=True):
+            self.incoming(ALI, 60)
+            self.assertTrue(pump(lambda: self.played == [c.SOUND_MESSAGE_IN_CHAT]))
+        self.assertEqual(self.calls("read"), [("read", 1), ("read", 1)])
+
+    def test_while_hidden_the_open_chat_counts_unread_until_brought_forward(self):
+        self.open_chat(0)
+        self.incoming(ALI, 60)
+        self.assertTrue(pump(lambda: self.frame.find_known_dialog(1)["unread"] == 1))
+        self.assertEqual(self.played, [c.SOUND_MESSAGE])
+        self.assertEqual(len(self.calls("read")), 1)
+        with mock.patch.object(type(self.frame), "Show"), mock.patch.object(type(self.frame), "Raise"):
+            self.frame.bring_forward()
+        self.assertTrue(pump(lambda: len(self.calls("read")) == 2))
+        self.assertEqual(self.frame.find_known_dialog(1)["unread"], 0)
+
+    def test_sound_setting_silences_the_chime(self):
+        from core.settings import SETTING_PLAY_SOUND
+        self.frame.settings.set(SETTING_PLAY_SOUND, False)
+        self.incoming(MY_GROUP, 50)
+        self.assertTrue(pump(lambda: self.frame.find_known_dialog(GROUP_ID)["unread"] == 1))
+        self.assertEqual(self.played, [])
+
+    def test_sending_plays_the_sent_tone_unless_turned_off(self):
+        from core.settings import SETTING_SENT_SOUND
+        self.open_chat(0)
+        self.frame.message_input.SetValue("one")
+        self.frame.on_send_message(None)
+        self.assertTrue(pump(lambda: self.played == [c.SOUND_SENT]))
+        self.assertTrue(pump(lambda: self.frame.send_btn.IsEnabled()))
+        self.frame.settings.set(SETTING_SENT_SOUND, False)
+        self.frame.message_input.SetValue("two")
+        self.frame.on_send_message(None)
+        self.assertTrue(pump(lambda: len(self.calls("send")) == 2 and self.frame.send_btn.IsEnabled()))
+        self.assertEqual(self.played, [c.SOUND_SENT])
+
+    def test_closing_the_window_hides_it_and_says_how_to_come_back(self):
+        self.frame.Close()
+        pump(timeout=0.1)
+        self.assertTrue(self.frame)
+        self.assertFalse(self.frame.IsShown())
+        self.assertIn(c.SHOW_HOTKEY_TEXT, self.spoken[-1])
+
+    def test_exit_really_closes(self):
+        self.frame.quit()
+        self.assertTrue(pump(lambda: not self.frame))
+
+    def test_closing_ends_the_program_when_background_mode_is_off(self):
+        from core.settings import SETTING_KEEP_IN_BACKGROUND
+        quits = []
+        self.frame.on_quit = lambda: quits.append(True)
+        self.frame.settings.set(SETTING_KEEP_IN_BACKGROUND, False)
+        self.frame.Close()
+        self.assertTrue(pump(lambda: quits == [True]))
+
+    def test_every_tone_and_the_icon_ship_with_the_app(self):
+        import os
+        for name in (c.SOUND_MESSAGE, c.SOUND_MESSAGE_IN_CHAT, c.SOUND_SENT):
+            self.assertTrue(os.path.exists(os.path.join(c.SOUNDS_DIR, name + ".wav")), name)
+        self.assertTrue(os.path.exists(c.ICON_FILE))
 
 
 class NewChatTest(WindowTestCase):

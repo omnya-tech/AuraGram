@@ -14,6 +14,7 @@ import wx
 from telethon.tl import types
 
 import core.settings
+import core.sounds
 import core.telegram_client as telegram_client
 from core.i18n import I18NManager
 from core.settings import Settings
@@ -283,6 +284,7 @@ class WindowTestCase(unittest.TestCase):
         get_app()
         import ui.main_frame as main_frame_module
         self.spoken = []
+        self.played = []
         self.boxes = []
         self.box_answer = wx.YES
         settings_file = os.path.join(tempfile.mkdtemp(), "settings.json")
@@ -297,7 +299,7 @@ class WindowTestCase(unittest.TestCase):
             mock.patch.object(telegram_client, "TelegramClient", FakeTelegramClient),
             mock.patch.object(core.settings, "SETTINGS_FILE", settings_file),
             mock.patch.object(wx, "MessageBox", message_box),
-            mock.patch.object(wx, "Bell", lambda: None),
+            mock.patch.object(core.sounds, "play", self.played.append),
             mock.patch.object(wx, "SingleChoiceDialog", FakeChooser),
             mock.patch.object(wx, "MultiChoiceDialog", FakeChooser),
             mock.patch.object(wx, "TextEntryDialog", FakeChooser),

@@ -1,12 +1,15 @@
 import wx
 from core import audio
 from core.speech import speak
+from core.settings import SETTING_KEEP_IN_BACKGROUND
 from ui.settings_dialog import SettingsDialog
 from core.chat_views import build_views
 from ui.text_dialog import TextDialog
 from core.constants import (
     MENU_READ_MESSAGE_KEY, MENU_HELP_KEY, MENU_SHORTCUTS_KEY, SHORTCUTS_TITLE_KEY, SHORTCUTS_TEXT_KEY,
-    MENU_MARK_KEY, MENU_UNMARK_ALL_KEY, MENU_NEW_GROUP_KEY, MENU_NEW_CHANNEL_KEY, MESSAGE_VIEWS, MENU_CHAT_VIEWS_KEY, MENU_NEW_POLL_KEY, MENU_REACT_KEY, MENU_SCHEDULE_KEY,
+    MENU_MARK_KEY, MENU_UNMARK_ALL_KEY, MENU_NEW_GROUP_KEY, MENU_NEW_CHANNEL_KEY, MESSAGE_VIEWS,
+    MENU_CHAT_VIEWS_KEY, MENU_NEW_POLL_KEY, MENU_REACT_KEY, MENU_SCHEDULE_KEY,
+    MSG_IN_BACKGROUND_FORMAT_KEY, SHOW_HOTKEY_TEXT, ICON_FILE,
     VIEW_LABEL_KEY, MSG_PRIVACY_SAVED_KEY, MENU_CHATS_KEY, MENU_NEW_CHAT_KEY, MENU_FIND_CHAT_KEY,
     MENU_FORWARD_KEY, MENU_PIN_KEY, MENU_SETTINGS_KEY, MSG_SETTINGS_SAVED_KEY,
     MSG_PROFILE_SAVED_KEY, ERR_FIRST_NAME_REQUIRED_KEY, MENU_RECORD_KEY, MENU_SEARCH_MESSAGES_KEY,
@@ -30,12 +33,16 @@ class MainFrame(
     """The main window: builds the widgets and menus, holds the state every part
     shares, and offers the helpers the mixins rely on (status, errors, results)."""
 
-    def __init__(self, i18n, telegram_manager, settings, on_logout):
+    def __init__(self, i18n, telegram_manager, settings, on_logout, on_quit=None):
         super().__init__(None, title=i18n.get_string(MAIN_TITLE_KEY), size=(900, 600))
+        self.SetIcon(wx.Icon(ICON_FILE))
         self.i18n = i18n
         self.telegram_manager = telegram_manager
         self.settings = settings
         self.on_logout = on_logout
+        # Called to end the whole program; without it, closing this window is all there is.
+        self.on_quit = on_quit
+        self.is_quitting = False
         # Every loaded chat, and the subset the current view shows in the list.
         self.all_dialogs = []
         self.dialogs = []
@@ -130,7 +137,7 @@ class MainFrame(
         self.Bind(wx.EVT_MENU, self.on_logout_menu, logout_item)
         file_menu.AppendSeparator()
         exit_item = file_menu.Append(wx.ID_EXIT, self.i18n.get_string(MENU_EXIT_KEY))
-        self.Bind(wx.EVT_MENU, lambda event: self.Close(), exit_item)
+        self.Bind(wx.EVT_MENU, self.on_exit_menu, exit_item)
 
         message_menu = wx.Menu()
         for label_key, handler in (
@@ -244,9 +251,38 @@ class MainFrame(
         speak(text)
 
     def on_close(self, event):
+        # Closing the window only hides it, so messages keep arriving; a real
+        # exit (the Exit menu, logging out, Windows shutting down) cannot be vetoed.
+        if event.CanVeto() and not self.is_quitting and self.settings.get(SETTING_KEEP_IN_BACKGROUND):
+            event.Veto()
+            self.recorder.cancel()
+            self.Hide()
+            speak(self.i18n.get_string(MSG_IN_BACKGROUND_FORMAT_KEY).format(hotkey=SHOW_HOTKEY_TEXT))
+            return
         self.player.stop()
         self.recorder.cancel()
         event.Skip()
+        # With the last window gone nothing would end the hidden background part.
+        if not self.is_quitting and self.on_quit is not None:
+            wx.CallAfter(self.on_quit)
+
+    def quit(self):
+        """Close for real, whatever the background setting says."""
+        self.is_quitting = True
+        self.Close()
+
+    def on_exit_menu(self, event):
+        if self.on_quit is not None:
+            self.on_quit()
+        else:
+            self.quit()
+
+    def bring_forward(self):
+        """Show the window again after it was hidden or minimized."""
+        self.Show()
+        self.Iconize(False)
+        self.Raise()
+        self.on_brought_forward()
 
     def on_logout_menu(self, event):
         answer = wx.MessageBox(
