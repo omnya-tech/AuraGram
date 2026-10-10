@@ -3,6 +3,9 @@ config.json
 *.session
 *.session-journal
 
+# Personal preferences
+settings.json
+
 # Media saved from chats
 downloads/
 

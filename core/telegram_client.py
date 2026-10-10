@@ -8,13 +8,14 @@ from telethon.errors import (
     SessionPasswordNeededError, PasswordHashInvalidError, FloodWaitError,
     MessageNotModifiedError
 )
+from telethon.tl import functions, types
 from telethon.utils import get_display_name
 from core.constants import (
     API_ID, API_HASH, SESSION_NAME, EMPTY_STRING, DIALOGS_LIMIT, MESSAGES_LIMIT,
     STEP_PHONE, STEP_CODE, STEP_PASSWORD, STEP_DONE,
     ERR_CODE_INVALID_KEY, ERR_CODE_EXPIRED_KEY, ERR_PHONE_INVALID_KEY,
     ERR_PASSWORD_INVALID_KEY, ERR_FLOOD_KEY, ERR_CONNECTION_KEY, ERR_GENERAL_KEY,
-    ERR_LOGOUT_KEY, MEDIA_KINDS, DOWNLOADS_DIR,
+    ERR_LOGOUT_KEY, MEDIA_KINDS, DOWNLOADS_DIR, MUTE_FOREVER,
     EVENT_NEW_MESSAGE, EVENT_MESSAGE_EDITED, EVENT_MESSAGES_DELETED
 )
 
@@ -74,9 +75,19 @@ class TelegramManager(threading.Thread):
     def load_dialogs(self, on_result, limit=DIALOGS_LIMIT):
         self._request(on_result, self._load_dialogs_async, limit)
 
-    def load_messages(self, dialog_id, on_result, before_id=None):
+    def load_messages(self, dialog_id, on_result, before_id=None, mark_read=True):
         """Loads the latest page of a chat, or the page before message `before_id`."""
-        self._request(on_result, self._load_messages_async, dialog_id, before_id)
+        self._request(on_result, self._load_messages_async, dialog_id, before_id, mark_read)
+
+    def load_profile(self, on_result):
+        """The result is the account's own first_name, last_name and about text."""
+        self._request(on_result, self._load_profile_async)
+
+    def save_profile(self, profile, on_result):
+        self._request(on_result, self._save_profile_async, profile)
+
+    def set_muted(self, dialog_id, muted, on_result):
+        self._request(on_result, self._set_muted_async, dialog_id, muted)
 
     def download_media(self, dialog_id, message_id, on_result):
         """Saves the message's media to the downloads folder; the result is the file path."""
@@ -169,10 +180,30 @@ class TelegramManager(threading.Thread):
         self._create_client()
         await self._connect_async()
 
-    async def _load_messages_async(self, dialog_id, before_id):
+    async def _load_profile_async(self):
+        full = await self.client(functions.users.GetFullUserRequest("me"))
+        me = full.users[0]
+        return {
+            "first_name": me.first_name or EMPTY_STRING,
+            "last_name": me.last_name or EMPTY_STRING,
+            "about": full.full_user.about or EMPTY_STRING,
+        }
+
+    async def _save_profile_async(self, profile):
+        await self.client(functions.account.UpdateProfileRequest(
+            first_name=profile["first_name"], last_name=profile["last_name"], about=profile["about"]
+        ))
+
+    async def _set_muted_async(self, dialog_id, muted):
+        await self.client(functions.account.UpdateNotifySettingsRequest(
+            peer=types.InputNotifyPeer(self.entities[dialog_id]),
+            settings=types.InputPeerNotifySettings(mute_until=MUTE_FOREVER if muted else 0)
+        ))
+
+    async def _load_messages_async(self, dialog_id, before_id, mark_read):
         entity = self.entities[dialog_id]
         messages = await self.client.get_messages(entity, limit=MESSAGES_LIMIT, max_id=before_id or 0)
-        if before_id is None:
+        if before_id is None and mark_read:
             await self._mark_read_async(dialog_id)
         # Telegram returns newest first; the UI reads oldest first.
         return [self._describe_message(message, message.sender) for message in reversed(messages)]

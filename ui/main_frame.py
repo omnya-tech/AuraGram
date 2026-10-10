@@ -3,7 +3,16 @@ import os
 import wx
 from core import audio
 from core.speech import speak
+from core.settings import (
+    SETTING_PLAY_SOUND, SETTING_ANNOUNCE_MESSAGES,
+    SETTING_OPEN_ON_SELECT, SETTING_MARK_READ_ON_OPEN
+)
+from ui.settings_dialog import SettingsDialog
 from core.constants import (
+    MENU_SETTINGS_KEY, MSG_SETTINGS_SAVED_KEY, MSG_PROFILE_SAVED_KEY, ERR_FIRST_NAME_REQUIRED_KEY,
+    CONTEXT_OPEN_KEY, CONTEXT_MARK_READ_KEY, CONTEXT_MUTE_KEY, CONTEXT_UNMUTE_KEY,
+    CONTEXT_REPLY_KEY, CONTEXT_EDIT_KEY, CONTEXT_DELETE_KEY, CONTEXT_COPY_KEY,
+    CONTEXT_OPEN_MEDIA_KEY, MSG_MARKED_READ_KEY, MSG_MUTED_KEY, MSG_UNMUTED_KEY, MSG_COPIED_KEY,
     EVENT_NEW_MESSAGE, EVENT_MESSAGE_EDITED, EVENT_MESSAGES_DELETED,
     VOICE_NOTE_FILE, MIN_VOICE_SECONDS, MENU_RECORD_KEY, MENU_SEARCH_MESSAGES_KEY,
     MSG_RECORDING_KEY, MSG_RECORDING_CANCELLED_KEY, MSG_RECORDING_TOO_SHORT_KEY,
@@ -26,10 +35,11 @@ from core.constants import (
 )
 
 class MainFrame(wx.Frame):
-    def __init__(self, i18n, telegram_manager, on_logout):
+    def __init__(self, i18n, telegram_manager, settings, on_logout):
         super().__init__(None, title=i18n.get_string(MAIN_TITLE_KEY), size=(900, 600))
         self.i18n = i18n
         self.telegram_manager = telegram_manager
+        self.settings = settings
         self.on_logout = on_logout
         self.dialogs = []
         self.current_dialog_id = None
@@ -67,6 +77,7 @@ class MainFrame(wx.Frame):
         self.dialogs_list = wx.ListBox(self.panel, style=wx.LB_SINGLE)
         self.dialogs_list.Bind(wx.EVT_LISTBOX, self.on_select_dialog)
         self.dialogs_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_open_dialog)
+        self.dialogs_list.Bind(wx.EVT_CONTEXT_MENU, self.on_dialog_context_menu)
         # Enter never reaches the list as a key event inside a panel, so catch it here.
         self.Bind(wx.EVT_CHAR_HOOK, self.on_char_hook)
         dialogs_box.Add(self.dialogs_list, proportion=1, flag=wx.EXPAND)
@@ -77,6 +88,7 @@ class MainFrame(wx.Frame):
         chat_box.Add(messages_label, flag=wx.BOTTOM, border=5)
         self.messages_list = wx.ListBox(self.panel, style=wx.LB_SINGLE)
         self.messages_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_activate_message)
+        self.messages_list.Bind(wx.EVT_CONTEXT_MENU, self.on_message_context_menu)
         chat_box.Add(self.messages_list, proportion=1, flag=wx.EXPAND|wx.BOTTOM, border=15)
 
         self.input_label = wx.StaticText(self.panel, label=self.i18n.get_string(MESSAGE_INPUT_LABEL_KEY))
@@ -100,6 +112,8 @@ class MainFrame(wx.Frame):
 
     def init_menu(self):
         file_menu = wx.Menu()
+        settings_item = file_menu.Append(wx.ID_PREFERENCES, self.i18n.get_string(MENU_SETTINGS_KEY))
+        self.Bind(wx.EVT_MENU, self.on_settings_menu, settings_item)
         logout_item = file_menu.Append(wx.ID_ANY, self.i18n.get_string(MENU_LOGOUT_KEY))
         self.Bind(wx.EVT_MENU, self.on_logout_menu, logout_item)
         file_menu.AppendSeparator()
@@ -131,6 +145,99 @@ class MainFrame(wx.Frame):
         menu_bar.Append(message_menu, self.i18n.get_string(MENU_MESSAGE_KEY))
         menu_bar.Append(search_menu, self.i18n.get_string(MENU_SEARCH_KEY))
         self.SetMenuBar(menu_bar)
+
+    def on_settings_menu(self, event):
+        with SettingsDialog(self, self.i18n, self.settings, self.telegram_manager) as settings_dialog:
+            if settings_dialog.ShowModal() != wx.ID_OK:
+                return
+            settings_dialog.apply_app_settings()
+            profile = settings_dialog.changed_profile()
+        if profile is None:
+            self.notify(MSG_SETTINGS_SAVED_KEY)
+        elif not profile["first_name"]:
+            # Telegram rejects an empty first name; say so instead of a vague failure.
+            self.show_error(ERR_FIRST_NAME_REQUIRED_KEY)
+        else:
+            self.telegram_manager.save_profile(
+                profile, self.on_ui_thread(lambda result: self.notify(MSG_PROFILE_SAVED_KEY))
+            )
+
+    def select_item_under_mouse(self, list_box, event):
+        """A right click does not select by itself; keyboard menu keys report no position."""
+        position = event.GetPosition()
+        if position != wx.DefaultPosition:
+            index = list_box.HitTest(list_box.ScreenToClient(position))
+            if index != wx.NOT_FOUND:
+                list_box.SetSelection(index)
+
+    def show_context_menu(self, entries):
+        menu = wx.Menu()
+        for label_key, handler in entries:
+            item = menu.Append(wx.ID_ANY, self.i18n.get_string(label_key))
+            # Bound to the menu, not the frame, so the handlers go away with it.
+            menu.Bind(wx.EVT_MENU, handler, item)
+        if entries:
+            self.PopupMenu(menu)
+        menu.Destroy()
+
+    def selected_dialog(self):
+        index = self.dialogs_list.GetSelection()
+        if 0 <= index < len(self.dialogs):
+            return self.dialogs[index]
+        return None
+
+    def on_dialog_context_menu(self, event):
+        self.select_item_under_mouse(self.dialogs_list, event)
+        dialog = self.selected_dialog()
+        if dialog is None:
+            return
+        entries = [(CONTEXT_OPEN_KEY, self.on_open_dialog)]
+        if dialog["unread"]:
+            entries.append((CONTEXT_MARK_READ_KEY, lambda event: self.mark_dialog_read(dialog)))
+        if dialog["muted"]:
+            entries.append((CONTEXT_UNMUTE_KEY, lambda event: self.set_dialog_muted(dialog, False)))
+        else:
+            entries.append((CONTEXT_MUTE_KEY, lambda event: self.set_dialog_muted(dialog, True)))
+        self.show_context_menu(entries)
+
+    def mark_dialog_read(self, dialog):
+        self.telegram_manager.mark_read(dialog["id"])
+        self.set_unread(dialog["id"], 0)
+        self.notify(MSG_MARKED_READ_KEY)
+
+    def set_dialog_muted(self, dialog, muted):
+        self.telegram_manager.set_muted(
+            dialog["id"], muted, self.on_ui_thread(self.on_dialog_muted, dialog, muted)
+        )
+
+    def on_dialog_muted(self, result, dialog, muted):
+        dialog["muted"] = muted
+        self.notify(MSG_MUTED_KEY if muted else MSG_UNMUTED_KEY)
+
+    def on_message_context_menu(self, event):
+        self.select_item_under_mouse(self.messages_list, event)
+        message = self.selected_message()
+        if message is None:
+            return
+        # Only offer what will actually work on this message.
+        entries = [(CONTEXT_REPLY_KEY, self.on_reply_menu)]
+        if message["outgoing"] and message["text"]:
+            entries.append((CONTEXT_EDIT_KEY, self.on_edit_menu))
+        if message["outgoing"]:
+            entries.append((CONTEXT_DELETE_KEY, self.on_delete_menu))
+        if message["text"]:
+            entries.append((CONTEXT_COPY_KEY, self.on_copy_message))
+        if message["media"] in DOWNLOADABLE_MEDIA:
+            entries.append((CONTEXT_OPEN_MEDIA_KEY, self.on_activate_message))
+        self.show_context_menu(entries)
+
+    def on_copy_message(self, event):
+        message = self.selected_message()
+        if message is None or not message["text"] or not wx.TheClipboard.Open():
+            return
+        wx.TheClipboard.SetData(wx.TextDataObject(message["text"]))
+        wx.TheClipboard.Close()
+        self.notify(MSG_COPIED_KEY)
 
     def selected_message(self):
         index = self.messages_list.GetSelection() - self.message_offset()
@@ -500,7 +607,8 @@ class MainFrame(wx.Frame):
         # does not send a request per chat.
         if self.select_timer:
             self.select_timer.Stop()
-        self.select_timer = wx.CallLater(SELECT_DELAY_MS, self.open_selected_dialog, False)
+        if self.settings.get(SETTING_OPEN_ON_SELECT):
+            self.select_timer = wx.CallLater(SELECT_DELAY_MS, self.open_selected_dialog, False)
 
     def on_open_dialog(self, event):
         if self.select_timer:
@@ -533,11 +641,13 @@ class MainFrame(wx.Frame):
         self.search_query = None
         self.set_status(MSG_LOADING_KEY)
         dialog_id = self.current_dialog_id
+        mark_read = self.settings.get(SETTING_MARK_READ_ON_OPEN)
         self.telegram_manager.load_messages(
-            dialog_id, self.on_ui_thread(self.show_messages, dialog_id, focus_messages)
+            dialog_id, self.on_ui_thread(self.show_messages, dialog_id, focus_messages, mark_read),
+            mark_read=mark_read
         )
 
-    def show_messages(self, messages, dialog_id, focus_messages):
+    def show_messages(self, messages, dialog_id, focus_messages, marked_read):
         # The user may have opened another chat while this one was loading.
         if dialog_id != self.current_dialog_id:
             return
@@ -545,8 +655,8 @@ class MainFrame(wx.Frame):
         # A full page means Telegram most likely has more before it.
         self.has_older = len(messages) == MESSAGES_LIMIT
         self.render_messages(len(messages) - 1)
-        # Loading a chat marks it as read on Telegram's side.
-        self.set_unread(dialog_id, 0)
+        if marked_read:
+            self.set_unread(dialog_id, 0)
         self.enable_chat(True)
         self.set_status(STATUS_READY_KEY)
         if focus_messages:
@@ -680,20 +790,23 @@ class MainFrame(wx.Frame):
 
         is_current = dialog_id == self.current_dialog_id
         if not message["outgoing"] and not dialog["muted"]:
-            if not (is_current and self.IsActive()):
+            if self.settings.get(SETTING_PLAY_SOUND) and not (is_current and self.IsActive()):
                 wx.Bell()
-            # In the open chat the sender is what matters; elsewhere, which chat it came from.
-            speak(self.i18n.get_string(ANNOUNCE_FORMAT_KEY).format(
-                source=message["sender"] if is_current else dialog["title"],
-                text=self.message_snippet(message)
-            ))
+            if self.settings.get(SETTING_ANNOUNCE_MESSAGES):
+                # In the open chat the sender is what matters; elsewhere, which chat it came from.
+                speak(self.i18n.get_string(ANNOUNCE_FORMAT_KEY).format(
+                    source=message["sender"] if is_current else dialog["title"],
+                    text=self.message_snippet(message)
+                ))
 
-        if dialog_id == self.current_dialog_id:
+        reads_it = is_current and self.settings.get(SETTING_MARK_READ_ON_OPEN)
+        if is_current:
             self.append_message(message)
-            if not message["outgoing"]:
+        if not message["outgoing"]:
+            if reads_it:
                 self.telegram_manager.mark_read(dialog_id)
-        elif not message["outgoing"]:
-            dialog["unread"] += 1
+            else:
+                dialog["unread"] += 1
         self.move_dialog_to_top(index, dialog)
 
     def append_message(self, message):

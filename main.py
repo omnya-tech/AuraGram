@@ -4,6 +4,7 @@ from core.constants import (
     ERR_NO_CONFIG_KEY, STEP_DONE
 )
 from core.i18n import I18NManager
+from core.settings import Settings
 from core.telegram_client import TelegramManager
 from ui.login_frame import LoginFrame
 from ui.main_frame import MainFrame
@@ -11,6 +12,7 @@ from ui.main_frame import MainFrame
 class MainApplication(wx.App):
     def OnInit(self):
         self.i18n = I18NManager(DEFAULT_LANG)
+        self.settings = Settings()
         self.telegram_manager = None
         if not API_ID or not API_HASH:
             wx.MessageBox(
@@ -34,7 +36,7 @@ class MainApplication(wx.App):
             return
         if step == STEP_DONE:
             # Open the main window first so the app never has zero windows.
-            self.main_frame = MainFrame(self.i18n, self.telegram_manager, self.log_out)
+            self.main_frame = MainFrame(self.i18n, self.telegram_manager, self.settings, self.log_out)
             self.main_frame.Show()
             self.login_frame.Destroy()
             if error_key:
