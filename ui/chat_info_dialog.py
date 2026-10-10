@@ -1,7 +1,10 @@
 import wx
 from core.speech import speak
 from core.constants import (
-    APP_TITLE_KEY, MSG_LOADING_KEY, CHAT_KIND_USER,
+    APP_TITLE_KEY, MSG_LOADING_KEY, CHAT_KIND_USER, CHAT_KIND_GROUP,
+    MEMBER_ROLE_OWNER, MEMBER_ROLE_ADMIN, MEMBER_ACTION_KICK, MEMBER_ACTION_BAN,
+    MEMBER_ACTION_PROMOTE, MEMBER_ACTION_DEMOTE, MEMBER_ACTION_TEXTS,
+    INFO_MEMBERS_HINT_KEY, MSG_NO_MEMBER_ACTIONS_KEY,
     INFO_TITLE_FORMAT_KEY, INFO_SUMMARY_LABEL_KEY, INFO_KIND_FORMAT_KEY,
     INFO_USERNAME_FORMAT_KEY, INFO_MEMBERS_COUNT_FORMAT_KEY, INFO_ROLE_MANAGER_KEY,
     INFO_ROLE_VIEWER_KEY, INFO_NAME_LABEL_KEY, INFO_ABOUT_LABEL_KEY,
@@ -23,6 +26,7 @@ class ChatInfoDialog(wx.Dialog):
         self.telegram_manager = telegram_manager
         self.dialog_id = dialog["id"]
         self.info = None
+        self.members = []
         # Set once a new name has been saved, for the caller to show in its chat list.
         self.saved_title = None
         self.init_ui()
@@ -57,8 +61,10 @@ class ChatInfoDialog(wx.Dialog):
         search_box.Add(self.search_btn)
         sizer.Add(search_box, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
 
-        self.members_controls.append(self.add_label(sizer, INFO_MEMBERS_LABEL_KEY))
+        self.members_label = self.add_label(sizer, INFO_MEMBERS_LABEL_KEY)
+        self.members_controls.append(self.members_label)
         self.members_list = wx.ListBox(self, style=wx.LB_SINGLE)
+        self.members_list.Bind(wx.EVT_CONTEXT_MENU, self.on_member_context_menu)
         sizer.Add(self.members_list, proportion=1, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
         self.members_controls += [self.search_input, self.search_btn, self.members_list]
 
@@ -127,6 +133,9 @@ class ChatInfoDialog(wx.Dialog):
         for control in self.members_controls:
             control.Show(not is_user)
             control.Enable(not is_user)
+        if info["can_ban"] or info["can_promote"]:
+            # Tell managers the list is more than a list; viewers get the plain label.
+            self.members_label.SetLabel(self.i18n.get_string(INFO_MEMBERS_HINT_KEY))
         self.Layout()
         if not is_user:
             self.load_members()
@@ -143,10 +152,67 @@ class ChatInfoDialog(wx.Dialog):
         )
 
     def show_members(self, members):
+        self.members = members
         self.members_list.Set([self.format_member(member) for member in members])
         if members:
             self.members_list.SetSelection(0)
         speak(self.i18n.get_string(INFO_MEMBERS_FOUND_FORMAT_KEY).format(count=len(members)))
+
+    def member_actions(self, member):
+        """What this account may do to a member; never anything to itself or to the owner."""
+        if member["is_self"] or member["role"] == MEMBER_ROLE_OWNER:
+            return []
+        actions = []
+        if self.info["can_ban"]:
+            actions.append(MEMBER_ACTION_KICK)
+            # Small basic groups have no ban list, only removal.
+            if self.info["kind"] != CHAT_KIND_GROUP:
+                actions.append(MEMBER_ACTION_BAN)
+        if self.info["can_promote"]:
+            is_admin = member["role"] == MEMBER_ROLE_ADMIN
+            actions.append(MEMBER_ACTION_DEMOTE if is_admin else MEMBER_ACTION_PROMOTE)
+        return actions
+
+    def on_member_context_menu(self, event):
+        position = event.GetPosition()
+        # A right click does not select by itself; keyboard menu keys report no position.
+        if position != wx.DefaultPosition:
+            clicked = self.members_list.HitTest(self.members_list.ScreenToClient(position))
+            if clicked != wx.NOT_FOUND:
+                self.members_list.SetSelection(clicked)
+        index = self.members_list.GetSelection()
+        if not 0 <= index < len(self.members):
+            return
+        member = self.members[index]
+        actions = self.member_actions(member)
+        if not actions:
+            speak(self.i18n.get_string(MSG_NO_MEMBER_ACTIONS_KEY))
+            return
+        menu = wx.Menu()
+        for action in actions:
+            item = menu.Append(wx.ID_ANY, self.i18n.get_string(MEMBER_ACTION_TEXTS[action][0]))
+            menu.Bind(wx.EVT_MENU, lambda event, action=action: self.manage_member(member, action), item)
+        self.PopupMenu(menu)
+        menu.Destroy()
+
+    def manage_member(self, member, action):
+        _, confirm_key, done_key = MEMBER_ACTION_TEXTS[action]
+        answer = wx.MessageBox(
+            self.i18n.get_string(confirm_key).format(name=member["name"], chat=self.info["title"]),
+            self.i18n.get_string(APP_TITLE_KEY),
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING, self
+        )
+        if answer != wx.YES:
+            return
+        self.telegram_manager.manage_member(
+            self.dialog_id, member["id"], action,
+            self.on_ui_thread(lambda result: self.on_member_managed(member, done_key))
+        )
+
+    def on_member_managed(self, member, done_key):
+        speak(self.i18n.get_string(done_key).format(name=member["name"]))
+        # Reload so the list shows the member's new role, or that they are gone.
+        self.load_members()
 
     def format_member(self, member):
         if not member["role"]:

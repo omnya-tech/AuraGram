@@ -7,10 +7,11 @@ from telethon.errors import (
     PhoneCodeInvalidError, PhoneCodeExpiredError, PhoneNumberInvalidError,
     SessionPasswordNeededError, PasswordHashInvalidError, FloodWaitError,
     MessageNotModifiedError, ChatAdminRequiredError, ChatWriteForbiddenError,
-    ChatNotModifiedError, ChatAboutNotModifiedError
+    ChatNotModifiedError, ChatAboutNotModifiedError, UserAdminInvalidError,
+    RightForbiddenError, UserCreatorError, MessageDeleteForbiddenError
 )
 from telethon.tl import functions, types
-from telethon.utils import get_display_name
+from telethon.utils import get_display_name, get_input_peer
 from core.constants import (
     API_ID, API_HASH, SESSION_NAME, EMPTY_STRING, DIALOGS_LIMIT, MESSAGES_LIMIT,
     STEP_PHONE, STEP_CODE, STEP_PASSWORD, STEP_DONE,
@@ -19,6 +20,7 @@ from core.constants import (
     ERR_LOGOUT_KEY, MEDIA_KINDS, DOWNLOADS_DIR, MUTE_FOREVER, ERR_NO_PERMISSION_KEY,
     CHAT_KIND_USER, CHAT_KIND_GROUP, CHAT_KIND_SUPERGROUP, CHAT_KIND_CHANNEL,
     MEMBER_ROLE_OWNER, MEMBER_ROLE_ADMIN, MEMBERS_LIMIT,
+    MEMBER_ACTION_KICK, MEMBER_ACTION_BAN, MEMBER_ACTION_PROMOTE, MEMBER_ACTION_DEMOTE,
     EVENT_NEW_MESSAGE, EVENT_MESSAGE_EDITED, EVENT_MESSAGES_DELETED
 )
 
@@ -40,6 +42,8 @@ class TelegramManager(threading.Thread):
         self.phone = None
         self.phone_hash = None
         self.entities = {}
+        # Members of the chat whose member list was loaded last.
+        self.member_entities = {}
         self.message_listener = None
 
     def run(self):
@@ -101,8 +105,15 @@ class TelegramManager(threading.Thread):
         self._request(on_result, self._save_chat_info_async, dialog_id, title, about)
 
     def load_members(self, dialog_id, search, on_result):
-        """The result is a list of members, each with id, name and role."""
+        """The result is a list of members, each with id, name, role and is_self."""
         self._request(on_result, self._load_members_async, dialog_id, search)
+
+    def manage_member(self, dialog_id, user_id, action, on_result):
+        """Applies one of the MEMBER_ACTION_* constants to a member loaded by load_members."""
+        self._request(on_result, self._manage_member_async, dialog_id, user_id, action)
+
+    def set_pinned(self, dialog_id, message_id, pinned, on_result):
+        self._request(on_result, self._set_pinned_async, dialog_id, message_id, pinned)
 
     def download_media(self, dialog_id, message_id, on_result):
         """Saves the message's media to the downloads folder; the result is the file path."""
@@ -153,7 +164,10 @@ class TelegramManager(threading.Thread):
             result = await coroutine_function(*args)
         except FloodWaitError:
             on_result(None, ERR_FLOOD_KEY)
-        except (ChatAdminRequiredError, ChatWriteForbiddenError):
+        except (
+            ChatAdminRequiredError, ChatWriteForbiddenError, UserAdminInvalidError,
+            RightForbiddenError, UserCreatorError, MessageDeleteForbiddenError
+        ):
             on_result(None, ERR_NO_PERMISSION_KEY)
         except (ConnectionError, OSError):
             on_result(None, ERR_CONNECTION_KEY)
@@ -171,11 +185,21 @@ class TelegramManager(threading.Thread):
                 "id": dialog.id, "title": dialog.name,
                 "unread": dialog.unread_count, "pinned": dialog.pinned,
                 "muted": self._is_muted(dialog),
+                "can_delete_others": self._has_right(dialog.entity, "delete_messages"),
+                # Anyone may pin in a private chat; elsewhere it takes the right.
+                "can_pin": dialog.is_user or self._has_right(dialog.entity, "pin_messages"),
                 # Channels and supergroups number their messages separately from everything else.
                 "is_channel": dialog.is_channel,
             }
             for dialog in dialogs
         ]
+
+    def _has_right(self, entity, right):
+        """Whether this account holds an admin right in a group or channel."""
+        if getattr(entity, "creator", False):
+            return True
+        rights = getattr(entity, "admin_rights", None)
+        return bool(rights and getattr(rights, right, False))
 
     def _is_muted(self, dialog):
         mute_until = getattr(dialog.dialog.notify_settings, "mute_until", None)
@@ -222,7 +246,8 @@ class TelegramManager(threading.Thread):
         info = {
             "title": get_display_name(entity),
             "username": getattr(entity, "username", None) or EMPTY_STRING,
-            "about": EMPTY_STRING, "members_count": None, "can_edit": False,
+            "about": EMPTY_STRING, "members_count": None,
+            "can_edit": False, "can_ban": False, "can_promote": False,
         }
         if isinstance(entity, types.User):
             full = await self.client(functions.users.GetFullUserRequest(entity))
@@ -240,7 +265,10 @@ class TelegramManager(threading.Thread):
             info["members_count"] = getattr(entity, "participants_count", None)
         info["about"] = full.full_chat.about or EMPTY_STRING
         rights = getattr(entity, "admin_rights", None)
-        info["can_edit"] = bool(getattr(entity, "creator", False) or (rights and rights.change_info))
+        is_owner = bool(getattr(entity, "creator", False))
+        info["can_edit"] = is_owner or bool(rights and rights.change_info)
+        info["can_ban"] = is_owner or bool(rights and rights.ban_users)
+        info["can_promote"] = is_owner or bool(rights and rights.add_admins)
         return info
 
     async def _save_chat_info_async(self, dialog_id, title, about):
@@ -261,14 +289,36 @@ class TelegramManager(threading.Thread):
         participants = await self.client.get_participants(
             self.entities[dialog_id], limit=MEMBERS_LIMIT, search=search
         )
+        self.member_entities = {user.id: get_input_peer(user) for user in participants}
         return [
             {
                 "id": user.id,
                 "name": get_display_name(user) or EMPTY_STRING,
                 "role": self._member_role(getattr(user, "participant", None)),
+                "is_self": bool(user.is_self),
             }
             for user in participants
         ]
+
+    async def _manage_member_async(self, dialog_id, user_id, action):
+        entity = self.entities[dialog_id]
+        user = self.member_entities[user_id]
+        if action == MEMBER_ACTION_KICK:
+            await self.client.kick_participant(entity, user)
+        elif action == MEMBER_ACTION_BAN:
+            await self.client.edit_permissions(entity, user, view_messages=False)
+        elif action == MEMBER_ACTION_PROMOTE:
+            # Every admin right except appointing further admins, which stays with the owner.
+            await self.client.edit_admin(entity, user, is_admin=True, add_admins=False)
+        elif action == MEMBER_ACTION_DEMOTE:
+            await self.client.edit_admin(entity, user, is_admin=False)
+
+    async def _set_pinned_async(self, dialog_id, message_id, pinned):
+        entity = self.entities[dialog_id]
+        if pinned:
+            await self.client.pin_message(entity, message_id, notify=False)
+        else:
+            await self.client.unpin_message(entity, message_id)
 
     def _member_role(self, participant):
         if isinstance(participant, (types.ChannelParticipantCreator, types.ChatParticipantCreator)):
@@ -327,6 +377,7 @@ class TelegramManager(threading.Thread):
             "media": self._describe_media(message),
             "date": message.date,
             "outgoing": message.out,
+            "pinned": bool(getattr(message, "pinned", False)),
             "reply_to": getattr(message, "reply_to_msg_id", None),
         }
 

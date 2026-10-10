@@ -10,7 +10,9 @@ from core.settings import (
 from ui.settings_dialog import SettingsDialog
 from ui.chat_info_dialog import ChatInfoDialog
 from core.constants import (
-    CONTEXT_INFO_KEY, MSG_CHAT_SAVED_KEY,
+    CONTEXT_INFO_KEY, MSG_CHAT_SAVED_KEY, MENU_PIN_KEY, CONTEXT_PIN_KEY, CONTEXT_UNPIN_KEY,
+    MSG_PINNED_KEY, MSG_UNPINNED_KEY, MSG_CANNOT_PIN_KEY, PINNED_FORMAT_KEY,
+    MSG_CONFIRM_DELETE_OTHER_KEY,
     MENU_SETTINGS_KEY, MSG_SETTINGS_SAVED_KEY, MSG_PROFILE_SAVED_KEY, ERR_FIRST_NAME_REQUIRED_KEY,
     CONTEXT_OPEN_KEY, CONTEXT_MARK_READ_KEY, CONTEXT_MUTE_KEY, CONTEXT_UNMUTE_KEY,
     CONTEXT_REPLY_KEY, CONTEXT_EDIT_KEY, CONTEXT_DELETE_KEY, CONTEXT_COPY_KEY,
@@ -128,6 +130,7 @@ class MainFrame(wx.Frame):
             (MENU_EDIT_KEY, self.on_edit_menu),
             (MENU_DELETE_KEY, self.on_delete_menu),
             (MENU_SEND_FILE_KEY, self.on_send_file_menu),
+            (MENU_PIN_KEY, self.on_pin_menu),
             (MENU_RECORD_KEY, self.on_record_menu),
         ):
             item = message_menu.Append(wx.ID_ANY, self.i18n.get_string(label_key))
@@ -237,13 +240,48 @@ class MainFrame(wx.Frame):
         entries = [(CONTEXT_REPLY_KEY, self.on_reply_menu)]
         if message["outgoing"] and message["text"]:
             entries.append((CONTEXT_EDIT_KEY, self.on_edit_menu))
-        if message["outgoing"]:
+        if self.can_delete(message):
             entries.append((CONTEXT_DELETE_KEY, self.on_delete_menu))
+        if self.current_dialog()["can_pin"]:
+            pin_key = CONTEXT_UNPIN_KEY if message["pinned"] else CONTEXT_PIN_KEY
+            entries.append((pin_key, self.on_pin_menu))
         if message["text"]:
             entries.append((CONTEXT_COPY_KEY, self.on_copy_message))
         if message["media"] in DOWNLOADABLE_MEDIA:
             entries.append((CONTEXT_OPEN_MEDIA_KEY, self.on_activate_message))
         self.show_context_menu(entries)
+
+    def current_dialog(self):
+        """The open chat; one that is not in the list has no special rights."""
+        index = self.find_dialog_index(self.current_dialog_id)
+        if index == wx.NOT_FOUND:
+            return {"can_delete_others": False, "can_pin": False}
+        return self.dialogs[index]
+
+    def can_delete(self, message):
+        return message["outgoing"] or self.current_dialog()["can_delete_others"]
+
+    def on_pin_menu(self, event):
+        message = self.selected_message()
+        if message is None or self.is_busy:
+            return
+        if not self.current_dialog()["can_pin"]:
+            self.notify(MSG_CANNOT_PIN_KEY)
+            return
+        pinned = not message["pinned"]
+        self.is_busy = True
+        dialog_id = self.current_dialog_id
+        self.telegram_manager.set_pinned(
+            dialog_id, message["id"], pinned,
+            self.on_ui_thread(self.on_pin_changed, dialog_id, message, pinned)
+        )
+
+    def on_pin_changed(self, result, dialog_id, message, pinned):
+        self.is_busy = False
+        message["pinned"] = pinned
+        if dialog_id == self.current_dialog_id and message in self.messages:
+            self.render_messages(self.messages_list.GetSelection() - self.message_offset())
+        self.notify(MSG_PINNED_KEY if pinned else MSG_UNPINNED_KEY)
 
     def on_copy_message(self, event):
         message = self.selected_message()
@@ -424,13 +462,21 @@ class MainFrame(wx.Frame):
         message = self.selected_message()
         if message is None or self.is_busy:
             return
-        if not message["outgoing"]:
+        if not self.can_delete(message):
             self.notify(MSG_CANNOT_DELETE_KEY)
             return
+        if message["outgoing"]:
+            question = self.i18n.get_string(MSG_CONFIRM_DELETE_KEY).format(
+                text=self.message_snippet(message)
+            )
+        else:
+            # Removing someone else's message is a moderation act: name whose it is.
+            question = self.i18n.get_string(MSG_CONFIRM_DELETE_OTHER_KEY).format(
+                sender=self.sender_name(message), text=self.message_snippet(message)
+            )
         answer = wx.MessageBox(
-            self.i18n.get_string(MSG_CONFIRM_DELETE_KEY).format(text=self.message_snippet(message)),
-            self.i18n.get_string(APP_TITLE_KEY),
-            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION, self
+            question, self.i18n.get_string(APP_TITLE_KEY),
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING, self
         )
         if answer != wx.YES:
             return
@@ -798,6 +844,8 @@ class MainFrame(wx.Frame):
             dialog = {
                 "id": dialog_id, "title": title, "unread": 0,
                 "pinned": False, "muted": False, "is_channel": False,
+                # Rights are unknown for a chat seen only through a live message.
+                "can_delete_others": False, "can_pin": False,
             }
         else:
             dialog = self.dialogs[index]
@@ -884,6 +932,8 @@ class MainFrame(wx.Frame):
             text = self.i18n.get_string(REPLY_PREFIX_FORMAT_KEY).format(
                 sender=self.sender_name(replied), quote=self.message_snippet(replied), text=text
             )
+        if message["pinned"]:
+            text = self.i18n.get_string(PINNED_FORMAT_KEY).format(text=text)
         return self.i18n.get_string(MESSAGE_FORMAT_KEY).format(
             sender=self.sender_name(message),
             text=text,
