@@ -1,4 +1,5 @@
 import wx
+from ui.layout import prepare_window
 from core.speech import speak
 from core.constants import (
     APP_TITLE_KEY, MSG_LOADING_KEY, BTN_CLOSE_KEY, MSG_INVITE_COPIED_KEY,
@@ -17,6 +18,7 @@ class InviteLinksDialog(wx.Dialog):
             parent, title=i18n.get_string(INVITE_LINKS_TITLE_FORMAT_KEY).format(title=title),
             size=(600, 420), style=wx.DEFAULT_DIALOG_STYLE|wx.RESIZE_BORDER
         )
+        prepare_window(self, i18n)
         self.i18n = i18n
         self.telegram_manager = telegram_manager
         self.dialog_id = dialog_id

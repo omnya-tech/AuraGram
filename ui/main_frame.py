@@ -1,7 +1,9 @@
 import wx
 from core import audio
 from core.speech import speak
-from core.settings import SETTING_KEEP_IN_BACKGROUND
+from core.settings import SETTING_KEEP_IN_BACKGROUND, SETTING_LARGE_TEXT, SETTING_THEME
+from ui.themes import apply_theme, set_theme
+from ui.layout import ReadOnlyText, is_on_a_screen, prepare_window, reading_font
 from ui.settings_dialog import SettingsDialog
 from core.chat_views import build_views
 from ui.text_dialog import TextDialog
@@ -9,7 +11,9 @@ from core.constants import (
     MENU_READ_MESSAGE_KEY, MENU_HELP_KEY, MENU_SHORTCUTS_KEY, SHORTCUTS_TITLE_KEY, SHORTCUTS_TEXT_KEY,
     MENU_MARK_KEY, MENU_UNMARK_ALL_KEY, MENU_NEW_GROUP_KEY, MENU_NEW_CHANNEL_KEY, MESSAGE_VIEWS,
     MENU_CHAT_VIEWS_KEY, MENU_NEW_POLL_KEY, MENU_REACT_KEY, MENU_SCHEDULE_KEY,
-    MSG_IN_BACKGROUND_FORMAT_KEY, SHOW_HOTKEY_TEXT, ICON_FILE, BTN_RECORD_KEY,
+    MSG_IN_BACKGROUND_FORMAT_KEY, SHOW_HOTKEY_TEXT, BTN_RECORD_KEY, MAIN_WINDOW_SIZE,
+    MAIN_WINDOW_MIN_SIZE, PREVIEW_HEIGHT, PREVIEW_LABEL_KEY, MAIN_TITLE_CHAT_FORMAT_KEY,
+    MESSAGES_OF_LABEL_FORMAT_KEY, TOOLTIP_SEND_KEY, TOOLTIP_RECORD_KEY, TOOLTIP_VIEW_KEY,
     BTN_CANCEL_RECORDING_KEY, MSG_CANNOT_WRITE_KEY, MENU_ABOUT_KEY, ABOUT_FORMAT_KEY,
     APP_NAME, APP_VERSION, DEVELOPER_NAME_KEY,
     VIEW_LABEL_KEY, MSG_PRIVACY_SAVED_KEY, MENU_CHATS_KEY, MENU_NEW_CHAT_KEY, MENU_FIND_CHAT_KEY,
@@ -36,8 +40,9 @@ class MainFrame(
     shares, and offers the helpers the mixins rely on (status, errors, results)."""
 
     def __init__(self, i18n, telegram_manager, settings, on_logout, on_quit=None):
-        super().__init__(None, title=i18n.get_string(MAIN_TITLE_KEY), size=(900, 600))
-        self.SetIcon(wx.Icon(ICON_FILE))
+        super().__init__(None, title=i18n.get_string(MAIN_TITLE_KEY), size=MAIN_WINDOW_SIZE)
+        prepare_window(self, i18n)
+        self.SetMinSize(MAIN_WINDOW_MIN_SIZE)
         self.i18n = i18n
         self.telegram_manager = telegram_manager
         self.settings = settings
@@ -105,12 +110,20 @@ class MainFrame(
         hbox.Add(dialogs_box, proportion=1, flag=wx.EXPAND|wx.ALL, border=15)
 
         chat_box = wx.BoxSizer(wx.VERTICAL)
-        messages_label = wx.StaticText(self.panel, label=self.i18n.get_string(MESSAGES_LABEL_KEY))
-        chat_box.Add(messages_label, flag=wx.BOTTOM, border=5)
+        self.messages_label = wx.StaticText(self.panel, label=self.i18n.get_string(MESSAGES_LABEL_KEY))
+        chat_box.Add(self.messages_label, flag=wx.BOTTOM, border=5)
         self.messages_list = wx.ListBox(self.panel, style=wx.LB_SINGLE)
+        self.messages_list.Bind(wx.EVT_LISTBOX, lambda event: self.update_preview())
         self.messages_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_activate_message)
         self.messages_list.Bind(wx.EVT_CONTEXT_MENU, self.on_message_context_menu)
-        chat_box.Add(self.messages_list, proportion=1, flag=wx.EXPAND|wx.BOTTOM, border=15)
+        chat_box.Add(self.messages_list, proportion=1, flag=wx.EXPAND|wx.BOTTOM, border=10)
+
+        # A list row is one line, so a long message is cut off on screen. This shows
+        # the selected message whole, with its line breaks, for reading by eye.
+        preview_label = wx.StaticText(self.panel, label=self.i18n.get_string(PREVIEW_LABEL_KEY))
+        chat_box.Add(preview_label, flag=wx.BOTTOM, border=5)
+        self.preview_text = ReadOnlyText(self.panel, size=(-1, PREVIEW_HEIGHT))
+        chat_box.Add(self.preview_text, flag=wx.EXPAND|wx.BOTTOM, border=15)
 
         self.input_label = wx.StaticText(self.panel, label=self.i18n.get_string(MESSAGE_INPUT_LABEL_KEY))
         chat_box.Add(self.input_label, flag=wx.BOTTOM, border=5)
@@ -132,12 +145,70 @@ class MainFrame(
         chat_box.Add(input_box, flag=wx.EXPAND)
         hbox.Add(chat_box, proportion=2, flag=wx.EXPAND|wx.TOP|wx.RIGHT|wx.BOTTOM, border=15)
 
+        self.view_choice.SetToolTip(self.i18n.get_string(TOOLTIP_VIEW_KEY))
+        self.send_btn.SetToolTip(self.i18n.get_string(TOOLTIP_SEND_KEY))
+        self.record_btn.SetToolTip(self.i18n.get_string(TOOLTIP_RECORD_KEY))
+
         self.panel.SetSizer(hbox)
         self.init_menu()
         self.CreateStatusBar()
         self.enable_chat(False)
-        self.Center()
+        self.apply_text_size()
+        self.apply_colours()
+        self.restore_placement()
         wx.CallAfter(self.dialogs_list.SetFocus)
+
+    def apply_text_size(self):
+        """Use the normal or the larger font, per the setting, wherever text is read at length."""
+        font = reading_font(self.settings.get(SETTING_LARGE_TEXT))
+        for control in (self.dialogs_list, self.messages_list, self.preview_text, self.message_input):
+            control.SetFont(font)
+        self.panel.Layout()
+
+    def apply_colours(self):
+        """Switch the whole app to the theme chosen in the settings."""
+        set_theme(self.settings.get(SETTING_THEME))
+        apply_theme(self)
+
+    def restore_placement(self):
+        """Open where the window was last left, if that spot still exists."""
+        placement = self.settings.get_window_placement()
+        if placement is None:
+            self.Center()
+            return
+        x, y, width, height, maximized = placement
+        rectangle = wx.Rect(x, y, width, height)
+        # A monitor may have been unplugged since; never open off-screen.
+        if is_on_a_screen(rectangle):
+            self.SetSize(rectangle)
+        else:
+            self.Center()
+        if maximized:
+            self.Maximize()
+
+    def save_placement(self):
+        maximized = self.IsMaximized()
+        if maximized or self.IsIconized():
+            # Keep the size it had before, so un-maximizing later gives a sensible window.
+            previous = self.settings.get_window_placement()
+            x, y, width, height = previous[:4] if previous else (*self.GetPosition(), *MAIN_WINDOW_SIZE)
+        else:
+            x, y, width, height = self.GetRect()
+        self.settings.set_window_placement(x, y, width, height, maximized)
+        self.settings.save()
+
+    def show_chat_name(self, chat):
+        """Name the open chat in the title bar and above its messages; None for no chat."""
+        if chat is None:
+            title = self.i18n.get_string(MAIN_TITLE_KEY)
+            label = self.i18n.get_string(MESSAGES_LABEL_KEY)
+        else:
+            title = self.i18n.get_string(MAIN_TITLE_CHAT_FORMAT_KEY).format(chat=chat["title"])
+            label = self.i18n.get_string(MESSAGES_OF_LABEL_FORMAT_KEY).format(chat=chat["title"])
+        self.SetTitle(title)
+        # Also what a screen reader says when the message list takes focus.
+        self.messages_label.SetLabel(label)
+        self.messages_list.SetName(label)
 
     def init_menu(self):
         file_menu = wx.Menu()
@@ -211,6 +282,8 @@ class MainFrame(
             if settings_dialog.ShowModal() != wx.ID_OK:
                 return
             settings_dialog.apply_app_settings()
+            self.apply_text_size()
+            self.apply_colours()
             profile = settings_dialog.changed_profile()
             privacy = settings_dialog.changed_privacy()
         if privacy:
@@ -286,11 +359,13 @@ class MainFrame(
             event.Veto()
             self.recorder.cancel()
             self.update_record_buttons()
+            self.save_placement()
             self.Hide()
             speak(self.i18n.get_string(MSG_IN_BACKGROUND_FORMAT_KEY).format(hotkey=SHOW_HOTKEY_TEXT))
             return
         self.player.stop()
         self.recorder.cancel()
+        self.save_placement()
         event.Skip()
         # With the last window gone nothing would end the hidden background part.
         if not self.is_quitting and self.on_quit is not None:

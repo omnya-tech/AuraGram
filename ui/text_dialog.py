@@ -1,4 +1,5 @@
 import wx
+from ui.layout import prepare_window
 from core.constants import BTN_CLOSE_KEY
 
 class TextDialog(wx.Dialog):
@@ -7,6 +8,7 @@ class TextDialog(wx.Dialog):
 
     def __init__(self, parent, i18n, title, text):
         super().__init__(parent, title=title, size=(560, 420), style=wx.DEFAULT_DIALOG_STYLE|wx.RESIZE_BORDER)
+        prepare_window(self, i18n)
         sizer = wx.BoxSizer(wx.VERTICAL)
         self.text = wx.TextCtrl(self, value=text, style=wx.TE_MULTILINE|wx.TE_READONLY)
         sizer.Add(self.text, proportion=1, flag=wx.EXPAND|wx.ALL, border=10)

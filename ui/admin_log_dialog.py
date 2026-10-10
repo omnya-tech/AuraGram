@@ -1,4 +1,5 @@
 import wx
+from ui.layout import prepare_window
 from core.constants import (
     APP_TITLE_KEY, MSG_LOADING_KEY, DATE_TIME_FORMAT, BTN_CLOSE_KEY,
     ADMIN_LOG_TITLE_FORMAT_KEY, ADMIN_LOG_ENTRY_FORMAT_KEY, ADMIN_LOG_EMPTY_KEY, ADMIN_LOG_KEY_PREFIX
@@ -12,6 +13,7 @@ class AdminLogDialog(wx.Dialog):
             parent, title=i18n.get_string(ADMIN_LOG_TITLE_FORMAT_KEY).format(title=title),
             size=(560, 480), style=wx.DEFAULT_DIALOG_STYLE|wx.RESIZE_BORDER
         )
+        prepare_window(self, i18n)
         self.i18n = i18n
         sizer = wx.BoxSizer(wx.VERTICAL)
         self.events_list = wx.ListBox(self, choices=[i18n.get_string(MSG_LOADING_KEY)], style=wx.LB_SINGLE)

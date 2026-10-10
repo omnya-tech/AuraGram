@@ -1,4 +1,5 @@
 import wx
+from ui.layout import prepare_window
 from core.constants import (
     APP_TITLE_KEY, API_SETUP_TITLE_KEY, API_SETUP_NOTE_KEY, API_ID_LABEL_KEY,
     API_HASH_LABEL_KEY, ERR_API_ID_KEY
@@ -9,6 +10,7 @@ class ApiSetupDialog(wx.Dialog):
 
     def __init__(self, i18n):
         super().__init__(None, title=i18n.get_string(API_SETUP_TITLE_KEY), size=(520, 360))
+        prepare_window(self, i18n)
         self.i18n = i18n
         self.credentials = None
         sizer = wx.BoxSizer(wx.VERTICAL)

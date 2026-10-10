@@ -7,7 +7,8 @@ from core.constants import (
     SHOW_HOTKEY_TEXT, ERR_HOTKEY_TAKEN_FORMAT_KEY
 )
 from core.i18n import I18NManager
-from core.settings import Settings
+from core.settings import SETTING_THEME, Settings
+from ui.themes import set_theme
 from core.telegram_client import TelegramManager
 from ui.api_setup_dialog import ApiSetupDialog
 from ui.background import BackgroundWindow, ask_running_copy_to_quit, ask_running_copy_to_show
@@ -28,6 +29,8 @@ class MainApplication(wx.App):
 
         self.i18n = I18NManager(DEFAULT_LANG)
         self.settings = Settings()
+        # Before any window exists, so the very first one already opens in the chosen colours.
+        set_theme(self.settings.get(SETTING_THEME))
         if not self.ensure_credentials():
             return False
 

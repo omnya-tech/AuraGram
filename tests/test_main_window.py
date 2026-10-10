@@ -759,6 +759,157 @@ class SoundsAndBackgroundTest(WindowTestCase):
         self.assertTrue(os.path.exists(c.ICON_FILE))
 
 
+class AppearanceTest(WindowTestCase):
+    """What matters to someone looking at the screen rather than listening to it."""
+
+    chats = [(ALI, 0, False), (MY_GROUP, 0, False)]
+    history = {1: [
+        make_message(1, "short", sender=ALI),
+        make_message(2, "first line\nsecond line\nthird line", outgoing=True),
+    ]}
+
+    def test_arabic_interface_is_laid_out_right_to_left(self):
+        self.assertEqual(self.frame.GetLayoutDirection(), wx.Layout_RightToLeft)
+        self.assertEqual(self.frame.dialogs_list.GetLayoutDirection(), wx.Layout_RightToLeft)
+
+    def test_dialogs_follow_the_same_direction(self):
+        from ui.text_dialog import TextDialog
+        dialog = TextDialog(self.frame, self.i18n, "title", "text")
+        self.addCleanup(dialog.Destroy)
+        self.assertEqual(dialog.GetLayoutDirection(), wx.Layout_RightToLeft)
+        self.assertEqual(dialog.text.GetLayoutDirection(), wx.Layout_RightToLeft)
+
+    def test_a_left_to_right_language_is_not_mirrored(self):
+        from ui.layout import prepare_window
+        english = mock.Mock()
+        english.get_string.return_value = "ltr"
+        window = wx.Frame(None)
+        self.addCleanup(window.Destroy)
+        prepare_window(window, english)
+        self.assertEqual(window.GetLayoutDirection(), wx.Layout_LeftToRight)
+
+    def test_title_bar_and_list_heading_name_the_open_chat(self):
+        self.assertEqual(self.frame.GetTitle(), self.text(c.MAIN_TITLE_KEY))
+        self.open_chat(0)
+        self.assertEqual(self.frame.GetTitle(), "Ali - AuraGram")
+        self.assertIn("Ali", self.frame.messages_label.GetLabel())
+        self.open_chat(1)
+        self.assertEqual(self.frame.GetTitle(), "MyGroup - AuraGram")
+
+    def test_selected_message_is_shown_whole_with_its_line_breaks(self):
+        self.open_chat(0)
+        preview = self.frame.preview_text.GetValue().splitlines()
+        self.assertEqual(preview[-3:], ["first line", "second line", "third line"])
+        self.assertIn(self.text(c.SENDER_YOU_KEY), preview[0])
+        self.frame.messages_list.SetSelection(0)
+        self.frame.update_preview()
+        self.assertEqual(self.frame.preview_text.GetValue().splitlines()[-1], "short")
+        self.assertIn("Ali", self.frame.preview_text.GetValue().splitlines()[0])
+
+    def test_list_row_joins_the_lines_of_a_message_with_spaces(self):
+        self.open_chat(0)
+        row = self.frame.messages_list.GetString(1)
+        self.assertNotIn("\n", row)
+        self.assertIn("first line second line third line", row)
+
+    def test_status_bar_keeps_readable_colours_in_dark_themes(self):
+        default = self.frame.GetStatusBar().GetBackgroundColour()
+        self.choose_theme(c.THEME_HIGH_CONTRAST)
+        self.assertEqual(self.frame.GetStatusBar().GetBackgroundColour(), default)
+
+    def test_preview_empties_when_the_chat_changes_or_nothing_is_selected(self):
+        self.open_chat(0)
+        self.assertTrue(self.frame.preview_text.GetValue())
+        self.frame.messages_list.SetSelection(wx.NOT_FOUND)
+        self.frame.update_preview()
+        self.assertEqual(self.frame.preview_text.GetValue(), "")
+        self.open_chat(0)
+        self.open_chat(1)
+        self.assertEqual(self.frame.preview_text.GetValue(), "")
+
+    def test_preview_is_skipped_by_the_tab_key(self):
+        self.assertFalse(self.frame.preview_text.AcceptsFocusFromKeyboard())
+        self.assertTrue(self.frame.messages_list.AcceptsFocusFromKeyboard())
+
+    def test_large_text_setting_enlarges_the_reading_areas_only(self):
+        from core.settings import SETTING_LARGE_TEXT
+        normal = self.frame.messages_list.GetFont().GetFractionalPointSize()
+        button = self.frame.send_btn.GetFont().GetFractionalPointSize()
+        self.frame.settings.set(SETTING_LARGE_TEXT, True)
+        self.frame.apply_text_size()
+        for control in (self.frame.messages_list, self.frame.dialogs_list, self.frame.preview_text, self.frame.message_input):
+            self.assertAlmostEqual(control.GetFont().GetFractionalPointSize(), normal * c.LARGE_TEXT_SCALE, places=1)
+        self.assertEqual(self.frame.send_btn.GetFont().GetFractionalPointSize(), button)
+        self.frame.settings.set(SETTING_LARGE_TEXT, False)
+        self.frame.apply_text_size()
+        self.assertAlmostEqual(self.frame.messages_list.GetFont().GetFractionalPointSize(), normal, places=1)
+
+    def test_window_size_and_position_are_remembered(self):
+        self.frame.SetSize(wx.Rect(120, 90, 880, 560))
+        self.frame.save_placement()
+        self.assertEqual(self.frame.settings.get_window_placement(), [120, 90, 880, 560, 0])
+        self.frame.SetSize(wx.Rect(0, 0, 720, 480))
+        self.frame.restore_placement()
+        self.assertEqual(tuple(self.frame.GetRect()), (120, 90, 880, 560))
+
+    def test_a_position_on_a_monitor_that_is_gone_is_not_used(self):
+        self.frame.settings.set_window_placement(-30000, -30000, 880, 560, False)
+        self.frame.restore_placement()
+        position = self.frame.GetPosition()
+        self.assertNotEqual(wx.Display.GetFromPoint(position), wx.NOT_FOUND)
+
+    def choose_theme(self, theme):
+        from core.settings import SETTING_THEME
+        self.frame.settings.set(SETTING_THEME, theme)
+        self.frame.apply_colours()
+
+    def test_dark_theme_colours_the_window_and_its_reading_areas(self):
+        from ui.themes import THEME_COLOURS
+        colours = THEME_COLOURS[c.THEME_DARK]
+        self.choose_theme(c.THEME_DARK)
+        self.assertEqual(self.frame.panel.GetBackgroundColour(), wx.Colour(colours["window"]))
+        for control in (self.frame.dialogs_list, self.frame.messages_list, self.frame.preview_text, self.frame.message_input):
+            self.assertEqual(control.GetBackgroundColour(), wx.Colour(colours["field"]))
+            self.assertEqual(control.GetForegroundColour(), wx.Colour(colours["field_text"]))
+        self.assertEqual(self.frame.messages_label.GetForegroundColour(), wx.Colour(colours["text"]))
+        self.assertEqual(self.frame.send_btn.GetBackgroundColour(), wx.Colour(colours["button"]))
+
+    def test_going_back_to_the_system_theme_restores_windows_colours(self):
+        before = (self.frame.messages_list.GetBackgroundColour(), self.frame.messages_list.GetForegroundColour())
+        self.choose_theme(c.THEME_HIGH_CONTRAST)
+        self.assertNotEqual(self.frame.messages_list.GetBackgroundColour(), before[0])
+        self.choose_theme(c.THEME_SYSTEM)
+        after = (self.frame.messages_list.GetBackgroundColour(), self.frame.messages_list.GetForegroundColour())
+        self.assertEqual(after, before)
+
+    def test_windows_opened_later_take_the_current_theme(self):
+        from ui.text_dialog import TextDialog
+        from ui.themes import THEME_COLOURS
+        self.choose_theme(c.THEME_SEPIA)
+        dialog = TextDialog(self.frame, self.i18n, "title", "text")
+        self.addCleanup(dialog.Destroy)
+        field = wx.Colour(THEME_COLOURS[c.THEME_SEPIA]["field"])
+        self.assertTrue(pump(lambda: dialog.text.GetBackgroundColour() == field))
+
+    def test_theme_is_chosen_in_the_settings_and_kept(self):
+        from core.settings import SETTING_THEME, Settings
+        from ui.settings_dialog import SettingsDialog
+        dialog = SettingsDialog(self.frame, self.i18n, self.frame.settings, self.manager)
+        self.addCleanup(dialog.Destroy)
+        self.assertEqual(dialog.theme_choice.GetCount(), len(c.THEMES))
+        self.assertEqual(dialog.theme_choice.GetStringSelection(), self.text(c.THEME_SYSTEM))
+        dialog.theme_choice.SetSelection(c.THEMES.index(c.THEME_DARK))
+        dialog.apply_app_settings()
+        self.assertEqual(Settings().get(SETTING_THEME), c.THEME_DARK)
+
+    def test_window_cannot_be_shrunk_until_controls_overlap(self):
+        self.assertEqual(tuple(self.frame.GetMinSize()), c.MAIN_WINDOW_MIN_SIZE)
+
+    def test_buttons_explain_themselves_on_hover(self):
+        self.assertIn("Enter", self.frame.send_btn.GetToolTipText())
+        self.assertIn("Ctrl+M", self.frame.record_btn.GetToolTipText())
+
+
 class NewChatTest(WindowTestCase):
     chats = [(ALI, 0, False)]
 

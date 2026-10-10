@@ -1,4 +1,5 @@
 import wx
+from ui.layout import prepare_window
 from core.speech import speak
 from ui.admin_log_dialog import AdminLogDialog
 from ui.invite_links_dialog import InviteLinksDialog
@@ -32,6 +33,7 @@ class ChatInfoDialog(wx.Dialog):
             parent, title=i18n.get_string(INFO_TITLE_FORMAT_KEY).format(title=dialog["title"]),
             size=(560, 620), style=wx.DEFAULT_DIALOG_STYLE|wx.RESIZE_BORDER
         )
+        prepare_window(self, i18n)
         self.i18n = i18n
         self.telegram_manager = telegram_manager
         self.dialog_id = dialog["id"]

@@ -1,7 +1,8 @@
 import wx
+from ui.layout import prepare_window
 from core.speech import speak
 from core.constants import (
-    BTN_RESEND_OTHER_KEY, ICON_FILE, APP_TITLE_KEY, LOGIN_TITLE_KEY, MSG_LOADING_KEY,
+    BTN_RESEND_OTHER_KEY, APP_TITLE_KEY, LOGIN_TITLE_KEY, MSG_LOADING_KEY,
     MSG_ENTER_PHONE_KEY, PHONE_LABEL_KEY, BTN_SEND_PHONE_KEY,
     MSG_CODE_SENT_KEY, CODE_LABEL_KEY, BTN_SEND_CODE_KEY,
     MSG_PASSWORD_NEEDED_KEY, PASSWORD_LABEL_KEY, BTN_SEND_PASSWORD_KEY,
@@ -11,7 +12,7 @@ from core.constants import (
 class LoginFrame(wx.Frame):
     def __init__(self, i18n, telegram_manager):
         super().__init__(None, title=i18n.get_string(LOGIN_TITLE_KEY), size=(520, 420))
-        self.SetIcon(wx.Icon(ICON_FILE))
+        prepare_window(self, i18n)
         self.i18n = i18n
         self.telegram_manager = telegram_manager
         self.is_processing = False

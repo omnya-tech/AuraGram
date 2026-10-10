@@ -4,7 +4,7 @@ import wx
 from core import audio
 from core.settings import SETTING_MARK_READ_ON_OPEN
 from core.constants import (
-    CONTEXT_COPY_LINK_KEY, CONTEXT_SAVE_AS_KEY, CONTEXT_SELECT_KEY, CONTEXT_UNSELECT_KEY,
+    PREVIEW_FORMAT_KEY, CONTEXT_COPY_LINK_KEY, CONTEXT_SAVE_AS_KEY, CONTEXT_SELECT_KEY, CONTEXT_UNSELECT_KEY,
     MSG_CHOOSE_SAVE_FOLDER_KEY, MSG_SAVED_FORMAT_KEY, CONTEXT_READ_MESSAGE_KEY, READ_MESSAGE_TITLE_KEY, READ_MESSAGE_HEADER_FORMAT_KEY, MARKED_FORMAT_KEY, MESSAGE_VIEW_SEARCH, MESSAGE_VIEW_SCHEDULED, MSG_VIEW_RESULTS_FORMAT_KEY, MSG_VIEW_EMPTY_KEY,
     POLL_FORMAT_KEY, POLL_OPTION_FORMAT_KEY, POLL_CHOSEN_KEY, POLL_VOTERS_FORMAT_KEY,
     POLL_CLOSED_SUFFIX_KEY, CONTEXT_VOTE_KEY, CONTEXT_REACT_KEY, REACTIONS_FORMAT_KEY,
@@ -63,6 +63,21 @@ class MessageListMixin:
         self.messages_list.Set(items)
         if self.messages:
             self.messages_list.SetSelection(selected_message_index + self.message_offset())
+        # Setting the selection from code raises no event, so refresh the preview here.
+        self.update_preview()
+
+    def update_preview(self):
+        """Show the selected message in full below the list."""
+        message = self.selected_message()
+        if message is None:
+            # Nothing selected, or the "load older messages" row.
+            self.preview_text.ChangeValue("")
+            return
+        self.preview_text.ChangeValue(self.i18n.get_string(PREVIEW_FORMAT_KEY).format(
+            sender=self.sender_name(message),
+            time=message["date"].astimezone().strftime(DATE_TIME_FORMAT),
+            text=self.message_text(message)
+        ))
 
     def message_offset(self):
         return 1 if self.has_older else 0
@@ -80,6 +95,7 @@ class MessageListMixin:
         # Follow the conversation only if the user is not reading older messages.
         if was_at_end:
             self.messages_list.SetSelection(count)
+            self.update_preview()
 
     def remove_message(self, message_id):
         for index, message in enumerate(self.messages):
@@ -369,7 +385,9 @@ class MessageListMixin:
             )
         line = self.i18n.get_string(MESSAGE_FORMAT_KEY).format(
             sender=self.sender_name(message),
-            text=text,
+            # A row is one line: the list would drop the line breaks and glue the
+            # words on either side together, so turn them into spaces first.
+            text=" ".join(text.split()),
             time=local_date.strftime(TIME_FORMAT if is_today else DATE_TIME_FORMAT)
         )
         if message["id"] in self.marked:

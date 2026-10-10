@@ -207,11 +207,13 @@ class ChatListMixin:
             return
         self.keep_draft()
         self.current_dialog_id = dialog_id
+        self.show_chat_name(self.dialogs[index])
         self.set_compose()
         self.message_input.SetValue(self.drafts.get(dialog_id, ""))
         self.messages = []
         self.has_older = False
         self.messages_list.Clear()
+        self.preview_text.ChangeValue("")
         self.enable_chat(False)
         self.load_messages(focus_messages)
 
@@ -377,6 +379,8 @@ class ChatListMixin:
         if new_title and index != wx.NOT_FOUND:
             dialog["title"] = new_title
             self.dialogs_list.SetString(index, self.format_dialog(dialog))
+            if dialog["id"] == self.current_dialog_id:
+                self.show_chat_name(dialog)
         self.notify(MSG_CHAT_SAVED_KEY)
 
     def mark_dialog_read(self, dialog):
@@ -454,6 +458,7 @@ class ChatListMixin:
             self.has_older = False
             self.marked = set()
             self.messages_list.Clear()
+            self.preview_text.ChangeValue("")
         self.notify(MSG_HISTORY_CLEARED_KEY)
 
     def leave_chat(self, dialog, is_private):
@@ -478,6 +483,8 @@ class ChatListMixin:
         if dialog["id"] == self.current_dialog_id:
             # Its messages are gone with it.
             self.current_dialog_id = None
+            self.show_chat_name(None)
+            self.preview_text.ChangeValue("")
             self.set_compose()
             self.messages = []
             self.has_older = False

@@ -106,6 +106,82 @@ class VersionTest(unittest.TestCase):
         self.assertIn(APP_PUBLISHER, APP_COPYRIGHT)
 
 
+class ThemeTest(unittest.TestCase):
+    def setUp(self):
+        from tests.harness import get_app
+        get_app()
+
+    def test_every_theme_has_colours_and_a_name_to_show(self):
+        import core.constants as constants
+        from ui.themes import THEME_COLOURS
+        strings = I18NManager("ar").strings
+        self.assertEqual(set(THEME_COLOURS), set(constants.THEMES))
+        for theme in constants.THEMES:
+            self.assertIn(theme, strings)
+
+    def test_text_is_easy_to_read_in_every_theme(self):
+        # 7:1 is the stricter of the two WCAG levels for body text.
+        from ui.themes import THEME_COLOURS, contrast_ratio
+        for theme, colours in THEME_COLOURS.items():
+            if colours is None:
+                continue
+            for background, text in (("window", "text"), ("field", "field_text"), ("button", "text")):
+                ratio = contrast_ratio(colours[background], colours[text])
+                self.assertGreaterEqual(ratio, 7, "%s: %s on %s is %.1f" % (theme, text, background, ratio))
+
+    def test_contrast_formula_matches_the_known_extremes(self):
+        from ui.themes import contrast_ratio
+        self.assertAlmostEqual(contrast_ratio("#000000", "#FFFFFF"), 21, places=1)
+        self.assertAlmostEqual(contrast_ratio("#777777", "#777777"), 1, places=2)
+
+    def test_unknown_theme_falls_back_to_the_system_one(self):
+        import core.constants as constants
+        from ui import themes
+        self.addCleanup(themes.set_theme, constants.THEME_SYSTEM)
+        themes.set_theme("no such theme")
+        self.assertEqual(themes.current_theme(), constants.THEME_SYSTEM)
+
+    def test_theme_in_a_damaged_settings_file_is_ignored(self):
+        import tempfile
+        from unittest import mock
+        import core.constants as constants
+        from core.settings import SETTING_THEME, Settings
+        path = os.path.join(tempfile.mkdtemp(), "settings.json")
+        with open(path, "w", encoding="utf-8") as file:
+            json.dump({SETTING_THEME: "neon"}, file)
+        with mock.patch("core.settings.SETTINGS_FILE", path):
+            self.assertEqual(Settings().get(SETTING_THEME), constants.THEME_SYSTEM)
+
+
+class WindowPlacementSettingTest(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from unittest import mock
+        self.path = os.path.join(tempfile.mkdtemp(), "settings.json")
+        patch = mock.patch("core.settings.SETTINGS_FILE", self.path)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def test_nothing_saved_yet(self):
+        from core.settings import Settings
+        self.assertIsNone(Settings().get_window_placement())
+
+    def test_placement_survives_a_restart(self):
+        from core.settings import Settings
+        settings = Settings()
+        settings.set_window_placement(10, 20, 900, 600, True)
+        settings.save()
+        self.assertEqual(Settings().get_window_placement(), [10, 20, 900, 600, 1])
+
+    def test_a_damaged_placement_is_ignored_without_losing_other_settings(self):
+        from core.settings import SETTING_PLAY_SOUND, WINDOW_PLACEMENT, Settings
+        with open(self.path, "w", encoding="utf-8") as file:
+            json.dump({WINDOW_PLACEMENT: ["wide", 1], SETTING_PLAY_SOUND: False}, file)
+        settings = Settings()
+        self.assertIsNone(settings.get_window_placement())
+        self.assertFalse(settings.get(SETTING_PLAY_SOUND))
+
+
 class QuitRequestTest(unittest.TestCase):
     """--quit, which the installer uses to close the copy running in the background."""
 

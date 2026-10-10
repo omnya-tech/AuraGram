@@ -1,10 +1,11 @@
 import wx
 from core.settings import (
-    SETTING_KEEP_IN_BACKGROUND, SETTING_SENT_SOUND, SETTING_PLAY_SOUND, SETTING_ANNOUNCE_MESSAGES,
+    SETTING_THEME, SETTING_LARGE_TEXT, SETTING_KEEP_IN_BACKGROUND, SETTING_SENT_SOUND, SETTING_PLAY_SOUND, SETTING_ANNOUNCE_MESSAGES,
     SETTING_OPEN_ON_SELECT, SETTING_MARK_READ_ON_OPEN
 )
+from ui.layout import prepare_window
 from core.constants import (
-    SETTINGS_KEEP_IN_BACKGROUND_KEY, SETTINGS_SENT_SOUND_KEY, SETTINGS_TITLE_KEY, SETTINGS_TAB_APP_KEY, SETTINGS_TAB_ACCOUNT_KEY,
+    THEMES, SETTINGS_THEME_LABEL_KEY, SETTINGS_LARGE_TEXT_KEY, SETTINGS_KEEP_IN_BACKGROUND_KEY, SETTINGS_SENT_SOUND_KEY, SETTINGS_TITLE_KEY, SETTINGS_TAB_APP_KEY, SETTINGS_TAB_ACCOUNT_KEY,
     SETTINGS_APP_NOTE_KEY, SETTINGS_ACCOUNT_NOTE_KEY, SETTINGS_PLAY_SOUND_KEY,
     SETTINGS_ANNOUNCE_KEY, SETTINGS_OPEN_ON_SELECT_KEY, SETTINGS_MARK_READ_KEY,
     PROFILE_FIRST_NAME_KEY, PROFILE_LAST_NAME_KEY, PROFILE_ABOUT_KEY,
@@ -21,6 +22,7 @@ PRIVACY_NAMES = ("last_seen", "phone", "photo", "invites", "calls", "forwards")
 
 APP_OPTIONS = (
     (SETTING_KEEP_IN_BACKGROUND, SETTINGS_KEEP_IN_BACKGROUND_KEY),
+    (SETTING_LARGE_TEXT, SETTINGS_LARGE_TEXT_KEY),
     (SETTING_PLAY_SOUND, SETTINGS_PLAY_SOUND_KEY),
     (SETTING_SENT_SOUND, SETTINGS_SENT_SOUND_KEY),
     (SETTING_ANNOUNCE_MESSAGES, SETTINGS_ANNOUNCE_KEY),
@@ -39,6 +41,7 @@ class SettingsDialog(wx.Dialog):
 
     def __init__(self, parent, i18n, settings, telegram_manager):
         super().__init__(parent, title=i18n.get_string(SETTINGS_TITLE_KEY), size=(560, 560))
+        prepare_window(self, i18n)
         self.i18n = i18n
         self.settings = settings
         self.telegram_manager = telegram_manager
@@ -78,6 +81,10 @@ class SettingsDialog(wx.Dialog):
             checkbox.SetValue(self.settings.get(setting))
             sizer.Add(checkbox, flag=wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
             self.checkboxes[setting] = checkbox
+        sizer.Add(wx.StaticText(page, label=self.i18n.get_string(SETTINGS_THEME_LABEL_KEY)), flag=wx.LEFT|wx.RIGHT, border=10)
+        self.theme_choice = wx.Choice(page, choices=[self.i18n.get_string(theme) for theme in THEMES])
+        self.theme_choice.SetSelection(THEMES.index(self.settings.get(SETTING_THEME)))
+        sizer.Add(self.theme_choice, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
         page.SetSizer(sizer)
         return page
 
@@ -229,6 +236,7 @@ class SettingsDialog(wx.Dialog):
     def apply_app_settings(self):
         for setting, checkbox in self.checkboxes.items():
             self.settings.set(setting, checkbox.GetValue())
+        self.settings.set(SETTING_THEME, THEMES[self.theme_choice.GetSelection()])
         self.settings.save()
 
     def changed_profile(self):
