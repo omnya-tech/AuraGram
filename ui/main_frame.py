@@ -8,7 +8,9 @@ from core.settings import (
     SETTING_OPEN_ON_SELECT, SETTING_MARK_READ_ON_OPEN
 )
 from ui.settings_dialog import SettingsDialog
+from ui.chat_info_dialog import ChatInfoDialog
 from core.constants import (
+    CONTEXT_INFO_KEY, MSG_CHAT_SAVED_KEY,
     MENU_SETTINGS_KEY, MSG_SETTINGS_SAVED_KEY, MSG_PROFILE_SAVED_KEY, ERR_FIRST_NAME_REQUIRED_KEY,
     CONTEXT_OPEN_KEY, CONTEXT_MARK_READ_KEY, CONTEXT_MUTE_KEY, CONTEXT_UNMUTE_KEY,
     CONTEXT_REPLY_KEY, CONTEXT_EDIT_KEY, CONTEXT_DELETE_KEY, CONTEXT_COPY_KEY,
@@ -198,7 +200,19 @@ class MainFrame(wx.Frame):
             entries.append((CONTEXT_UNMUTE_KEY, lambda event: self.set_dialog_muted(dialog, False)))
         else:
             entries.append((CONTEXT_MUTE_KEY, lambda event: self.set_dialog_muted(dialog, True)))
+        entries.append((CONTEXT_INFO_KEY, lambda event: self.show_chat_info(dialog)))
         self.show_context_menu(entries)
+
+    def show_chat_info(self, dialog):
+        with ChatInfoDialog(self, self.i18n, self.telegram_manager, dialog) as info_dialog:
+            if info_dialog.ShowModal() != wx.ID_OK:
+                return
+            new_title = info_dialog.saved_title
+        index = self.find_dialog_index(dialog["id"])
+        if new_title and index != wx.NOT_FOUND:
+            dialog["title"] = new_title
+            self.dialogs_list.SetString(index, self.format_dialog(dialog))
+        self.notify(MSG_CHAT_SAVED_KEY)
 
     def mark_dialog_read(self, dialog):
         self.telegram_manager.mark_read(dialog["id"])

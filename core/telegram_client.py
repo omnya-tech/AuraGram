@@ -6,7 +6,8 @@ from telethon import TelegramClient, events
 from telethon.errors import (
     PhoneCodeInvalidError, PhoneCodeExpiredError, PhoneNumberInvalidError,
     SessionPasswordNeededError, PasswordHashInvalidError, FloodWaitError,
-    MessageNotModifiedError
+    MessageNotModifiedError, ChatAdminRequiredError, ChatWriteForbiddenError,
+    ChatNotModifiedError, ChatAboutNotModifiedError
 )
 from telethon.tl import functions, types
 from telethon.utils import get_display_name
@@ -15,7 +16,9 @@ from core.constants import (
     STEP_PHONE, STEP_CODE, STEP_PASSWORD, STEP_DONE,
     ERR_CODE_INVALID_KEY, ERR_CODE_EXPIRED_KEY, ERR_PHONE_INVALID_KEY,
     ERR_PASSWORD_INVALID_KEY, ERR_FLOOD_KEY, ERR_CONNECTION_KEY, ERR_GENERAL_KEY,
-    ERR_LOGOUT_KEY, MEDIA_KINDS, DOWNLOADS_DIR, MUTE_FOREVER,
+    ERR_LOGOUT_KEY, MEDIA_KINDS, DOWNLOADS_DIR, MUTE_FOREVER, ERR_NO_PERMISSION_KEY,
+    CHAT_KIND_USER, CHAT_KIND_GROUP, CHAT_KIND_SUPERGROUP, CHAT_KIND_CHANNEL,
+    MEMBER_ROLE_OWNER, MEMBER_ROLE_ADMIN, MEMBERS_LIMIT,
     EVENT_NEW_MESSAGE, EVENT_MESSAGE_EDITED, EVENT_MESSAGES_DELETED
 )
 
@@ -89,6 +92,18 @@ class TelegramManager(threading.Thread):
     def set_muted(self, dialog_id, muted, on_result):
         self._request(on_result, self._set_muted_async, dialog_id, muted)
 
+    def load_chat_info(self, dialog_id, on_result):
+        """The result describes the chat: kind, title, about, username, members_count, can_edit."""
+        self._request(on_result, self._load_chat_info_async, dialog_id)
+
+    def save_chat_info(self, dialog_id, title, about, on_result):
+        """Pass None for a field that should stay as it is."""
+        self._request(on_result, self._save_chat_info_async, dialog_id, title, about)
+
+    def load_members(self, dialog_id, search, on_result):
+        """The result is a list of members, each with id, name and role."""
+        self._request(on_result, self._load_members_async, dialog_id, search)
+
     def download_media(self, dialog_id, message_id, on_result):
         """Saves the message's media to the downloads folder; the result is the file path."""
         self._request(on_result, self._download_media_async, dialog_id, message_id)
@@ -138,6 +153,8 @@ class TelegramManager(threading.Thread):
             result = await coroutine_function(*args)
         except FloodWaitError:
             on_result(None, ERR_FLOOD_KEY)
+        except (ChatAdminRequiredError, ChatWriteForbiddenError):
+            on_result(None, ERR_NO_PERMISSION_KEY)
         except (ConnectionError, OSError):
             on_result(None, ERR_CONNECTION_KEY)
         except Exception:
@@ -199,6 +216,66 @@ class TelegramManager(threading.Thread):
             peer=types.InputNotifyPeer(self.entities[dialog_id]),
             settings=types.InputPeerNotifySettings(mute_until=MUTE_FOREVER if muted else 0)
         ))
+
+    async def _load_chat_info_async(self, dialog_id):
+        entity = await self.client.get_entity(self.entities[dialog_id])
+        info = {
+            "title": get_display_name(entity),
+            "username": getattr(entity, "username", None) or EMPTY_STRING,
+            "about": EMPTY_STRING, "members_count": None, "can_edit": False,
+        }
+        if isinstance(entity, types.User):
+            full = await self.client(functions.users.GetFullUserRequest(entity))
+            info["kind"] = CHAT_KIND_USER
+            info["about"] = full.full_user.about or EMPTY_STRING
+            return info
+
+        if isinstance(entity, types.Channel):
+            full = await self.client(functions.channels.GetFullChannelRequest(entity))
+            info["kind"] = CHAT_KIND_SUPERGROUP if entity.megagroup else CHAT_KIND_CHANNEL
+            info["members_count"] = full.full_chat.participants_count
+        else:
+            full = await self.client(functions.messages.GetFullChatRequest(entity.id))
+            info["kind"] = CHAT_KIND_GROUP
+            info["members_count"] = getattr(entity, "participants_count", None)
+        info["about"] = full.full_chat.about or EMPTY_STRING
+        rights = getattr(entity, "admin_rights", None)
+        info["can_edit"] = bool(getattr(entity, "creator", False) or (rights and rights.change_info))
+        return info
+
+    async def _save_chat_info_async(self, dialog_id, title, about):
+        entity = self.entities[dialog_id]
+        try:
+            if title is not None:
+                if isinstance(entity, types.InputPeerChannel):
+                    await self.client(functions.channels.EditTitleRequest(entity, title))
+                else:
+                    await self.client(functions.messages.EditChatTitleRequest(entity.chat_id, title))
+            if about is not None:
+                await self.client(functions.messages.EditChatAboutRequest(entity, about))
+        except (ChatNotModifiedError, ChatAboutNotModifiedError):
+            # Saving the same value again is not a failure.
+            pass
+
+    async def _load_members_async(self, dialog_id, search):
+        participants = await self.client.get_participants(
+            self.entities[dialog_id], limit=MEMBERS_LIMIT, search=search
+        )
+        return [
+            {
+                "id": user.id,
+                "name": get_display_name(user) or EMPTY_STRING,
+                "role": self._member_role(getattr(user, "participant", None)),
+            }
+            for user in participants
+        ]
+
+    def _member_role(self, participant):
+        if isinstance(participant, (types.ChannelParticipantCreator, types.ChatParticipantCreator)):
+            return MEMBER_ROLE_OWNER
+        if isinstance(participant, (types.ChannelParticipantAdmin, types.ChatParticipantAdmin)):
+            return MEMBER_ROLE_ADMIN
+        return None
 
     async def _load_messages_async(self, dialog_id, before_id, mark_read):
         entity = self.entities[dialog_id]
