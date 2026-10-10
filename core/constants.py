@@ -2,7 +2,12 @@ import os
 import sys
 
 APP_NAME = "AuraGram"
+# The one place the version lives: the About box, the built program's file
+# properties and the installer's name all read it from here. Three numbers,
+# major.minor.patch; record each release in CHANGELOG.md and tag it v<version>.
 APP_VERSION = "1.0.0"
+MENU_ABOUT_KEY = "MENU_ABOUT"
+ABOUT_FORMAT_KEY = "ABOUT_FORMAT"
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # True when running as the built program rather than from source.

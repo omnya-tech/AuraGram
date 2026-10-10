@@ -31,6 +31,22 @@ INNO_SETUP_COMPILERS = (
     os.path.join(os.environ.get("ProgramFiles", ""), "Inno Setup 6", "ISCC.exe"),
     os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Inno Setup 6", "ISCC.exe"),
 )
+VERSION_INFO_FILE = os.path.join(WORK_DIR, "version_info.txt")
+# The format PyInstaller reads for a Windows version resource. 040904B0 = English, Unicode.
+VERSION_INFO_TEMPLATE = """VSVersionInfo(
+  ffi=FixedFileInfo(filevers={numbers}, prodvers={numbers}),
+  kids=[
+    StringFileInfo([StringTable('040904B0', [
+      StringStruct('FileDescription', '{name}'),
+      StringStruct('ProductName', '{name}'),
+      StringStruct('FileVersion', '{version}'),
+      StringStruct('ProductVersion', '{version}'),
+      StringStruct('OriginalFilename', '{name}.exe'),
+    ])]),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])
+  ]
+)
+"""
 SELF_CHECK_PROBLEMS = (
     (1, "texts, icon or tones are missing from the build"),
     (2, "voice messages will not work (audio libraries not bundled)"),
@@ -54,14 +70,24 @@ def run_tests():
     run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-t", "."])
 
 
+def write_version_info():
+    """Describe the program to Windows, so its Properties window shows the name and version."""
+    numbers = tuple(int(part) for part in APP_VERSION.split(".")) + (0,)
+    os.makedirs(WORK_DIR, exist_ok=True)
+    with open(VERSION_INFO_FILE, "w", encoding="utf-8") as version_file:
+        version_file.write(VERSION_INFO_TEMPLATE.format(numbers=numbers, name=APP_NAME, version=APP_VERSION))
+
+
 def build_program():
     step("Building the program with PyInstaller")
     # Start clean so files removed from the project do not linger in the build.
     shutil.rmtree(os.path.join(DIST_DIR, APP_NAME), ignore_errors=True)
+    write_version_info()
     command = [
         sys.executable, "-m", "PyInstaller", os.path.join(BASE_DIR, "main.py"),
         "--name", APP_NAME, "--noconfirm", "--clean", "--windowed",
         "--icon", os.path.join(BASE_DIR, "assets", "auragram.ico"),
+        "--version-file", VERSION_INFO_FILE,
         "--distpath", DIST_DIR, "--workpath", WORK_DIR, "--specpath", WORK_DIR,
         "--exclude-module", "tests",
     ]

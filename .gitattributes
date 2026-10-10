@@ -1,0 +1,7 @@
+# Text files are stored with LF line endings on every machine.
+* text=auto eol=lf
+
+# Never touched as text.
+*.wav binary
+*.ico binary
+*.session binary

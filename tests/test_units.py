@@ -80,6 +80,24 @@ class FolderRulesTest(unittest.TestCase):
         self.assertTrue(views[3].matches(chat(1, "bots")))
 
 
+class VersionTest(unittest.TestCase):
+    def test_version_is_three_numbers(self):
+        import re
+        from core.constants import APP_VERSION
+        self.assertRegex(APP_VERSION, re.compile(r"^\d+\.\d+\.\d+$"))
+
+    def test_current_version_is_recorded_in_the_changelog(self):
+        from core.constants import APP_VERSION
+        with open(os.path.join(BASE_DIR, "CHANGELOG.md"), encoding="utf-8") as file:
+            self.assertIn("## " + APP_VERSION, file.read())
+
+    def test_about_text_shows_name_and_version(self):
+        from core.constants import ABOUT_FORMAT_KEY, APP_NAME, APP_VERSION
+        text = I18NManager("ar").get_string(ABOUT_FORMAT_KEY).format(name=APP_NAME, version=APP_VERSION)
+        self.assertIn(APP_NAME, text)
+        self.assertIn(APP_VERSION, text)
+
+
 class CredentialsTest(unittest.TestCase):
     def setUp(self):
         import tempfile

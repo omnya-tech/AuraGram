@@ -10,7 +10,8 @@ from core.constants import (
     MENU_MARK_KEY, MENU_UNMARK_ALL_KEY, MENU_NEW_GROUP_KEY, MENU_NEW_CHANNEL_KEY, MESSAGE_VIEWS,
     MENU_CHAT_VIEWS_KEY, MENU_NEW_POLL_KEY, MENU_REACT_KEY, MENU_SCHEDULE_KEY,
     MSG_IN_BACKGROUND_FORMAT_KEY, SHOW_HOTKEY_TEXT, ICON_FILE, BTN_RECORD_KEY,
-    BTN_CANCEL_RECORDING_KEY, MSG_CANNOT_WRITE_KEY,
+    BTN_CANCEL_RECORDING_KEY, MSG_CANNOT_WRITE_KEY, MENU_ABOUT_KEY, ABOUT_FORMAT_KEY,
+    APP_NAME, APP_VERSION,
     VIEW_LABEL_KEY, MSG_PRIVACY_SAVED_KEY, MENU_CHATS_KEY, MENU_NEW_CHAT_KEY, MENU_FIND_CHAT_KEY,
     MENU_FORWARD_KEY, MENU_PIN_KEY, MENU_SETTINGS_KEY, MSG_SETTINGS_SAVED_KEY,
     MSG_PROFILE_SAVED_KEY, ERR_FIRST_NAME_REQUIRED_KEY, MENU_RECORD_KEY, MENU_SEARCH_MESSAGES_KEY,
@@ -200,6 +201,8 @@ class MainFrame(
         help_menu = wx.Menu()
         shortcuts_item = help_menu.Append(wx.ID_HELP, self.i18n.get_string(MENU_SHORTCUTS_KEY))
         self.Bind(wx.EVT_MENU, self.on_shortcuts_menu, shortcuts_item)
+        about_item = help_menu.Append(wx.ID_ABOUT, self.i18n.get_string(MENU_ABOUT_KEY))
+        self.Bind(wx.EVT_MENU, self.on_about_menu, about_item)
         menu_bar.Append(help_menu, self.i18n.get_string(MENU_HELP_KEY))
         self.SetMenuBar(menu_bar)
 
@@ -232,6 +235,12 @@ class MainFrame(
 
     def on_shortcuts_menu(self, event):
         self.show_text(SHORTCUTS_TITLE_KEY, self.i18n.get_string(SHORTCUTS_TEXT_KEY))
+
+    def on_about_menu(self, event):
+        wx.MessageBox(
+            self.i18n.get_string(ABOUT_FORMAT_KEY).format(name=APP_NAME, version=APP_VERSION),
+            self.i18n.get_string(APP_TITLE_KEY), wx.OK | wx.ICON_INFORMATION, self
+        )
 
     def select_item_under_mouse(self, list_box, event):
         """A right click does not select by itself; keyboard menu keys report no position."""
