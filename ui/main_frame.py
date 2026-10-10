@@ -15,7 +15,11 @@ class MainFrame(wx.Frame):
         self.dialogs = []
         self.current_dialog_id = None
         self.select_timer = None
+        self.message_ids = set()
         self.init_ui()
+        self.telegram_manager.set_message_listener(
+            lambda *args: wx.CallAfter(self.on_new_message, *args)
+        )
         self.load_dialogs()
 
     def init_ui(self):
@@ -134,6 +138,7 @@ class MainFrame(wx.Frame):
             return
         self.current_dialog_id = dialog_id
         self.messages_list.Clear()
+        self.message_ids = set()
         self.enable_chat(False)
         self.load_messages(focus_messages)
 
@@ -149,12 +154,74 @@ class MainFrame(wx.Frame):
         if dialog_id != self.current_dialog_id:
             return
         self.messages_list.Set([self.format_message(message) for message in messages])
+        self.message_ids = {message["id"] for message in messages}
         if messages:
             self.messages_list.SetSelection(len(messages) - 1)
+        # Loading a chat marks it as read on Telegram's side.
+        self.set_unread(dialog_id, 0)
         self.enable_chat(True)
         self.set_status(STATUS_READY_KEY)
         if focus_messages:
             self.messages_list.SetFocus()
+
+    def find_dialog_index(self, dialog_id):
+        for index, dialog in enumerate(self.dialogs):
+            if dialog["id"] == dialog_id:
+                return index
+        return wx.NOT_FOUND
+
+    def set_unread(self, dialog_id, count):
+        index = self.find_dialog_index(dialog_id)
+        if index == wx.NOT_FOUND or self.dialogs[index]["unread"] == count:
+            return
+        self.dialogs[index]["unread"] = count
+        self.dialogs_list.SetString(index, self.format_dialog(self.dialogs[index]))
+
+    def on_new_message(self, dialog_id, title, message):
+        if not self:
+            return
+        index = self.find_dialog_index(dialog_id)
+        if index == wx.NOT_FOUND:
+            dialog = {"id": dialog_id, "title": title, "unread": 0, "pinned": False}
+        else:
+            dialog = self.dialogs[index]
+
+        if dialog_id == self.current_dialog_id:
+            self.append_message(message)
+            if not message["outgoing"]:
+                self.telegram_manager.mark_read(dialog_id)
+        elif not message["outgoing"]:
+            dialog["unread"] += 1
+        self.move_dialog_to_top(index, dialog)
+
+    def append_message(self, message):
+        if message["id"] in self.message_ids:
+            return
+        self.message_ids.add(message["id"])
+        count = self.messages_list.GetCount()
+        was_at_end = self.messages_list.GetSelection() in (wx.NOT_FOUND, count - 1)
+        self.messages_list.Append(self.format_message(message))
+        # Follow the conversation only if the user is not reading older messages.
+        if was_at_end:
+            self.messages_list.SetSelection(count)
+
+    def move_dialog_to_top(self, index, dialog):
+        """Put the dialog where Telegram shows the most recent chat: right below the pinned ones."""
+        selected = self.dialogs_list.GetSelection()
+        selected_id = self.dialogs[selected]["id"] if selected != wx.NOT_FOUND else None
+
+        if index != wx.NOT_FOUND:
+            del self.dialogs[index]
+            self.dialogs_list.Delete(index)
+        if dialog["pinned"] and index != wx.NOT_FOUND:
+            new_index = index
+        else:
+            new_index = sum(1 for other in self.dialogs if other["pinned"])
+        self.dialogs.insert(new_index, dialog)
+        self.dialogs_list.Insert(self.format_dialog(dialog), new_index)
+
+        if selected_id is not None:
+            self.dialogs_list.SetSelection(self.find_dialog_index(selected_id))
 
     def format_message(self, message):
         if message["outgoing"]:

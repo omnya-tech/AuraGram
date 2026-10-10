@@ -1,6 +1,6 @@
 import asyncio
 import threading
-from telethon import TelegramClient
+from telethon import TelegramClient, events
 from telethon.errors import (
     PhoneCodeInvalidError, PhoneCodeExpiredError, PhoneNumberInvalidError,
     SessionPasswordNeededError, PasswordHashInvalidError, FloodWaitError
@@ -31,10 +31,12 @@ class TelegramManager(threading.Thread):
         self.phone = None
         self.phone_hash = None
         self.entities = {}
+        self.message_listener = None
 
     def run(self):
         asyncio.set_event_loop(self.loop)
         self.client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+        self.client.add_event_handler(self._on_new_message, events.NewMessage())
         self.loop.create_task(self._connect_async())
         self.loop.run_forever()
 
@@ -67,6 +69,13 @@ class TelegramManager(threading.Thread):
     def send_message(self, dialog_id, text, on_result):
         self._request(on_result, self._send_message_async, dialog_id, text)
 
+    def mark_read(self, dialog_id):
+        asyncio.run_coroutine_threadsafe(self._mark_read_async(dialog_id), self.loop)
+
+    def set_message_listener(self, listener):
+        """listener(dialog_id, dialog_title, message) is called from this thread for every new message."""
+        self.message_listener = listener
+
     def _request(self, on_result, coroutine_function, *args):
         """Run a data request; on_result(result, error_key) is called from this thread."""
         asyncio.run_coroutine_threadsafe(
@@ -90,22 +99,48 @@ class TelegramManager(threading.Thread):
         dialogs = await self.client.get_dialogs(limit=DIALOGS_LIMIT)
         self.entities = {dialog.id: dialog.input_entity for dialog in dialogs}
         return [
-            {"id": dialog.id, "title": dialog.name, "unread": dialog.unread_count}
+            {
+                "id": dialog.id, "title": dialog.name,
+                "unread": dialog.unread_count, "pinned": dialog.pinned,
+            }
             for dialog in dialogs
         ]
 
     async def _load_messages_async(self, dialog_id):
-        messages = await self.client.get_messages(self.entities[dialog_id], limit=MESSAGES_LIMIT)
+        entity = self.entities[dialog_id]
+        messages = await self.client.get_messages(entity, limit=MESSAGES_LIMIT)
+        await self._mark_read_async(dialog_id)
         # Telegram returns newest first; the UI reads oldest first.
-        return [
-            {
-                "sender": get_display_name(message.sender) if message.sender else EMPTY_STRING,
-                "text": message.message or EMPTY_STRING,
-                "date": message.date,
-                "outgoing": message.out,
-            }
-            for message in reversed(messages)
-        ]
+        return [self._describe_message(message, message.sender) for message in reversed(messages)]
+
+    async def _mark_read_async(self, dialog_id):
+        # Best effort: failing to mark as read must not fail the request around it.
+        try:
+            await self.client.send_read_acknowledge(self.entities[dialog_id])
+        except Exception:
+            pass
+
+    def _describe_message(self, message, sender):
+        return {
+            "id": message.id,
+            "sender": get_display_name(sender) if sender else EMPTY_STRING,
+            "text": message.message or EMPTY_STRING,
+            "date": message.date,
+            "outgoing": message.out,
+        }
+
+    async def _on_new_message(self, event):
+        if self.message_listener is None:
+            return
+        try:
+            dialog_id = event.chat_id
+            if dialog_id not in self.entities:
+                self.entities[dialog_id] = await event.get_input_chat()
+            title = get_display_name(await event.get_chat())
+            message = self._describe_message(event.message, await event.get_sender())
+        except Exception:
+            return
+        self.message_listener(dialog_id, title, message)
 
     async def _send_message_async(self, dialog_id, text):
         await self.client.send_message(self.entities[dialog_id], text)
