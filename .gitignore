@@ -1,0 +1,7 @@
+# Secrets: API credentials and the logged-in Telegram session
+config.json
+*.session
+*.session-journal
+
+__pycache__/
+*.pyc
