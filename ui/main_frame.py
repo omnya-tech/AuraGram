@@ -7,6 +7,10 @@ from core.constants import (
     DOWNLOADABLE_MEDIA, SAFE_OPEN_EXTENSIONS, DIALOGS_LIMIT, SNIPPET_LENGTH,
     MSG_LOAD_MORE_DIALOGS_KEY, MENU_MESSAGE_KEY, MENU_REPLY_KEY, REPLY_LABEL_FORMAT_KEY,
     REPLY_PREFIX_FORMAT_KEY, MSG_REPLY_CANCELLED_KEY, ANNOUNCE_FORMAT_KEY,
+    MENU_EDIT_KEY, MENU_DELETE_KEY, MENU_SEND_FILE_KEY, MENU_SEARCH_KEY, MENU_FIND_KEY,
+    MENU_FIND_NEXT_KEY, EDIT_LABEL_KEY, MSG_CANNOT_EDIT_KEY, MSG_CANNOT_DELETE_KEY,
+    MSG_CONFIRM_DELETE_KEY, MSG_DELETED_KEY, MSG_CHOOSE_FILE_KEY, MSG_UPLOADING_KEY,
+    MSG_FILE_SENT_KEY, MSG_FIND_PROMPT_KEY, MSG_NOT_FOUND_KEY,
     APP_TITLE_KEY, MAIN_TITLE_KEY, DIALOGS_LABEL_KEY, MESSAGES_LABEL_KEY,
     MESSAGE_INPUT_LABEL_KEY, BTN_SEND_MESSAGE_KEY, DIALOG_UNREAD_FORMAT_KEY,
     MESSAGE_FORMAT_KEY, SENDER_YOU_KEY, MSG_NO_TEXT_KEY, MSG_LOADING_KEY,
@@ -26,6 +30,8 @@ class MainFrame(wx.Frame):
         self.dialogs_limit = DIALOGS_LIMIT
         self.has_more_dialogs = False
         self.reply_to = None
+        self.editing = None
+        self.find_text = ""
         self.messages = []
         self.has_older = False
         # True while older messages or a media file are being fetched.
@@ -86,35 +92,176 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, lambda event: self.Close(), exit_item)
 
         message_menu = wx.Menu()
-        reply_item = message_menu.Append(wx.ID_ANY, self.i18n.get_string(MENU_REPLY_KEY))
-        self.Bind(wx.EVT_MENU, self.on_reply_menu, reply_item)
+        for label_key, handler in (
+            (MENU_REPLY_KEY, self.on_reply_menu),
+            (MENU_EDIT_KEY, self.on_edit_menu),
+            (MENU_DELETE_KEY, self.on_delete_menu),
+            (MENU_SEND_FILE_KEY, self.on_send_file_menu),
+        ):
+            item = message_menu.Append(wx.ID_ANY, self.i18n.get_string(label_key))
+            self.Bind(wx.EVT_MENU, handler, item)
+
+        search_menu = wx.Menu()
+        for label_key, handler in (
+            (MENU_FIND_KEY, self.on_find_menu),
+            (MENU_FIND_NEXT_KEY, self.on_find_next_menu),
+        ):
+            item = search_menu.Append(wx.ID_ANY, self.i18n.get_string(label_key))
+            self.Bind(wx.EVT_MENU, handler, item)
 
         menu_bar = wx.MenuBar()
         menu_bar.Append(file_menu, self.i18n.get_string(MENU_FILE_KEY))
         menu_bar.Append(message_menu, self.i18n.get_string(MENU_MESSAGE_KEY))
+        menu_bar.Append(search_menu, self.i18n.get_string(MENU_SEARCH_KEY))
         self.SetMenuBar(menu_bar)
 
-    def on_reply_menu(self, event):
+    def selected_message(self):
         index = self.messages_list.GetSelection() - self.message_offset()
         if 0 <= index < len(self.messages):
-            self.set_reply(self.messages[index])
+            return self.messages[index]
+        return None
 
-    def set_reply(self, message):
-        """Make the next sent message a reply to `message`; None goes back to a normal message."""
-        self.reply_to = message
+    def notify(self, key):
+        """Short feedback that needs no dialog: shown in the status bar and spoken."""
+        self.set_status(key)
+        speak(self.i18n.get_string(key))
+
+    def on_reply_menu(self, event):
+        message = self.selected_message()
+        if message is not None:
+            self.set_compose(reply_to=message)
+
+    def on_edit_menu(self, event):
+        message = self.selected_message()
         if message is None:
-            label = self.i18n.get_string(MESSAGE_INPUT_LABEL_KEY)
-        else:
+            return
+        if not message["outgoing"] or not message["text"]:
+            self.notify(MSG_CANNOT_EDIT_KEY)
+            return
+        self.set_compose(editing=message)
+
+    def set_compose(self, reply_to=None, editing=None):
+        """Choose what the message field does next: reply, edit, or (no arguments) a normal message."""
+        was_editing = self.editing is not None
+        self.reply_to = reply_to
+        self.editing = editing
+        if reply_to is not None:
             label = self.i18n.get_string(REPLY_LABEL_FORMAT_KEY).format(
-                sender=self.sender_name(message), text=self.message_snippet(message)
+                sender=self.sender_name(reply_to), text=self.message_snippet(reply_to)
             )
+        elif editing is not None:
+            label = self.i18n.get_string(EDIT_LABEL_KEY)
+        else:
+            label = self.i18n.get_string(MESSAGE_INPUT_LABEL_KEY)
         # The field's label is what the screen reader reads when it gets focus.
         self.input_label.SetLabel(label)
         self.message_input.SetName(label)
         self.panel.Layout()
-        if message is not None:
+
+        if editing is not None:
+            self.message_input.SetValue(editing["text"])
+            self.message_input.SetInsertionPointEnd()
+        elif was_editing:
+            # Leaving edit mode: the field still holds the old message's text.
+            self.message_input.Clear()
+        if reply_to is not None or editing is not None:
             self.message_input.SetFocus()
             speak(label)
+
+    def on_delete_menu(self, event):
+        message = self.selected_message()
+        if message is None or self.is_busy:
+            return
+        if not message["outgoing"]:
+            self.notify(MSG_CANNOT_DELETE_KEY)
+            return
+        answer = wx.MessageBox(
+            self.i18n.get_string(MSG_CONFIRM_DELETE_KEY).format(text=self.message_snippet(message)),
+            self.i18n.get_string(APP_TITLE_KEY),
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION, self
+        )
+        if answer != wx.YES:
+            return
+        self.is_busy = True
+        self.set_status(MSG_LOADING_KEY)
+        dialog_id = self.current_dialog_id
+        self.telegram_manager.delete_message(
+            dialog_id, message["id"],
+            self.on_ui_thread(self.on_message_deleted, dialog_id, message["id"])
+        )
+
+    def on_message_deleted(self, result, dialog_id, message_id):
+        self.is_busy = False
+        if dialog_id == self.current_dialog_id:
+            self.remove_message(message_id)
+        self.notify(MSG_DELETED_KEY)
+
+    def remove_message(self, message_id):
+        for index, message in enumerate(self.messages):
+            if message["id"] == message_id:
+                break
+        else:
+            return
+        if self.reply_to is message or self.editing is message:
+            self.set_compose()
+        del self.messages[index]
+        # Re-render rather than delete one row: replies quoting this message change too.
+        self.render_messages(min(index, len(self.messages) - 1))
+
+    def on_send_file_menu(self, event):
+        if self.current_dialog_id is None or self.is_busy:
+            return
+        with wx.FileDialog(
+            self, self.i18n.get_string(MSG_CHOOSE_FILE_KEY),
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST
+        ) as file_dialog:
+            if file_dialog.ShowModal() != wx.ID_OK:
+                return
+            path = file_dialog.GetPath()
+        self.is_busy = True
+        self.set_status(MSG_UPLOADING_KEY)
+        dialog_id = self.current_dialog_id
+        self.telegram_manager.send_file(
+            dialog_id, path, self.on_ui_thread(self.on_file_sent, dialog_id)
+        )
+
+    def on_file_sent(self, result, dialog_id):
+        self.is_busy = False
+        self.notify(MSG_FILE_SENT_KEY)
+        if dialog_id == self.current_dialog_id:
+            self.load_messages()
+
+    def on_find_menu(self, event):
+        with wx.TextEntryDialog(
+            self, self.i18n.get_string(MSG_FIND_PROMPT_KEY),
+            self.i18n.get_string(APP_TITLE_KEY), self.find_text
+        ) as find_dialog:
+            if find_dialog.ShowModal() != wx.ID_OK:
+                return
+            self.find_text = find_dialog.GetValue().strip()
+        # Start from the current chat itself so a first search can land on it.
+        self.find_dialog(self.dialogs_list.GetSelection())
+
+    def on_find_next_menu(self, event):
+        if not self.find_text:
+            self.on_find_menu(event)
+        else:
+            self.find_dialog(self.dialogs_list.GetSelection() + 1)
+
+    def find_dialog(self, start):
+        """Select the next loaded chat whose title contains the search text, wrapping around."""
+        needle = self.find_text.casefold()
+        count = len(self.dialogs)
+        if not needle or not count:
+            return
+        for step in range(count):
+            index = (max(start, 0) + step) % count
+            if needle in self.dialogs[index]["title"].casefold():
+                self.dialogs_list.SetSelection(index)
+                self.dialogs_list.SetFocus()
+                speak(self.format_dialog(self.dialogs[index]))
+                return
+        self.notify(MSG_NOT_FOUND_KEY)
 
     def on_logout_menu(self, event):
         answer = wx.MessageBox(
@@ -199,9 +346,9 @@ class MainFrame(wx.Frame):
             self.on_open_dialog(event)
         elif is_enter and focused is self.messages_list:
             self.on_activate_message(event)
-        elif event.GetKeyCode() == wx.WXK_ESCAPE and self.reply_to is not None:
-            self.set_reply(None)
-            speak(self.i18n.get_string(MSG_REPLY_CANCELLED_KEY))
+        elif event.GetKeyCode() == wx.WXK_ESCAPE and (self.reply_to or self.editing):
+            self.set_compose()
+            self.notify(MSG_REPLY_CANCELLED_KEY)
         else:
             event.Skip()
 
@@ -232,7 +379,7 @@ class MainFrame(wx.Frame):
                 self.messages_list.SetFocus()
             return
         self.current_dialog_id = dialog_id
-        self.set_reply(None)
+        self.set_compose()
         self.messages = []
         self.has_older = False
         self.messages_list.Clear()
@@ -431,15 +578,19 @@ class MainFrame(wx.Frame):
         self.enable_chat(False)
         self.set_status(MSG_LOADING_KEY)
         dialog_id = self.current_dialog_id
-        self.telegram_manager.send_message(
-            dialog_id, text, self.on_ui_thread(self.on_message_sent, dialog_id),
-            reply_to=self.reply_to["id"] if self.reply_to else None
-        )
+        on_result = self.on_ui_thread(self.on_message_sent, dialog_id)
+        if self.editing is not None:
+            self.telegram_manager.edit_message(dialog_id, self.editing["id"], text, on_result)
+        else:
+            self.telegram_manager.send_message(
+                dialog_id, text, on_result,
+                reply_to=self.reply_to["id"] if self.reply_to else None
+            )
 
     def on_message_sent(self, result, dialog_id):
         if dialog_id != self.current_dialog_id:
             return
-        self.set_reply(None)
+        self.set_compose()
         # Re-enable before focusing: a disabled field cannot take focus.
         self.enable_chat(True)
         self.message_input.Clear()

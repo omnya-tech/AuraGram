@@ -5,7 +5,8 @@ import threading
 from telethon import TelegramClient, events
 from telethon.errors import (
     PhoneCodeInvalidError, PhoneCodeExpiredError, PhoneNumberInvalidError,
-    SessionPasswordNeededError, PasswordHashInvalidError, FloodWaitError
+    SessionPasswordNeededError, PasswordHashInvalidError, FloodWaitError,
+    MessageNotModifiedError
 )
 from telethon.utils import get_display_name
 from core.constants import (
@@ -85,6 +86,16 @@ class TelegramManager(threading.Thread):
         """Ends the session on Telegram, then reports the next login step through ui_callback."""
         asyncio.run_coroutine_threadsafe(self._log_out_async(), self.loop)
 
+    def edit_message(self, dialog_id, message_id, text, on_result):
+        self._request(on_result, self._edit_message_async, dialog_id, message_id, text)
+
+    def delete_message(self, dialog_id, message_id, on_result):
+        """Deletes the message for everyone in the chat."""
+        self._request(on_result, self._delete_message_async, dialog_id, message_id)
+
+    def send_file(self, dialog_id, path, on_result):
+        self._request(on_result, self._send_file_async, dialog_id, path)
+
     def mark_read(self, dialog_id):
         asyncio.run_coroutine_threadsafe(self._mark_read_async(dialog_id), self.loop)
 
@@ -151,6 +162,19 @@ class TelegramManager(threading.Thread):
             await self._mark_read_async(dialog_id)
         # Telegram returns newest first; the UI reads oldest first.
         return [self._describe_message(message, message.sender) for message in reversed(messages)]
+
+    async def _edit_message_async(self, dialog_id, message_id, text):
+        try:
+            await self.client.edit_message(self.entities[dialog_id], message_id, text)
+        except MessageNotModifiedError:
+            # Saving the same text again is not a failure.
+            pass
+
+    async def _delete_message_async(self, dialog_id, message_id):
+        await self.client.delete_messages(self.entities[dialog_id], [message_id])
+
+    async def _send_file_async(self, dialog_id, path):
+        await self.client.send_file(self.entities[dialog_id], path)
 
     async def _download_media_async(self, dialog_id, message_id):
         message = await self.client.get_messages(self.entities[dialog_id], ids=message_id)
