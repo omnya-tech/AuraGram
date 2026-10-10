@@ -5,6 +5,10 @@ except Exception:
     # The library is optional: without it the app simply stays silent.
     _auto = None
 
+def is_available():
+    """Whether the screen reader library loaded at all (not whether a screen reader is running)."""
+    return _auto is not None
+
 def speak(text):
     """Announce text through the running screen reader, if there is one."""
     if _auto is None:

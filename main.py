@@ -2,7 +2,7 @@ import sys
 import wx
 from core.config import load_credentials, save_credentials
 from core.constants import (
-    APP_NAME, DEFAULT_LANG, APP_TITLE_KEY, STEP_DONE, BACKGROUND_FLAG,
+    APP_NAME, DEFAULT_LANG, APP_TITLE_KEY, STEP_DONE, BACKGROUND_FLAG, CHECK_FLAG,
     SHOW_HOTKEY_TEXT, ERR_HOTKEY_TAKEN_FORMAT_KEY
 )
 from core.i18n import I18NManager
@@ -117,6 +117,29 @@ class MainApplication(wx.App):
             self.telegram_manager.stop()
         return super().OnExit()
 
+def self_check():
+    """Used by the build script on the finished program: are the bundled pieces all there?
+
+    Returns 0 if so, otherwise the sum of: 1 for missing files (texts, icon, tones),
+    2 for voice messages unavailable, 4 for screen reader output unavailable.
+    """
+    import os
+    from core import audio, speech
+    from core.constants import ICON_FILE, SOUNDS_DIR, SOUND_MESSAGE, SOUND_MESSAGE_IN_CHAT, SOUND_SENT
+    files = [ICON_FILE] + [
+        os.path.join(SOUNDS_DIR, name + ".wav") for name in (SOUND_MESSAGE, SOUND_MESSAGE_IN_CHAT, SOUND_SENT)
+    ]
+    problems = 0
+    if not I18NManager(DEFAULT_LANG).strings or not all(os.path.exists(path) for path in files):
+        problems += 1
+    if not audio.AVAILABLE:
+        problems += 2
+    if not speech.is_available():
+        problems += 4
+    return problems
+
 if __name__ == '__main__':
+    if CHECK_FLAG in sys.argv:
+        sys.exit(self_check())
     app = MainApplication()
     app.MainLoop()

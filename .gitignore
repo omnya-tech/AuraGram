@@ -9,5 +9,9 @@ settings.json
 # Media saved from chats
 downloads/
 
+# Build output
+build/
+dist/
+
 __pycache__/
 *.pyc
