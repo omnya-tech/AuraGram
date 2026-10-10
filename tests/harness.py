@@ -221,6 +221,10 @@ class FakeTelegramClient:
         if name == "DeleteScheduledMessagesRequest":
             peer_id = telegram_client.get_peer_id(request.peer)
             self.scheduled[peer_id] = [m for m in self.scheduled.get(peer_id, []) if m.id not in request.id]
+        if name == "GetPrivacyRequest":
+            return Record(rules=[types.PrivacyValueAllowAll()])
+        if name == "GetAuthorizationsRequest":
+            return Record(authorizations=[])
         if name == "DeleteHistoryRequest":
             return Record(offset=0)
         if name == "ExportMessageLinkRequest":

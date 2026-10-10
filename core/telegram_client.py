@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import logging
 import os
 import threading
 from telethon import TelegramClient, events
@@ -9,7 +10,8 @@ from telethon.errors import (
     MessageNotModifiedError, ChatAdminRequiredError, ChatWriteForbiddenError,
     ChatNotModifiedError, ChatAboutNotModifiedError, UserAdminInvalidError,
     RightForbiddenError, UserCreatorError, MessageDeleteForbiddenError, RPCError,
-    SendCodeUnavailableError, VoiceMessagesForbiddenError
+    SendCodeUnavailableError, VoiceMessagesForbiddenError, ApiIdInvalidError,
+    ApiIdPublishedFloodError
 )
 from telethon.tl import functions, types
 from telethon.utils import get_display_name, get_input_peer, get_peer_id
@@ -31,11 +33,12 @@ from core.constants import (
     MESSAGE_VIEW_PINNED, MESSAGE_VIEW_SCHEDULED, MESSAGE_VIEW_PHOTOS, MESSAGE_VIEW_FILES,
     MESSAGE_VIEW_VOICE, MESSAGE_VIEW_MUSIC, MESSAGE_VIEW_LINKS, ADMIN_LOG_LIMIT, MEMBER_PERMISSIONS,
     INVITE_LINKS_LIMIT, CODE_DELIVERY_KEYS, NEXT_CODE_DELIVERY_KEYS, CODE_DELIVERY_OTHER_KEY,
-    ERR_NO_OTHER_DELIVERY_KEY, ERR_VOICE_FORBIDDEN_KEY,
+    ERR_NO_OTHER_DELIVERY_KEY, ERR_VOICE_FORBIDDEN_KEY, ERR_API_INVALID_KEY,
     EVENT_NEW_MESSAGE, EVENT_MESSAGE_EDITED, EVENT_MESSAGES_DELETED
 )
 
 STOP_TIMEOUT_SECONDS = 5
+logger = logging.getLogger(__name__)
 
 class ChatNotFoundError(Exception):
     """No user or chat matches what was typed."""
@@ -332,6 +335,7 @@ class TelegramManager(threading.Thread):
         except (ConnectionError, OSError):
             on_result(None, ERR_CONNECTION_KEY)
         except Exception:
+            logger.exception("Telegram request failed")
             on_result(None, ERR_GENERAL_KEY)
         else:
             on_result(result, None)
@@ -571,6 +575,7 @@ class TelegramManager(threading.Thread):
             await self._ensure_connected()
             logged_out = await self.client.log_out()
         except Exception:
+            logger.exception("Telegram request failed")
             logged_out = False
         if not logged_out:
             # Still signed in: send the UI back to the main window with the reason.
@@ -836,6 +841,7 @@ class TelegramManager(threading.Thread):
             chat = self._describe_chat(await event.get_chat())
             message = self._describe_message(event.message, await event.get_sender())
         except Exception:
+            logger.exception("Telegram request failed")
             return
         self.message_listener(EVENT_NEW_MESSAGE, chat, message)
 
@@ -845,6 +851,7 @@ class TelegramManager(threading.Thread):
         try:
             message = self._describe_message(event.message, await event.get_sender())
         except Exception:
+            logger.exception("Telegram request failed")
             return
         self.message_listener(EVENT_MESSAGE_EDITED, event.chat_id, message)
 
@@ -958,6 +965,7 @@ class TelegramManager(threading.Thread):
             else:
                 self.ui_callback(STEP_PHONE)
         except Exception:
+            logger.exception("Telegram request failed")
             self.ui_callback(STEP_PHONE, ERR_CONNECTION_KEY)
 
     async def _disconnect_async(self):
@@ -973,11 +981,16 @@ class TelegramManager(threading.Thread):
             self.ui_callback(STEP_CODE)
         except PhoneNumberInvalidError:
             self.ui_callback(STEP_PHONE, ERR_PHONE_INVALID_KEY)
+        except (ApiIdInvalidError, ApiIdPublishedFloodError):
+            # Not a network problem and not the user's number: the app's own key is wrong.
+            logger.error("Telegram rejected the API id and hash")
+            self.ui_callback(STEP_PHONE, ERR_API_INVALID_KEY)
         except FloodWaitError:
             self.ui_callback(STEP_PHONE, ERR_FLOOD_KEY)
         except (ConnectionError, OSError):
             self.ui_callback(STEP_PHONE, ERR_CONNECTION_KEY)
         except Exception:
+            logger.exception("Telegram request failed")
             self.ui_callback(STEP_PHONE, ERR_GENERAL_KEY)
 
     def _remember_code_delivery(self, sent_code):
@@ -1004,6 +1017,7 @@ class TelegramManager(threading.Thread):
         except (ConnectionError, OSError):
             self.ui_callback(STEP_CODE, ERR_CONNECTION_KEY)
         except Exception:
+            logger.exception("Telegram request failed")
             self.ui_callback(STEP_CODE, ERR_GENERAL_KEY)
 
     async def _send_code_async(self, code):
@@ -1023,6 +1037,7 @@ class TelegramManager(threading.Thread):
         except (ConnectionError, OSError):
             self.ui_callback(STEP_CODE, ERR_CONNECTION_KEY)
         except Exception:
+            logger.exception("Telegram request failed")
             self.ui_callback(STEP_CODE, ERR_GENERAL_KEY)
 
     async def _send_password_async(self, password):
@@ -1037,4 +1052,5 @@ class TelegramManager(threading.Thread):
         except (ConnectionError, OSError):
             self.ui_callback(STEP_PASSWORD, ERR_CONNECTION_KEY)
         except Exception:
+            logger.exception("Telegram request failed")
             self.ui_callback(STEP_PASSWORD, ERR_GENERAL_KEY)

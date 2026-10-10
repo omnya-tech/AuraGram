@@ -1,9 +1,11 @@
+import logging
+import logging.handlers
 import sys
 import wx
-from core.config import load_credentials, save_credentials
+from core.config import load_credentials, read_credentials, save_credentials
 from core.constants import (
     APP_NAME, DEFAULT_LANG, APP_TITLE_KEY, STEP_DONE, BACKGROUND_FLAG, CHECK_FLAG, QUIT_FLAG,
-    QUIT_WAIT_SECONDS,
+    QUIT_WAIT_SECONDS, CONNECT_CHECK_SECONDS, BUNDLED_CONFIG_FILE, LOG_FILE, LOG_MAX_BYTES, APP_VERSION, IS_FROZEN,
     SHOW_HOTKEY_TEXT, ERR_HOTKEY_TAKEN_FORMAT_KEY
 )
 from core.i18n import I18NManager
@@ -125,7 +127,9 @@ def self_check():
     """Used by the build script on the finished program: are the bundled pieces all there?
 
     Returns 0 if so, otherwise the sum of: 1 for missing files (texts, icon, tones),
-    2 for voice messages unavailable, 4 for screen reader output unavailable.
+    2 for voice messages unavailable, 4 for screen reader output unavailable,
+    8 for no API id and hash packed in (the program will ask each user for them),
+    16 for failing to connect to Telegram with them.
     """
     import os
     from core import audio, speech
@@ -140,7 +144,52 @@ def self_check():
         problems += 2
     if not speech.is_available():
         problems += 4
+    if not read_credentials(BUNDLED_CONFIG_FILE)[0]:
+        problems += 8
+    elif not can_reach_telegram():
+        problems += 16
     return problems
+
+def can_reach_telegram():
+    """Connect to Telegram the way signing in does, then hang up: no code is requested, no account touched.
+
+    Uses a throwaway session in a temporary folder, never the user's own.
+    """
+    import asyncio
+    import os
+    import tempfile
+    from telethon import TelegramClient
+    api_id, api_hash = load_credentials()
+
+    async def probe():
+        client = TelegramClient(os.path.join(tempfile.mkdtemp(), "probe"), api_id, api_hash)
+        try:
+            await asyncio.wait_for(client.connect(), CONNECT_CHECK_SECONDS)
+            return client.is_connected()
+        finally:
+            await client.disconnect()
+
+    try:
+        return asyncio.run(probe())
+    except Exception:
+        return False
+
+def start_logging():
+    """Keep a small file of errors beside the user's settings.
+
+    The built program has no console, so without this a failure leaves no trace
+    beyond the short message shown on screen.
+    """
+    handler = logging.handlers.RotatingFileHandler(
+        LOG_FILE, maxBytes=LOG_MAX_BYTES, backupCount=1, encoding="utf-8"
+    )
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
+    logging.getLogger().addHandler(handler)
+    logging.getLogger().setLevel(logging.WARNING)
+    logging.getLogger("core").setLevel(logging.INFO)
+    logging.getLogger("core").info(
+        "AuraGram %s started (%s)", APP_VERSION, "installed" if IS_FROZEN else "from source"
+    )
 
 if __name__ == '__main__':
     if CHECK_FLAG in sys.argv:
@@ -148,5 +197,6 @@ if __name__ == '__main__':
     if QUIT_FLAG in sys.argv:
         # Exit code 0 tells the installer the program is closed and its files are free.
         sys.exit(0 if ask_running_copy_to_quit(QUIT_WAIT_SECONDS) else 1)
+    start_logging()
     app = MainApplication()
     app.MainLoop()

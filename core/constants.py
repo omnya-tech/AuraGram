@@ -63,6 +63,12 @@ ENCODING_UTF8 = "utf-8"
 EMPTY_STRING = ""
 
 CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
+# The API id and hash that build.py packs into the program, so installed copies do not ask.
+BUNDLED_CONFIG_NAME = "bundled_config.json"
+BUNDLED_CONFIG_FILE = os.path.join(RESOURCE_DIR, BUNDLED_CONFIG_NAME)
+LOG_FILE = os.path.join(DATA_DIR, "auragram.log")
+LOG_MAX_BYTES = 512 * 1024
+ERR_API_INVALID_KEY = "ERR_API_INVALID"
 SESSION_NAME = os.path.join(DATA_DIR, "auragram_session")
 
 APP_TITLE_KEY = "APP_NAME"
@@ -136,6 +142,7 @@ CHECK_FLAG = "--check"
 # to close properly, so its files can be replaced or removed.
 QUIT_FLAG = "--quit"
 QUIT_WAIT_SECONDS = 8
+CONNECT_CHECK_SECONDS = 20
 SETTINGS_KEEP_IN_BACKGROUND_KEY = "SETTINGS_KEEP_IN_BACKGROUND"
 TRAY_OPEN_KEY = "TRAY_OPEN"
 TRAY_EXIT_KEY = "TRAY_EXIT"

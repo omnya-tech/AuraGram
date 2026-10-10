@@ -10,14 +10,17 @@
 
 #define AppName "AuraGram"
 #define AppExe "AuraGram.exe"
+; The values below are used when this file is compiled on its own, straight from
+; Inno Setup; build.py passes the same ones. Keep the version equal to APP_VERSION
+; in core/constants.py (a test fails if they drift apart).
 #ifndef AppVersion
-  #define AppVersion "0.0.0"
+  #define AppVersion "1.0.0"
 #endif
 #ifndef AppPublisher
   #define AppPublisher "Omnya Technology"
 #endif
 #ifndef AppCopyright
-  #define AppCopyright ""
+  #define AppCopyright "Copyright (C) 2026 Omnya Technology"
 #endif
 
 [Setup]

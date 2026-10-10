@@ -10,12 +10,17 @@ Results:
 Needs PyInstaller (pip install pyinstaller). The installer step needs Inno Setup 6
 (https://jrsoftware.org/isinfo.php) and is skipped with a notice if it is not found.
 """
+import json
 import os
 import shutil
 import subprocess
 import sys
 
-from core.constants import APP_COPYRIGHT, APP_NAME, APP_PUBLISHER, APP_VERSION, BASE_DIR, CHECK_FLAG
+from core.config import read_credentials
+from core.constants import (
+    APP_COPYRIGHT, APP_NAME, APP_PUBLISHER, APP_VERSION, BASE_DIR, BUNDLED_CONFIG_NAME, CHECK_FLAG,
+    CONFIG_FILE
+)
 
 DIST_DIR = os.path.join(BASE_DIR, "dist")
 WORK_DIR = os.path.join(BASE_DIR, "build")
@@ -53,7 +58,10 @@ SELF_CHECK_PROBLEMS = (
     (1, "texts, icon or tones are missing from the build"),
     (2, "voice messages will not work (audio libraries not bundled)"),
     (4, "screen reader announcements will not work (accessible_output2 not bundled)"),
+    (8, "no API id and hash inside: the program will ask each user for them"),
+    (16, "the built program could not connect to Telegram (no internet now, or a wrong API id)"),
 )
+BUNDLED_CONFIG_BUILD_FILE = os.path.join(WORK_DIR, BUNDLED_CONFIG_NAME)
 
 
 def step(title):
@@ -83,6 +91,24 @@ def write_version_info():
         ))
 
 
+def write_bundled_config():
+    """Prepare the API id and hash that go inside the program, taken from this project's config.json.
+
+    Only those two values are packed: never the session file, which is a login to
+    one person's account. Returns False if the project has no usable config.json.
+    """
+    api_id, api_hash = read_credentials(CONFIG_FILE)
+    if not api_id:
+        print("NOTE: no valid config.json in the project, so the built program will ask")
+        print("      every user for an API id and hash on first run.")
+        return False
+    os.makedirs(WORK_DIR, exist_ok=True)
+    with open(BUNDLED_CONFIG_BUILD_FILE, "w", encoding="utf-8") as config_file:
+        json.dump({"API_ID": api_id, "API_HASH": api_hash}, config_file)
+    print("Packing this project's API id and hash into the program.")
+    return True
+
+
 def build_program():
     step("Building the program with PyInstaller")
     # Start clean so files removed from the project do not linger in the build.
@@ -98,6 +124,8 @@ def build_program():
     ]
     for folder in DATA_FOLDERS:
         command += ["--add-data", os.path.join(BASE_DIR, folder) + os.pathsep + folder]
+    if write_bundled_config():
+        command += ["--add-data", BUNDLED_CONFIG_BUILD_FILE + os.pathsep + "."]
     for package in COLLECTED_PACKAGES:
         command += ["--collect-all", package]
     run(command)
@@ -120,7 +148,8 @@ def check_program():
 
 def build_installer():
     step("Building the installer with Inno Setup")
-    compiler = next((path for path in INNO_SETUP_COMPILERS if os.path.exists(path)), None)
+    # The usual install folders first, then wherever the PATH knows an ISCC from.
+    compiler = next((path for path in INNO_SETUP_COMPILERS if os.path.exists(path)), None) or shutil.which("ISCC")
     if compiler is None:
         print("Inno Setup 6 was not found, so no installer was made.")
         print("Install it from https://jrsoftware.org/isinfo.php and run this script again.")

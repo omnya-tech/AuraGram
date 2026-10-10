@@ -156,6 +156,32 @@ class LoginTest(unittest.TestCase):
         self.assertFalse(self.frame.is_processing)
         self.assertTrue(self.frame.code_input.IsShown())
 
+    def test_a_rejected_app_key_is_named_as_such_and_logged(self):
+        from telethon.errors import ApiIdInvalidError
+
+        async def rejected(self, phone):
+            raise ApiIdInvalidError(None)
+
+        with mock.patch.object(FakeLoginClient, "send_code_request", rejected), \
+                self.assertLogs("core.telegram_client", level="ERROR"):
+            self.frame.phone_input.SetValue("+201000000000")
+            self.frame.on_send_phone(None)
+            self.assertTrue(pump(lambda: len(self.errors) == 1))
+        self.assertEqual(self.errors, [self.text(c.ERR_API_INVALID_KEY)])
+        self.assertEqual(self.steps[-1], c.STEP_PHONE)
+
+    def test_an_unexpected_failure_leaves_its_details_in_the_log(self):
+        async def broken(self, phone):
+            raise RuntimeError("something nobody planned for")
+
+        with mock.patch.object(FakeLoginClient, "send_code_request", broken), \
+                self.assertLogs("core.telegram_client", level="ERROR") as logged:
+            self.frame.phone_input.SetValue("+201000000000")
+            self.frame.on_send_phone(None)
+            self.assertTrue(pump(lambda: len(self.errors) == 1))
+        self.assertEqual(self.errors, [self.text(c.ERR_GENERAL_KEY)])
+        self.assertIn("something nobody planned for", "\n".join(logged.output))
+
     def test_wrong_code_keeps_the_resend_button_available(self):
         self.enter_phone()
         self.frame.code_input.SetValue("00000")

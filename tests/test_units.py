@@ -249,6 +249,15 @@ class InstallerScriptTest(unittest.TestCase):
         self.assertIn('#define AppName "%s"' % APP_NAME, self.script)
         self.assertIn("{userappdata}\\{#AppName}", self.script)
 
+    def test_compiled_on_its_own_it_still_carries_the_real_version_and_publisher(self):
+        # Opened directly in Inno Setup, nothing passes these in; the defaults must be right.
+        import re
+        from core.constants import APP_COPYRIGHT, APP_PUBLISHER, APP_VERSION
+        defaults = dict(re.findall(r'#ifndef (\w+)\s+#define \1 "([^"]*)"', self.script))
+        self.assertEqual(defaults["AppVersion"], APP_VERSION)
+        self.assertEqual(defaults["AppPublisher"], APP_PUBLISHER)
+        self.assertEqual(defaults["AppCopyright"], APP_COPYRIGHT)
+
     def test_every_custom_message_exists_in_both_languages(self):
         import re
         used = set(re.findall(r"\{cm:(\w+)", self.script)) | set(re.findall(r"CustomMessage\('(\w+)'\)", self.script))
@@ -262,10 +271,20 @@ class CredentialsTest(unittest.TestCase):
     def setUp(self):
         import tempfile
         from unittest import mock
-        self.path = os.path.join(tempfile.mkdtemp(), "config.json")
-        patch = mock.patch("core.config.CONFIG_FILE", self.path)
-        patch.start()
-        self.addCleanup(patch.stop)
+        folder = tempfile.mkdtemp()
+        self.path = os.path.join(folder, "config.json")
+        self.bundled = os.path.join(folder, "bundled_config.json")
+        for name, path in (("CONFIG_FILE", self.path), ("BUNDLED_CONFIG_FILE", self.bundled)):
+            patch = mock.patch("core.config." + name, path)
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    HASH = "0123456789abcdef0123456789abcdef"
+    OTHER_HASH = "ffffffffffffffffffffffffffffffff"
+
+    def write(self, path, api_id, api_hash):
+        with open(path, "w", encoding="utf-8") as file:
+            json.dump({"API_ID": api_id, "API_HASH": api_hash}, file)
 
     def test_missing_file_means_not_set_up(self):
         from core.config import load_credentials
@@ -273,14 +292,46 @@ class CredentialsTest(unittest.TestCase):
 
     def test_saved_credentials_load_back(self):
         from core.config import load_credentials, save_credentials
-        save_credentials(12345, "abcdef")
-        self.assertEqual(load_credentials(), (12345, "abcdef"))
+        save_credentials(12345, self.HASH)
+        self.assertEqual(load_credentials(), (12345, self.HASH))
 
     def test_damaged_file_is_treated_as_missing(self):
         from core.config import load_credentials
         with open(self.path, "w", encoding="utf-8") as file:
             file.write("{not json")
         self.assertEqual(load_credentials(), (0, ""))
+
+    def test_values_packed_into_the_program_mean_it_never_asks(self):
+        from core.config import load_credentials
+        self.write(self.bundled, 777, self.HASH)
+        self.assertEqual(load_credentials(), (777, self.HASH))
+
+    def test_packed_values_win_over_whatever_a_user_typed_earlier(self):
+        # An installed copy must not stay broken because of an old file with a mistyped key.
+        from core.config import load_credentials
+        self.write(self.bundled, 777, self.HASH)
+        self.write(self.path, 111, self.OTHER_HASH)
+        self.assertEqual(load_credentials(), (777, self.HASH))
+
+    def test_hash_saved_with_a_stray_quote_still_loads_clean(self):
+        from core.config import load_credentials
+        self.write(self.path, 12345, self.HASH + '"')
+        self.assertEqual(load_credentials(), (12345, self.HASH))
+
+    def test_values_that_cannot_be_right_never_reach_telegram(self):
+        from core.config import load_credentials
+        for api_id, api_hash in ((12345, "short"), (12345, self.HASH + "0"), (0, self.HASH),
+                                 ("12345", self.HASH), (-5, self.HASH)):
+            self.write(self.path, api_id, api_hash)
+            self.assertEqual(load_credentials(), (0, ""), (api_id, api_hash))
+
+    def test_cleaning_drops_only_what_is_never_part_of_a_hash(self):
+        from core.config import clean_api_hash
+        self.assertEqual(clean_api_hash('  "%s",\n' % self.HASH.upper()), self.HASH)
+        self.assertEqual(clean_api_hash(self.HASH + "‏"), self.HASH)
+        self.assertEqual(clean_api_hash(self.HASH[:-1] + "z"), "")
+        self.assertEqual(clean_api_hash(self.HASH[:-1]), "")
+        self.assertEqual(clean_api_hash(""), "")
 
 
 class ApiSetupDialogTest(unittest.TestCase):
@@ -303,17 +354,27 @@ class ApiSetupDialogTest(unittest.TestCase):
         self.dialog.hash_input.SetValue(api_hash)
         self.dialog.on_ok(None)
 
-    def test_rejects_a_non_numeric_id_or_empty_hash(self):
-        self.fill("abc", "hash")
+    HASH = "0123456789abcdef0123456789abcdef"
+
+    def test_rejects_a_non_numeric_id_or_a_hash_of_the_wrong_shape(self):
+        self.fill("abc", self.HASH)
         self.fill("123", "  ")
-        self.assertEqual(len(self.errors), 2)
+        self.fill("123", "too short")
+        self.fill("123", self.HASH + "0")
+        self.fill("123", self.HASH[:-1] + "g")
+        self.assertEqual(len(self.errors), 5)
         self.assertEqual(self.ended, [])
         self.assertIsNone(self.dialog.credentials)
 
     def test_accepts_valid_values_trimmed(self):
-        self.fill(" 123 ", " hash ")
-        self.assertEqual(self.dialog.credentials, (123, "hash"))
+        self.fill(" 123 ", " %s " % self.HASH)
+        self.assertEqual(self.dialog.credentials, (123, self.HASH))
         self.assertEqual(len(self.ended), 1)
+
+    def test_a_quote_pasted_along_with_the_hash_is_dropped(self):
+        # Copying the value out of config.json easily takes its closing quote too.
+        self.fill("123", self.HASH + '"')
+        self.assertEqual(self.dialog.credentials, (123, self.HASH))
 
 
 class LocaleTest(unittest.TestCase):

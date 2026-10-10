@@ -1,5 +1,6 @@
 import wx
 from ui.layout import prepare_window
+from core.config import clean_api_hash
 from core.constants import (
     APP_TITLE_KEY, API_SETUP_TITLE_KEY, API_SETUP_NOTE_KEY, API_ID_LABEL_KEY,
     API_HASH_LABEL_KEY, ERR_API_ID_KEY
@@ -34,7 +35,9 @@ class ApiSetupDialog(wx.Dialog):
 
     def on_ok(self, event):
         api_id = self.id_input.GetValue().strip()
-        api_hash = self.hash_input.GetValue().strip()
+        # Checked here, not by Telegram later: a hash with one stray character
+        # would be saved, and then every sign-in attempt would fail.
+        api_hash = clean_api_hash(self.hash_input.GetValue())
         if not api_id.isdigit() or not api_hash:
             wx.MessageBox(
                 self.i18n.get_string(ERR_API_ID_KEY), self.i18n.get_string(APP_TITLE_KEY),
