@@ -92,10 +92,18 @@ class VersionTest(unittest.TestCase):
             self.assertIn("## " + APP_VERSION, file.read())
 
     def test_about_text_shows_name_and_version(self):
-        from core.constants import ABOUT_FORMAT_KEY, APP_NAME, APP_VERSION
-        text = I18NManager("ar").get_string(ABOUT_FORMAT_KEY).format(name=APP_NAME, version=APP_VERSION)
+        from core.constants import ABOUT_FORMAT_KEY, APP_NAME, APP_VERSION, DEVELOPER_NAME_KEY
+        i18n = I18NManager("ar")
+        developer = i18n.get_string(DEVELOPER_NAME_KEY)
+        text = i18n.get_string(ABOUT_FORMAT_KEY).format(name=APP_NAME, version=APP_VERSION, developer=developer)
         self.assertIn(APP_NAME, text)
         self.assertIn(APP_VERSION, text)
+        self.assertIn(developer, text)
+
+    def test_publisher_is_named_in_the_copyright_line(self):
+        from core.constants import APP_COPYRIGHT, APP_PUBLISHER
+        self.assertTrue(APP_PUBLISHER.strip())
+        self.assertIn(APP_PUBLISHER, APP_COPYRIGHT)
 
 
 class CredentialsTest(unittest.TestCase):

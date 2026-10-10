@@ -655,6 +655,12 @@ class DraftAndReadingTest(WindowTestCase):
         self.assertIn("Ali", text.splitlines()[0])
         self.assertEqual(text.splitlines()[-2:], ["line one", "line two"])
 
+    def test_about_box_shows_version_and_who_develops_the_app(self):
+        self.frame.on_about_menu(None)
+        self.assertEqual(len(self.boxes), 1)
+        self.assertIn(c.APP_VERSION, self.boxes[0])
+        self.assertIn(self.text(c.DEVELOPER_NAME_KEY), self.boxes[0])
+
     def test_shortcut_list_mentions_every_menu_shortcut(self):
         _, text = self.shown_text(self.frame.on_shortcuts_menu)
         menu_bar = self.frame.GetMenuBar()

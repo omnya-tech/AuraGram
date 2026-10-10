@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import sys
 
-from core.constants import APP_NAME, APP_VERSION, BASE_DIR, CHECK_FLAG
+from core.constants import APP_COPYRIGHT, APP_NAME, APP_PUBLISHER, APP_VERSION, BASE_DIR, CHECK_FLAG
 
 DIST_DIR = os.path.join(BASE_DIR, "dist")
 WORK_DIR = os.path.join(BASE_DIR, "build")
@@ -37,6 +37,8 @@ VERSION_INFO_TEMPLATE = """VSVersionInfo(
   ffi=FixedFileInfo(filevers={numbers}, prodvers={numbers}),
   kids=[
     StringFileInfo([StringTable('040904B0', [
+      StringStruct('CompanyName', '{publisher}'),
+      StringStruct('LegalCopyright', '{copyright}'),
       StringStruct('FileDescription', '{name}'),
       StringStruct('ProductName', '{name}'),
       StringStruct('FileVersion', '{version}'),
@@ -75,7 +77,10 @@ def write_version_info():
     numbers = tuple(int(part) for part in APP_VERSION.split(".")) + (0,)
     os.makedirs(WORK_DIR, exist_ok=True)
     with open(VERSION_INFO_FILE, "w", encoding="utf-8") as version_file:
-        version_file.write(VERSION_INFO_TEMPLATE.format(numbers=numbers, name=APP_NAME, version=APP_VERSION))
+        version_file.write(VERSION_INFO_TEMPLATE.format(
+            numbers=numbers, name=APP_NAME, version=APP_VERSION,
+            publisher=APP_PUBLISHER, copyright=APP_COPYRIGHT
+        ))
 
 
 def build_program():
@@ -120,7 +125,10 @@ def build_installer():
         print("Inno Setup 6 was not found, so no installer was made.")
         print("Install it from https://jrsoftware.org/isinfo.php and run this script again.")
         return False
-    run([compiler, "/Qp", "/DAppVersion=" + APP_VERSION, os.path.join(BASE_DIR, "installer.iss")])
+    run([
+        compiler, "/Qp", "/DAppVersion=" + APP_VERSION, "/DAppPublisher=" + APP_PUBLISHER,
+        "/DAppCopyright=" + APP_COPYRIGHT, os.path.join(BASE_DIR, "installer.iss")
+    ])
     return True
 
 

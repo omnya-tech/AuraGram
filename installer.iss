@@ -1,11 +1,18 @@
-; Inno Setup script for AuraGram. Built by build.py, which passes the version:
-;   ISCC /DAppVersion=1.0.0 installer.iss
+; Inno Setup script for AuraGram. Built by build.py, which passes the version and
+; the publisher from core/constants.py:
+;   ISCC /DAppVersion=1.0.0 "/DAppPublisher=AuraGram Team" installer.iss
 ; It packages dist\AuraGram, the folder PyInstaller produces.
 
 #define AppName "AuraGram"
 #define AppExe "AuraGram.exe"
 #ifndef AppVersion
   #define AppVersion "0.0.0"
+#endif
+#ifndef AppPublisher
+  #define AppPublisher "AuraGram Team"
+#endif
+#ifndef AppCopyright
+  #define AppCopyright ""
 #endif
 
 [Setup]
@@ -14,6 +21,10 @@ AppId={{6B6E1A52-4D0C-4B7E-9C3A-AE21F0D47A61}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
+AppPublisher={#AppPublisher}
+AppCopyright={#AppCopyright}
+VersionInfoVersion={#AppVersion}
+VersionInfoCompany={#AppPublisher}
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
