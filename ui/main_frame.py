@@ -4,7 +4,7 @@ from core.constants import (
     APP_TITLE_KEY, MAIN_TITLE_KEY, DIALOGS_LABEL_KEY, MESSAGES_LABEL_KEY,
     MESSAGE_INPUT_LABEL_KEY, BTN_SEND_MESSAGE_KEY, DIALOG_UNREAD_FORMAT_KEY,
     MESSAGE_FORMAT_KEY, SENDER_YOU_KEY, MSG_NO_TEXT_KEY, MSG_LOADING_KEY,
-    STATUS_READY_KEY, TIME_FORMAT, DATE_TIME_FORMAT
+    STATUS_READY_KEY, TIME_FORMAT, DATE_TIME_FORMAT, SELECT_DELAY_MS
 )
 
 class MainFrame(wx.Frame):
@@ -14,6 +14,7 @@ class MainFrame(wx.Frame):
         self.telegram_manager = telegram_manager
         self.dialogs = []
         self.current_dialog_id = None
+        self.select_timer = None
         self.init_ui()
         self.load_dialogs()
 
@@ -25,8 +26,10 @@ class MainFrame(wx.Frame):
         dialogs_label = wx.StaticText(self.panel, label=self.i18n.get_string(DIALOGS_LABEL_KEY))
         dialogs_box.Add(dialogs_label, flag=wx.BOTTOM, border=5)
         self.dialogs_list = wx.ListBox(self.panel, style=wx.LB_SINGLE)
+        self.dialogs_list.Bind(wx.EVT_LISTBOX, self.on_select_dialog)
         self.dialogs_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_open_dialog)
-        self.dialogs_list.Bind(wx.EVT_KEY_DOWN, self.on_dialogs_key)
+        # Enter never reaches the list as a key event inside a panel, so catch it here.
+        self.Bind(wx.EVT_CHAR_HOOK, self.on_char_hook)
         dialogs_box.Add(self.dialogs_list, proportion=1, flag=wx.EXPAND)
         hbox.Add(dialogs_box, proportion=1, flag=wx.EXPAND|wx.ALL, border=15)
 
@@ -101,18 +104,38 @@ class MainFrame(wx.Frame):
             title=dialog["title"], count=dialog["unread"]
         )
 
-    def on_dialogs_key(self, event):
-        if event.GetKeyCode() in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
+    def on_char_hook(self, event):
+        is_enter = event.GetKeyCode() in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER)
+        if is_enter and wx.Window.FindFocus() is self.dialogs_list:
             self.on_open_dialog(event)
         else:
             event.Skip()
 
+    def on_select_dialog(self, event):
+        # Wait for the selection to settle so arrowing through the list
+        # does not send a request per chat.
+        if self.select_timer:
+            self.select_timer.Stop()
+        self.select_timer = wx.CallLater(SELECT_DELAY_MS, self.open_selected_dialog, False)
+
     def on_open_dialog(self, event):
+        if self.select_timer:
+            self.select_timer.Stop()
+        self.open_selected_dialog(True)
+
+    def open_selected_dialog(self, focus_messages):
         index = self.dialogs_list.GetSelection()
         if index == wx.NOT_FOUND:
             return
-        self.current_dialog_id = self.dialogs[index]["id"]
-        self.load_messages(focus_messages=True)
+        dialog_id = self.dialogs[index]["id"]
+        if dialog_id == self.current_dialog_id:
+            if focus_messages:
+                self.messages_list.SetFocus()
+            return
+        self.current_dialog_id = dialog_id
+        self.messages_list.Clear()
+        self.enable_chat(False)
+        self.load_messages(focus_messages)
 
     def load_messages(self, focus_messages=False):
         self.set_status(MSG_LOADING_KEY)
