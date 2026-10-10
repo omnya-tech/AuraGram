@@ -6,7 +6,10 @@ from core.constants import (
     MEMBER_ACTION_PROMOTE, MEMBER_ACTION_DEMOTE, MEMBER_ACTION_TEXTS,
     INFO_MEMBERS_HINT_KEY, MSG_NO_MEMBER_ACTIONS_KEY, MEMBER_ACTION_UNBAN, MEMBER_ROLE_BANNED,
     ADMIN_RIGHTS, CHANNEL_ONLY_RIGHTS, ADMIN_RIGHT_KEY_PREFIX, MEMBER_EDIT_RIGHTS_KEY,
-    MSG_CHOOSE_RIGHTS_FORMAT_KEY, MSG_NO_RIGHTS_CHOSEN_KEY, INFO_SHOW_BANNED_KEY,
+    MSG_CHOOSE_RIGHTS_FORMAT_KEY, MSG_NO_RIGHTS_CHOSEN_KEY, INFO_MEMBER_LIST_LABEL_KEY,
+    MEMBERS_CURRENT, MEMBERS_BANNED, MEMBERS_REQUESTS, MEMBER_LISTS, MEMBER_ROLE_PENDING,
+    MEMBER_ROLE_RESTRICTED, MEMBER_ACTION_MUTE, MEMBER_ACTION_UNMUTE, MEMBER_ACTION_APPROVE,
+    MEMBER_ACTION_DECLINE, CHAT_KIND_SUPERGROUP,
     BTN_COPY_INVITE_KEY, MSG_INVITE_COPIED_KEY, CHAT_KIND_CHANNEL,
     INFO_TITLE_FORMAT_KEY, INFO_SUMMARY_LABEL_KEY, INFO_KIND_FORMAT_KEY,
     INFO_USERNAME_FORMAT_KEY, INFO_MEMBERS_COUNT_FORMAT_KEY, INFO_ROLE_MANAGER_KEY,
@@ -30,6 +33,7 @@ class ChatInfoDialog(wx.Dialog):
         self.dialog_id = dialog["id"]
         self.info = None
         self.members = []
+        self.list_modes = [MEMBERS_CURRENT]
         # Set once a new name has been saved, for the caller to show in its chat list.
         self.saved_title = None
         self.init_ui()
@@ -64,9 +68,10 @@ class ChatInfoDialog(wx.Dialog):
         search_box.Add(self.search_btn)
         sizer.Add(search_box, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
 
-        self.banned_checkbox = wx.CheckBox(self, label=self.i18n.get_string(INFO_SHOW_BANNED_KEY))
-        self.banned_checkbox.Bind(wx.EVT_CHECKBOX, self.on_search_members)
-        sizer.Add(self.banned_checkbox, flag=wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
+        self.list_label = self.add_label(sizer, INFO_MEMBER_LIST_LABEL_KEY)
+        self.list_choice = wx.Choice(self)
+        self.list_choice.Bind(wx.EVT_CHOICE, self.on_search_members)
+        sizer.Add(self.list_choice, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
 
         self.members_label = self.add_label(sizer, INFO_MEMBERS_LABEL_KEY)
         self.members_controls.append(self.members_label)
@@ -88,7 +93,7 @@ class ChatInfoDialog(wx.Dialog):
         # Nothing can be edited or searched until the chat's details arrive.
         for control in (
             self.title_input, self.about_input, self.save_btn, self.invite_btn,
-            self.banned_checkbox, *self.members_controls
+            self.list_label, self.list_choice, *self.members_controls
         ):
             control.Disable()
         self.SetSizer(sizer)
@@ -149,9 +154,19 @@ class ChatInfoDialog(wx.Dialog):
         if info["can_ban"] or info["can_promote"]:
             # Tell managers the list is more than a list; viewers get the plain label.
             self.members_label.SetLabel(self.i18n.get_string(INFO_MEMBERS_HINT_KEY))
-        # Small basic groups keep no ban list, so there is nothing to show for them.
-        has_ban_list = info["can_ban"] and info["kind"] not in (CHAT_KIND_USER, CHAT_KIND_GROUP)
-        for control, usable in ((self.banned_checkbox, has_ban_list), (self.invite_btn, info["can_invite"])):
+        # Offer only the lists this account may see here. Small basic groups keep no ban list.
+        self.list_modes = [MEMBERS_CURRENT]
+        if info["can_ban"] and info["kind"] != CHAT_KIND_GROUP:
+            self.list_modes.append(MEMBERS_BANNED)
+        if info["can_invite"]:
+            self.list_modes.append(MEMBERS_REQUESTS)
+        self.list_choice.Set([self.i18n.get_string(dict(MEMBER_LISTS)[mode]) for mode in self.list_modes])
+        self.list_choice.SetSelection(0)
+        has_choice = len(self.list_modes) > 1
+        for control, usable in (
+            (self.list_label, has_choice), (self.list_choice, has_choice),
+            (self.invite_btn, info["can_invite"])
+        ):
             control.Show(usable)
             control.Enable(usable)
         self.Layout()
@@ -168,7 +183,7 @@ class ChatInfoDialog(wx.Dialog):
             self.dialog_id, self.search_input.GetValue().strip(),
             # E.g. a channel where only admins may see the subscribers.
             self.on_ui_thread(self.show_members, on_error=self.members_list.Clear),
-            banned=self.banned_checkbox.GetValue()
+            which=self.list_modes[max(self.list_choice.GetSelection(), 0)]
         )
 
     def on_copy_invite(self, event):
@@ -193,8 +208,14 @@ class ChatInfoDialog(wx.Dialog):
             return []
         if member["role"] == MEMBER_ROLE_BANNED:
             return [MEMBER_ACTION_UNBAN] if self.info["can_ban"] else []
+        if member["role"] == MEMBER_ROLE_PENDING:
+            return [MEMBER_ACTION_APPROVE, MEMBER_ACTION_DECLINE] if self.info["can_invite"] else []
         actions = []
         if self.info["can_ban"]:
+            # Only large groups can take away the right to write while keeping the member.
+            if self.info["kind"] == CHAT_KIND_SUPERGROUP and member["role"] != MEMBER_ROLE_ADMIN:
+                is_restricted = member["role"] == MEMBER_ROLE_RESTRICTED
+                actions.append(MEMBER_ACTION_UNMUTE if is_restricted else MEMBER_ACTION_MUTE)
             actions.append(MEMBER_ACTION_KICK)
             # Small basic groups have no ban list, only removal.
             if self.info["kind"] != CHAT_KIND_GROUP:

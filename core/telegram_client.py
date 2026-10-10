@@ -22,6 +22,8 @@ from core.constants import (
     MEMBER_ROLE_OWNER, MEMBER_ROLE_ADMIN, MEMBERS_LIMIT,
     MEMBER_ACTION_KICK, MEMBER_ACTION_BAN, MEMBER_ACTION_PROMOTE, MEMBER_ACTION_DEMOTE,
     MEMBER_ACTION_UNBAN, MEMBER_ROLE_BANNED, ADMIN_RIGHTS, FOLDER_CATEGORIES,
+    MEMBERS_CURRENT, MEMBERS_BANNED, MEMBERS_REQUESTS, MEMBER_ROLE_PENDING, MEMBER_ROLE_RESTRICTED,
+    MEMBER_ACTION_MUTE, MEMBER_ACTION_UNMUTE, MEMBER_ACTION_APPROVE, MEMBER_ACTION_DECLINE,
     CATEGORY_CONTACTS, CATEGORY_NON_CONTACTS, CATEGORY_GROUPS, CATEGORY_BROADCASTS, CATEGORY_BOTS,
     PRIVACY_EVERYONE, PRIVACY_CONTACTS, PRIVACY_NOBODY, ERR_CHAT_NOT_FOUND_KEY,
     EVENT_NEW_MESSAGE, EVENT_MESSAGE_EDITED, EVENT_MESSAGES_DELETED
@@ -120,9 +122,20 @@ class TelegramManager(threading.Thread):
         """Pass None for a field that should stay as it is."""
         self._request(on_result, self._save_chat_info_async, dialog_id, title, about)
 
-    def load_members(self, dialog_id, search, on_result, banned=False):
-        """The result is a list of members (or of banned users), each with id, name, role, rights and is_self."""
-        self._request(on_result, self._load_members_async, dialog_id, search, banned)
+    def load_members(self, dialog_id, search, on_result, which=MEMBERS_CURRENT):
+        """The result is a list of people, each with id, name, role, rights and is_self.
+
+        `which` is one of the MEMBERS_* constants: current members, banned users, or join requests.
+        """
+        self._request(on_result, self._load_members_async, dialog_id, search, which)
+
+    def leave_chat(self, dialog_id, on_result):
+        """Leaves a group or channel; for a private chat, deletes it from this account's list."""
+        self._request(on_result, self._leave_chat_async, dialog_id)
+
+    def react(self, dialog_id, message_id, emoji, on_result):
+        """Sets this account's reaction (None removes it); the result is the refreshed message."""
+        self._request(on_result, self._react_async, dialog_id, message_id, emoji)
 
     def manage_member(self, dialog_id, user_id, action, on_result, rights=None):
         """Applies one of the MEMBER_ACTION_* constants to a member loaded by load_members.
@@ -169,8 +182,9 @@ class TelegramManager(threading.Thread):
         """Saves the message's media to the downloads folder; the result is the file path."""
         self._request(on_result, self._download_media_async, dialog_id, message_id)
 
-    def send_message(self, dialog_id, text, on_result, reply_to=None):
-        self._request(on_result, self._send_message_async, dialog_id, text, reply_to)
+    def send_message(self, dialog_id, text, on_result, reply_to=None, schedule=None):
+        """`schedule` is a datetime to deliver the message at, instead of now."""
+        self._request(on_result, self._send_message_async, dialog_id, text, reply_to, schedule)
 
     def log_out(self):
         """Ends the session on Telegram, then reports the next login step through ui_callback."""
@@ -460,17 +474,27 @@ class TelegramManager(threading.Thread):
             # Saving the same value again is not a failure.
             pass
 
-    async def _load_members_async(self, dialog_id, search, banned):
-        participants = await self.client.get_participants(
-            self.entities[dialog_id], limit=MEMBERS_LIMIT, search=search,
-            filter=types.ChannelParticipantsKicked if banned else None
-        )
+    async def _load_members_async(self, dialog_id, search, which):
+        entity = self.entities[dialog_id]
+        if which == MEMBERS_REQUESTS:
+            result = await self.client(functions.messages.GetChatInviteImportersRequest(
+                peer=entity, requested=True, q=search or None,
+                offset_date=None, offset_user=types.InputUserEmpty(), limit=MEMBERS_LIMIT
+            ))
+            waiting = {importer.user_id for importer in result.importers}
+            participants = [user for user in result.users if user.id in waiting]
+        else:
+            participants = await self.client.get_participants(
+                entity, limit=MEMBERS_LIMIT, search=search,
+                filter=types.ChannelParticipantsKicked if which == MEMBERS_BANNED else None
+            )
+        fixed_role = {MEMBERS_BANNED: MEMBER_ROLE_BANNED, MEMBERS_REQUESTS: MEMBER_ROLE_PENDING}.get(which)
         self.member_entities = {user.id: get_input_peer(user) for user in participants}
         return [
             {
                 "id": user.id,
                 "name": get_display_name(user) or EMPTY_STRING,
-                "role": MEMBER_ROLE_BANNED if banned else self._member_role(getattr(user, "participant", None)),
+                "role": fixed_role or self._member_role(getattr(user, "participant", None)),
                 "rights": self._member_rights(getattr(user, "participant", None)),
                 "is_self": bool(user.is_self),
             }
@@ -488,9 +512,15 @@ class TelegramManager(threading.Thread):
             await self.client.kick_participant(entity, user)
         elif action == MEMBER_ACTION_BAN:
             await self.client.edit_permissions(entity, user, view_messages=False)
-        elif action == MEMBER_ACTION_UNBAN:
-            # Default permissions: lifts the ban without re-adding the user.
+        elif action in (MEMBER_ACTION_UNBAN, MEMBER_ACTION_UNMUTE):
+            # Default permissions: lifts a ban or restriction without re-adding the user.
             await self.client.edit_permissions(entity, user)
+        elif action == MEMBER_ACTION_MUTE:
+            await self.client.edit_permissions(entity, user, send_messages=False)
+        elif action in (MEMBER_ACTION_APPROVE, MEMBER_ACTION_DECLINE):
+            await self.client(functions.messages.HideChatJoinRequestRequest(
+                peer=entity, user_id=user, approved=action == MEMBER_ACTION_APPROVE
+            ))
         elif action == MEMBER_ACTION_PROMOTE:
             if isinstance(entity, types.InputPeerChat):
                 # Small basic groups have a single admin level, no separate rights.
@@ -515,6 +545,9 @@ class TelegramManager(threading.Thread):
             return MEMBER_ROLE_OWNER
         if isinstance(participant, (types.ChannelParticipantAdmin, types.ChatParticipantAdmin)):
             return MEMBER_ROLE_ADMIN
+        # Still a member, but with some permission taken away.
+        if isinstance(participant, types.ChannelParticipantBanned) and not participant.left:
+            return MEMBER_ROLE_RESTRICTED
         return None
 
     async def _load_messages_async(self, dialog_id, before_id, mark_read):
@@ -569,6 +602,7 @@ class TelegramManager(threading.Thread):
             "outgoing": message.out,
             "pinned": bool(getattr(message, "pinned", False)),
             "reply_to": getattr(message, "reply_to_msg_id", None),
+            "reactions": self._describe_reactions(message),
         }
 
     def _describe_media(self, message):
@@ -608,8 +642,32 @@ class TelegramManager(threading.Thread):
         if self.message_listener is not None:
             self.message_listener(EVENT_MESSAGES_DELETED, event.chat_id, list(event.deleted_ids))
 
-    async def _send_message_async(self, dialog_id, text, reply_to):
-        await self.client.send_message(self.entities[dialog_id], text, reply_to=reply_to)
+    async def _send_message_async(self, dialog_id, text, reply_to, schedule):
+        await self.client.send_message(
+            self.entities[dialog_id], text, reply_to=reply_to, schedule=schedule
+        )
+
+    async def _leave_chat_async(self, dialog_id):
+        await self.client.delete_dialog(self.entities[dialog_id])
+
+    async def _react_async(self, dialog_id, message_id, emoji):
+        entity = self.entities[dialog_id]
+        await self.client(functions.messages.SendReactionRequest(
+            peer=entity, msg_id=message_id,
+            reaction=[types.ReactionEmoji(emoticon=emoji)] if emoji else []
+        ))
+        # Read it back so the list shows the totals Telegram now has.
+        message = await self.client.get_messages(entity, ids=message_id)
+        return self._describe_message(message, message.sender)
+
+    def _describe_reactions(self, message):
+        """[(emoji, count), ...] for the standard emoji reactions on a message."""
+        reactions = getattr(message, "reactions", None)
+        return [
+            (result.reaction.emoticon, result.count)
+            for result in getattr(reactions, "results", None) or []
+            if isinstance(result.reaction, types.ReactionEmoji)
+        ]
 
     async def _ensure_connected(self):
         if not self.client.is_connected():

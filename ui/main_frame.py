@@ -10,7 +10,14 @@ from core.settings import (
 from ui.settings_dialog import SettingsDialog
 from ui.chat_info_dialog import ChatInfoDialog
 from core.chat_views import build_views
+from core.schedule import parse_send_time
 from core.constants import (
+    CATEGORY_GROUPS, CATEGORY_BROADCASTS, CONTEXT_LEAVE_KEY, CONTEXT_DELETE_CHAT_KEY,
+    MSG_CONFIRM_LEAVE_KEY, MSG_CONFIRM_DELETE_CHAT_KEY, MSG_LEFT_KEY, MENU_REACT_KEY,
+    CONTEXT_REACT_KEY, MSG_CHOOSE_REACTION_KEY, REACTION_REMOVE_KEY, REACTION_CHOICE_FORMAT_KEY,
+    REACTIONS_FORMAT_KEY, REACTION_COUNT_FORMAT_KEY, MSG_REACTED_KEY, REACTION_EMOJIS,
+    REACTION_NAME_KEY_PREFIX, MENU_SCHEDULE_KEY, MSG_SCHEDULE_PROMPT_KEY, MSG_SCHEDULED_FORMAT_KEY,
+    MSG_NOTHING_TO_SCHEDULE_KEY, ERR_BAD_TIME_KEY,
     VIEW_LABEL_KEY, MSG_VIEW_COUNT_FORMAT_KEY, MSG_PRIVACY_SAVED_KEY, MENU_CHATS_KEY, MENU_NEW_CHAT_KEY,
     MENU_FIND_CHAT_KEY, MENU_FORWARD_KEY, CONTEXT_FORWARD_KEY, MSG_CHOOSE_CONTACT_KEY,
     MSG_NO_CONTACTS_KEY, MSG_FIND_CHAT_PROMPT_KEY, MSG_FORWARD_TO_KEY, MSG_FORWARDED_FORMAT_KEY,
@@ -147,6 +154,8 @@ class MainFrame(wx.Frame):
             (MENU_SEND_FILE_KEY, self.on_send_file_menu),
             (MENU_PIN_KEY, self.on_pin_menu),
             (MENU_FORWARD_KEY, self.on_forward_menu),
+            (MENU_REACT_KEY, self.on_react_menu),
+            (MENU_SCHEDULE_KEY, self.on_schedule_menu),
             (MENU_RECORD_KEY, self.on_record_menu),
         ):
             item = message_menu.Append(wx.ID_ANY, self.i18n.get_string(label_key))
@@ -236,7 +245,101 @@ class MainFrame(wx.Frame):
         else:
             entries.append((CONTEXT_MUTE_KEY, lambda event: self.set_dialog_muted(dialog, True)))
         entries.append((CONTEXT_INFO_KEY, lambda event: self.show_chat_info(dialog)))
+        # Last, away from the everyday entries: it cannot be undone.
+        is_private = dialog["category"] not in (CATEGORY_GROUPS, CATEGORY_BROADCASTS)
+        leave_key = CONTEXT_DELETE_CHAT_KEY if is_private else CONTEXT_LEAVE_KEY
+        entries.append((leave_key, lambda event: self.leave_chat(dialog, is_private)))
         self.show_context_menu(entries)
+
+    def leave_chat(self, dialog, is_private):
+        confirm_key = MSG_CONFIRM_DELETE_CHAT_KEY if is_private else MSG_CONFIRM_LEAVE_KEY
+        answer = wx.MessageBox(
+            self.i18n.get_string(confirm_key).format(title=dialog["title"]),
+            self.i18n.get_string(APP_TITLE_KEY),
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING, self
+        )
+        if answer == wx.YES:
+            self.telegram_manager.leave_chat(dialog["id"], self.on_ui_thread(self.on_chat_left, dialog))
+
+    def on_chat_left(self, result, dialog):
+        if dialog in self.all_dialogs:
+            self.all_dialogs.remove(dialog)
+        index = self.find_dialog_index(dialog["id"])
+        if index != wx.NOT_FOUND:
+            del self.dialogs[index]
+            self.dialogs_list.Delete(index)
+            if self.dialogs:
+                self.dialogs_list.SetSelection(min(index, len(self.dialogs) - 1))
+        if dialog["id"] == self.current_dialog_id:
+            # Its messages are gone with it.
+            self.current_dialog_id = None
+            self.set_compose()
+            self.messages = []
+            self.has_older = False
+            self.messages_list.Clear()
+            self.enable_chat(False)
+        self.announce(self.i18n.get_string(MSG_LEFT_KEY).format(title=dialog["title"]))
+
+    def on_react_menu(self, event):
+        message = self.selected_message()
+        if message is None or self.is_busy:
+            return
+        names = [
+            self.i18n.get_string(REACTION_CHOICE_FORMAT_KEY).format(
+                name=self.i18n.get_string(REACTION_NAME_KEY_PREFIX + str(index)), emoji=emoji
+            )
+            for index, emoji in enumerate(REACTION_EMOJIS)
+        ]
+        with wx.SingleChoiceDialog(
+            self, self.i18n.get_string(MSG_CHOOSE_REACTION_KEY), self.i18n.get_string(APP_TITLE_KEY),
+            names + [self.i18n.get_string(REACTION_REMOVE_KEY)]
+        ) as reaction_dialog:
+            if reaction_dialog.ShowModal() != wx.ID_OK:
+                return
+            choice = reaction_dialog.GetSelection()
+        # The entry after the emoji is "remove my reaction".
+        emoji = REACTION_EMOJIS[choice] if choice < len(REACTION_EMOJIS) else None
+        self.is_busy = True
+        dialog_id = self.current_dialog_id
+        self.telegram_manager.react(
+            dialog_id, message["id"], emoji, self.on_ui_thread(self.on_reacted, dialog_id)
+        )
+
+    def on_reacted(self, message, dialog_id):
+        self.is_busy = False
+        # Same path as an edit arriving from Telegram: swap the message in and redraw.
+        self.on_message_edited(dialog_id, message)
+        self.notify(MSG_REACTED_KEY)
+
+    def on_schedule_menu(self, event):
+        text = self.message_input.GetValue().strip()
+        if self.current_dialog_id is None:
+            return
+        if not text:
+            self.notify(MSG_NOTHING_TO_SCHEDULE_KEY)
+            return
+        with wx.TextEntryDialog(
+            self, self.i18n.get_string(MSG_SCHEDULE_PROMPT_KEY), self.i18n.get_string(APP_TITLE_KEY)
+        ) as time_dialog:
+            if time_dialog.ShowModal() != wx.ID_OK:
+                return
+            when = parse_send_time(time_dialog.GetValue(), datetime.datetime.now())
+        if when is None:
+            self.show_error(ERR_BAD_TIME_KEY)
+            return
+        dialog_id = self.current_dialog_id
+        self.telegram_manager.send_message(
+            dialog_id, text, self.on_ui_thread(self.on_message_scheduled, dialog_id, when),
+            reply_to=self.reply_to["id"] if self.reply_to else None, schedule=when.astimezone()
+        )
+
+    def on_message_scheduled(self, result, dialog_id, when):
+        if dialog_id == self.current_dialog_id:
+            self.set_compose()
+            self.message_input.Clear()
+        self.announce(self.i18n.get_string(MSG_SCHEDULED_FORMAT_KEY).format(
+            time=when.strftime(DATE_TIME_FORMAT)
+        ))
 
     def show_chat_info(self, dialog):
         with ChatInfoDialog(self, self.i18n, self.telegram_manager, dialog) as info_dialog:
@@ -269,7 +372,10 @@ class MainFrame(wx.Frame):
         if message is None:
             return
         # Only offer what will actually work on this message.
-        entries = [(CONTEXT_REPLY_KEY, self.on_reply_menu), (CONTEXT_FORWARD_KEY, self.on_forward_menu)]
+        entries = [
+            (CONTEXT_REPLY_KEY, self.on_reply_menu), (CONTEXT_REACT_KEY, self.on_react_menu),
+            (CONTEXT_FORWARD_KEY, self.on_forward_menu),
+        ]
         if message["outgoing"] and message["text"]:
             entries.append((CONTEXT_EDIT_KEY, self.on_edit_menu))
         if self.can_delete(message):
@@ -1068,6 +1174,14 @@ class MainFrame(wx.Frame):
             )
         if message["pinned"]:
             text = self.i18n.get_string(PINNED_FORMAT_KEY).format(text=text)
+        if message["reactions"]:
+            text = self.i18n.get_string(REACTIONS_FORMAT_KEY).format(
+                text=text,
+                reactions="، ".join(
+                    self.i18n.get_string(REACTION_COUNT_FORMAT_KEY).format(emoji=emoji, count=count)
+                    for emoji, count in message["reactions"]
+                )
+            )
         return self.i18n.get_string(MESSAGE_FORMAT_KEY).format(
             sender=self.sender_name(message),
             text=text,
