@@ -28,6 +28,7 @@ from core.constants import (
     PRIVACY_EVERYONE, PRIVACY_CONTACTS, PRIVACY_NOBODY, ERR_CHAT_NOT_FOUND_KEY,
     MESSAGE_VIEW_PINNED, MESSAGE_VIEW_SCHEDULED, MESSAGE_VIEW_PHOTOS, MESSAGE_VIEW_FILES,
     MESSAGE_VIEW_VOICE, MESSAGE_VIEW_MUSIC, MESSAGE_VIEW_LINKS, ADMIN_LOG_LIMIT, MEMBER_PERMISSIONS,
+    INVITE_LINKS_LIMIT,
     EVENT_NEW_MESSAGE, EVENT_MESSAGE_EDITED, EVENT_MESSAGES_DELETED
 )
 
@@ -224,8 +225,17 @@ class TelegramManager(threading.Thread):
     def save_privacy(self, changes, on_result):
         self._request(on_result, self._save_privacy_async, changes)
 
-    def load_invite_link(self, dialog_id, on_result):
-        self._request(on_result, self._load_invite_link_async, dialog_id)
+    def load_invite_links(self, dialog_id, on_result):
+        """The result lists the working invite links this account made for the chat."""
+        self._request(on_result, self._load_invite_links_async, dialog_id)
+
+    def create_invite_link(self, dialog_id, title, needs_approval, on_result):
+        """`needs_approval` makes joiners wait in the join requests list."""
+        self._request(on_result, self._create_invite_link_async, dialog_id, title, needs_approval)
+
+    def revoke_invite_link(self, dialog_id, link, on_result):
+        """Stops a link from working; people who already joined with it stay."""
+        self._request(on_result, self._revoke_invite_link_async, dialog_id, link)
 
     def set_pinned(self, dialog_id, message_id, pinned, on_result):
         self._request(on_result, self._set_pinned_async, dialog_id, message_id, pinned)
@@ -452,17 +462,32 @@ class TelegramManager(threading.Thread):
         for name, level in changes.items():
             await self.client(functions.account.SetPrivacyRequest(PRIVACY_KEYS[name](), rules[level]))
 
-    async def _load_invite_link_async(self, dialog_id):
-        """The chat's main invite link, created first if it has none yet."""
-        entity = self.entities[dialog_id]
-        if isinstance(entity, types.InputPeerChannel):
-            full = await self.client(functions.channels.GetFullChannelRequest(entity))
-        else:
-            full = await self.client(functions.messages.GetFullChatRequest(entity.chat_id))
-        invite = full.full_chat.exported_invite
-        if invite is None or not getattr(invite, "link", None):
-            invite = await self.client(functions.messages.ExportChatInviteRequest(entity))
-        return invite.link
+    async def _load_invite_links_async(self, dialog_id):
+        result = await self.client(functions.messages.GetExportedChatInvitesRequest(
+            peer=self.entities[dialog_id], admin_id=types.InputUserSelf(), limit=INVITE_LINKS_LIMIT
+        ))
+        return [
+            {
+                "link": invite.link,
+                "title": getattr(invite, "title", None) or EMPTY_STRING,
+                "uses": getattr(invite, "usage", None) or 0,
+                # The chat's main link; Telegram replaces it when revoked instead of removing it.
+                "permanent": bool(getattr(invite, "permanent", False)),
+                "needs_approval": bool(getattr(invite, "request_needed", False)),
+            }
+            # Skip link kinds without an address of their own.
+            for invite in result.invites if getattr(invite, "link", None)
+        ]
+
+    async def _create_invite_link_async(self, dialog_id, title, needs_approval):
+        await self.client(functions.messages.ExportChatInviteRequest(
+            peer=self.entities[dialog_id], title=title or None, request_needed=needs_approval
+        ))
+
+    async def _revoke_invite_link_async(self, dialog_id, link):
+        await self.client(functions.messages.EditExportedChatInviteRequest(
+            peer=self.entities[dialog_id], link=link, revoked=True
+        ))
 
     def _has_right(self, entity, right):
         """Whether this account holds an admin right in a group or channel."""

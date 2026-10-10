@@ -93,6 +93,7 @@ class FakeTelegramClient:
     folders = []
     members = []      # users with a `participant` attribute, as get_participants returns them
     banned = []
+    invites = []      # ChatInviteExported objects
     calls = []
 
     @classmethod
@@ -103,6 +104,7 @@ class FakeTelegramClient:
         cls.folders = []
         cls.members = []
         cls.banned = []
+        cls.invites = []
         cls.calls = []
 
     def __init__(self, *args, **kwargs):
@@ -209,6 +211,15 @@ class FakeTelegramClient:
         if name == "DeleteScheduledMessagesRequest":
             peer_id = telegram_client.get_peer_id(request.peer)
             self.scheduled[peer_id] = [m for m in self.scheduled.get(peer_id, []) if m.id not in request.id]
+        if name == "GetExportedChatInvitesRequest":
+            return Record(invites=list(self.invites))
+        if name == "ExportChatInviteRequest":
+            self.invites.append(types.ChatInviteExported(
+                link="https://t.me/+new%d" % len(self.invites), admin_id=10, date=NOW,
+                title=request.title, request_needed=request.request_needed
+            ))
+        if name == "EditExportedChatInviteRequest":
+            self.invites[:] = [invite for invite in self.invites if invite.link != request.link]
         if name == "CreateChannelRequest":
             return Record(chats=[make_channel(500, request.title, group=bool(request.megagroup), creator=True)])
         if name == "GetFullChannelRequest":

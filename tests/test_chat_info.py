@@ -10,6 +10,7 @@ from tests.harness import (
     NOW, FakeChooser, FakeTelegramClient, WindowTestCase, make_channel, make_member, make_user, pump
 )
 from ui.chat_info_dialog import ChatInfoDialog
+from ui.invite_links_dialog import InviteLinksDialog
 
 ADMIN_RIGHTS = types.ChatAdminRights(delete_messages=True, ban_users=True)
 RESTRICTED = types.ChannelParticipantBanned(
@@ -140,6 +141,64 @@ class OwnedGroupTest(ChatInfoTestCase):
         self.dialog.on_member_permissions(None)
         pump(timeout=0.3)
         self.assertEqual(self.calls("permissions"), [])
+
+
+class InviteLinksTest(WindowTestCase):
+    chats = [(make_channel(4, "MyGroup", group=True, creator=True), 0, False)]
+
+    def setUp(self):
+        super().setUp()
+        FakeTelegramClient.invites = [
+            types.ChatInviteExported(link="https://t.me/+main", admin_id=10, date=NOW, permanent=True, usage=7),
+            types.ChatInviteExported(link="https://t.me/+friends", admin_id=10, date=NOW, title="Friends"),
+        ]
+        chat = self.frame.all_dialogs[0]
+        self.dialog = InviteLinksDialog(self.frame, self.i18n, self.manager, chat["id"], chat["title"])
+        self.addCleanup(self.dialog.Destroy)
+        self.assertTrue(pump(lambda: len(self.dialog.links) == 2), "links did not load")
+
+    def test_links_read_with_name_and_usage(self):
+        rows = self.dialog.links_list.GetItems()
+        self.assertIn(self.text(c.INVITE_LINK_MAIN_KEY), rows[0])
+        self.assertIn("7", rows[0])
+        self.assertTrue(rows[1].startswith("Friends"))
+
+    def test_copy_puts_the_selected_link_on_the_clipboard(self):
+        self.dialog.links_list.SetSelection(1)
+        self.dialog.on_copy(None)
+        data = wx.TextDataObject()
+        wx.TheClipboard.Open()
+        wx.TheClipboard.GetData(data)
+        wx.TheClipboard.Close()
+        self.assertEqual(data.GetText(), "https://t.me/+friends")
+
+    def test_new_link_can_require_approval(self):
+        FakeChooser.values = ["Work"]
+        self.box_answer = wx.YES
+        self.dialog.on_new(None)
+        self.assertTrue(pump(lambda: len(self.dialog.links) == 3))
+        request = self.calls("ExportChatInviteRequest")[0][1]
+        self.assertEqual((request.title, request.request_needed), ("Work", True))
+        self.assertIn(self.text(c.INVITE_LINK_APPROVAL_SUFFIX_KEY), self.dialog.links_list.GetString(2))
+
+    def test_cancelling_the_approval_question_creates_nothing(self):
+        FakeChooser.values = ["Work"]
+        self.box_answer = wx.CANCEL
+        self.dialog.on_new(None)
+        pump(timeout=0.2)
+        self.assertEqual(self.calls("ExportChatInviteRequest"), [])
+
+    def test_revoke_needs_confirmation_and_targets_the_selected_link(self):
+        self.dialog.links_list.SetSelection(1)
+        self.box_answer = wx.NO
+        self.dialog.on_revoke(None)
+        pump(timeout=0.2)
+        self.assertEqual(self.calls("EditExportedChatInviteRequest"), [])
+        self.box_answer = wx.YES
+        self.dialog.on_revoke(None)
+        self.assertTrue(pump(lambda: len(self.dialog.links) == 1))
+        request = self.calls("EditExportedChatInviteRequest")[0][1]
+        self.assertEqual((request.link, request.revoked), ("https://t.me/+friends", True))
 
 
 class RestrictedGroupPermissionsTest(ChatInfoTestCase):

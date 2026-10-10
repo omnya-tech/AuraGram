@@ -75,6 +75,8 @@ class ComposerMixin:
             )
 
     def on_message_sent(self, result, dialog_id):
+        # It was sent, so it is no longer a draft, even if another chat is open by now.
+        self.drafts.pop(dialog_id, None)
         if dialog_id != self.current_dialog_id:
             return
         self.set_compose()

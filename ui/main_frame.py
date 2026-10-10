@@ -3,7 +3,9 @@ from core import audio
 from core.speech import speak
 from ui.settings_dialog import SettingsDialog
 from core.chat_views import build_views
+from ui.text_dialog import TextDialog
 from core.constants import (
+    MENU_READ_MESSAGE_KEY, MENU_HELP_KEY, MENU_SHORTCUTS_KEY, SHORTCUTS_TITLE_KEY, SHORTCUTS_TEXT_KEY,
     MENU_MARK_KEY, MENU_UNMARK_ALL_KEY, MENU_NEW_GROUP_KEY, MENU_NEW_CHANNEL_KEY, MESSAGE_VIEWS, MENU_CHAT_VIEWS_KEY, MENU_NEW_POLL_KEY, MENU_REACT_KEY, MENU_SCHEDULE_KEY,
     VIEW_LABEL_KEY, MSG_PRIVACY_SAVED_KEY, MENU_CHATS_KEY, MENU_NEW_CHAT_KEY, MENU_FIND_CHAT_KEY,
     MENU_FORWARD_KEY, MENU_PIN_KEY, MENU_SETTINGS_KEY, MSG_SETTINGS_SAVED_KEY,
@@ -45,6 +47,8 @@ class MainFrame(
         self.has_more_dialogs = False
         self.reply_to = None
         self.editing = None
+        # chat id -> text typed there but not sent; kept only while the app is open.
+        self.drafts = {}
         self.find_text = ""
         # Set while the message list shows search results instead of the conversation.
         self.search_query = None
@@ -136,6 +140,7 @@ class MainFrame(
             (MENU_SEND_FILE_KEY, self.on_send_file_menu),
             (MENU_PIN_KEY, self.on_pin_menu),
             (MENU_FORWARD_KEY, self.on_forward_menu),
+            (MENU_READ_MESSAGE_KEY, self.on_read_message_menu),
             (MENU_MARK_KEY, self.on_mark_menu),
             (MENU_UNMARK_ALL_KEY, self.on_unmark_all_menu),
             (MENU_REACT_KEY, self.on_react_menu),
@@ -176,6 +181,10 @@ class MainFrame(
         menu_bar.Append(views_menu, self.i18n.get_string(MENU_CHAT_VIEWS_KEY))
         menu_bar.Append(message_menu, self.i18n.get_string(MENU_MESSAGE_KEY))
         menu_bar.Append(search_menu, self.i18n.get_string(MENU_SEARCH_KEY))
+        help_menu = wx.Menu()
+        shortcuts_item = help_menu.Append(wx.ID_HELP, self.i18n.get_string(MENU_SHORTCUTS_KEY))
+        self.Bind(wx.EVT_MENU, self.on_shortcuts_menu, shortcuts_item)
+        menu_bar.Append(help_menu, self.i18n.get_string(MENU_HELP_KEY))
         self.SetMenuBar(menu_bar)
 
     def on_settings_menu(self, event):
@@ -200,6 +209,13 @@ class MainFrame(
             self.telegram_manager.save_profile(
                 profile, self.on_ui_thread(lambda result: self.notify(MSG_PROFILE_SAVED_KEY))
             )
+
+    def show_text(self, title_key, text):
+        with TextDialog(self, self.i18n, self.i18n.get_string(title_key), text) as text_dialog:
+            text_dialog.ShowModal()
+
+    def on_shortcuts_menu(self, event):
+        self.show_text(SHORTCUTS_TITLE_KEY, self.i18n.get_string(SHORTCUTS_TEXT_KEY))
 
     def select_item_under_mouse(self, list_box, event):
         """A right click does not select by itself; keyboard menu keys report no position."""

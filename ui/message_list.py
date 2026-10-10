@@ -4,7 +4,7 @@ import wx
 from core import audio
 from core.settings import SETTING_MARK_READ_ON_OPEN
 from core.constants import (
-    MARKED_FORMAT_KEY, MESSAGE_VIEW_SEARCH, MESSAGE_VIEW_SCHEDULED, MSG_VIEW_RESULTS_FORMAT_KEY, MSG_VIEW_EMPTY_KEY,
+    CONTEXT_READ_MESSAGE_KEY, READ_MESSAGE_TITLE_KEY, READ_MESSAGE_HEADER_FORMAT_KEY, MARKED_FORMAT_KEY, MESSAGE_VIEW_SEARCH, MESSAGE_VIEW_SCHEDULED, MSG_VIEW_RESULTS_FORMAT_KEY, MSG_VIEW_EMPTY_KEY,
     POLL_FORMAT_KEY, POLL_OPTION_FORMAT_KEY, POLL_CHOSEN_KEY, POLL_VOTERS_FORMAT_KEY,
     POLL_CLOSED_SUFFIX_KEY, CONTEXT_VOTE_KEY, CONTEXT_REACT_KEY, REACTIONS_FORMAT_KEY,
     REACTION_COUNT_FORMAT_KEY, CONTEXT_FORWARD_KEY, CONTEXT_PIN_KEY, CONTEXT_UNPIN_KEY,
@@ -154,7 +154,7 @@ class MessageListMixin:
             entries.append((CONTEXT_VOTE_KEY, self.on_vote_menu))
         entries += [
             (CONTEXT_REPLY_KEY, self.on_reply_menu), (CONTEXT_REACT_KEY, self.on_react_menu),
-            (CONTEXT_FORWARD_KEY, self.on_forward_menu),
+            (CONTEXT_FORWARD_KEY, self.on_forward_menu), (CONTEXT_READ_MESSAGE_KEY, self.on_read_message_menu),
         ]
         if message["outgoing"] and message["text"]:
             entries.append((CONTEXT_EDIT_KEY, self.on_edit_menu))
@@ -304,6 +304,17 @@ class MessageListMixin:
         if len(text) > SNIPPET_LENGTH:
             text = text[:SNIPPET_LENGTH] + "…"
         return text
+
+    def on_read_message_menu(self, event):
+        message = self.selected_message()
+        if message is None:
+            return
+        header = self.i18n.get_string(READ_MESSAGE_HEADER_FORMAT_KEY).format(
+            sender=self.sender_name(message),
+            time=message["date"].astimezone().strftime(DATE_TIME_FORMAT)
+        )
+        # The list squeezes a message into one row; here it keeps its own line breaks.
+        self.show_text(READ_MESSAGE_TITLE_KEY, header + "\n\n" + self.message_text(message))
 
     def format_message(self, message):
         local_date = message["date"].astimezone()

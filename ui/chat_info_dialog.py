@@ -1,6 +1,7 @@
 import wx
 from core.speech import speak
 from ui.admin_log_dialog import AdminLogDialog
+from ui.invite_links_dialog import InviteLinksDialog
 from core.constants import (
     APP_TITLE_KEY, MSG_LOADING_KEY, CHAT_KIND_USER, CHAT_KIND_GROUP,
     MEMBER_ROLE_OWNER, MEMBER_ROLE_ADMIN, MEMBER_ACTION_KICK, MEMBER_ACTION_BAN,
@@ -13,7 +14,7 @@ from core.constants import (
     MEMBER_ACTION_DECLINE, CHAT_KIND_SUPERGROUP, BTN_ADMIN_LOG_KEY, MEMBER_PERMISSIONS,
     MEMBER_PERMISSION_KEY_PREFIX, BTN_MEMBER_PERMISSIONS_KEY, MSG_CHOOSE_PERMISSIONS_FORMAT_KEY,
     MSG_PERMISSIONS_SAVED_KEY,
-    BTN_COPY_INVITE_KEY, MSG_INVITE_COPIED_KEY, CHAT_KIND_CHANNEL,
+    BTN_INVITE_LINKS_KEY, CHAT_KIND_CHANNEL,
     INFO_TITLE_FORMAT_KEY, INFO_SUMMARY_LABEL_KEY, INFO_KIND_FORMAT_KEY,
     INFO_USERNAME_FORMAT_KEY, INFO_MEMBERS_COUNT_FORMAT_KEY, INFO_ROLE_MANAGER_KEY,
     INFO_ROLE_VIEWER_KEY, INFO_NAME_LABEL_KEY, INFO_ABOUT_LABEL_KEY,
@@ -87,8 +88,8 @@ class ChatInfoDialog(wx.Dialog):
         self.save_btn = wx.Button(self, label=self.i18n.get_string(BTN_SAVE_KEY))
         self.save_btn.Bind(wx.EVT_BUTTON, self.on_save)
         buttons.Add(self.save_btn, flag=wx.RIGHT, border=10)
-        self.invite_btn = wx.Button(self, label=self.i18n.get_string(BTN_COPY_INVITE_KEY))
-        self.invite_btn.Bind(wx.EVT_BUTTON, self.on_copy_invite)
+        self.invite_btn = wx.Button(self, label=self.i18n.get_string(BTN_INVITE_LINKS_KEY))
+        self.invite_btn.Bind(wx.EVT_BUTTON, self.on_invite_links)
         buttons.Add(self.invite_btn, flag=wx.RIGHT, border=10)
         self.permissions_btn = wx.Button(self, label=self.i18n.get_string(BTN_MEMBER_PERMISSIONS_KEY))
         self.permissions_btn.Bind(wx.EVT_BUTTON, self.on_member_permissions)
@@ -233,14 +234,11 @@ class ChatInfoDialog(wx.Dialog):
         ) as log_dialog:
             log_dialog.ShowModal()
 
-    def on_copy_invite(self, event):
-        self.telegram_manager.load_invite_link(self.dialog_id, self.on_ui_thread(self.copy_invite))
-
-    def copy_invite(self, link):
-        if wx.TheClipboard.Open():
-            wx.TheClipboard.SetData(wx.TextDataObject(link))
-            wx.TheClipboard.Close()
-            speak(self.i18n.get_string(MSG_INVITE_COPIED_KEY))
+    def on_invite_links(self, event):
+        with InviteLinksDialog(
+            self, self.i18n, self.telegram_manager, self.dialog_id, self.info["title"]
+        ) as links_dialog:
+            links_dialog.ShowModal()
 
     def show_members(self, members):
         self.members = members

@@ -345,6 +345,80 @@ class MarkingTest(WindowTestCase):
         self.assertEqual(self.frame.marked, set())
 
 
+class DraftAndReadingTest(WindowTestCase):
+    chats = [(ALI, 0, False), (MY_GROUP, 0, False)]
+    history = {1: [make_message(1, "line one\nline two", sender=ALI), make_message(2, "mine", outgoing=True)]}
+
+    def test_unsent_text_is_kept_per_chat(self):
+        self.open_chat(0)
+        self.frame.message_input.SetValue("half written")
+        self.open_chat(1)
+        self.assertEqual(self.frame.message_input.GetValue(), "")
+        self.frame.message_input.SetValue("for the group")
+        self.open_chat(0)
+        self.assertEqual(self.frame.message_input.GetValue(), "half written")
+        self.open_chat(1)
+        self.assertEqual(self.frame.message_input.GetValue(), "for the group")
+
+    def test_sending_clears_the_draft(self):
+        self.open_chat(0)
+        self.frame.message_input.SetValue("send me")
+        self.frame.on_send_message(None)
+        self.assertTrue(pump(lambda: self.calls("send") and self.frame.send_btn.IsEnabled()))
+        self.open_chat(1)
+        self.open_chat(0)
+        self.assertEqual(self.frame.message_input.GetValue(), "")
+
+    def test_text_of_a_message_being_edited_is_not_saved_as_a_draft(self):
+        self.open_chat(0)
+        self.frame.messages_list.SetSelection(1)
+        self.frame.on_edit_menu(None)
+        self.assertEqual(self.frame.message_input.GetValue(), "mine")
+        self.open_chat(1)
+        self.open_chat(0)
+        self.assertEqual(self.frame.message_input.GetValue(), "")
+
+    def shown_text(self, action):
+        shown = []
+
+        class CapturingDialog:
+            def __init__(self, parent, i18n, title, text):
+                shown.append((title, text))
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def ShowModal(self):
+                return wx.ID_CANCEL
+
+        with mock.patch("ui.main_frame.TextDialog", CapturingDialog):
+            action(None)
+        return shown[0]
+
+    def test_reading_a_message_in_full_keeps_its_line_breaks(self):
+        self.open_chat(0)
+        self.frame.messages_list.SetSelection(0)
+        title, text = self.shown_text(self.frame.on_read_message_menu)
+        self.assertEqual(title, self.text(c.READ_MESSAGE_TITLE_KEY))
+        self.assertIn("Ali", text.splitlines()[0])
+        self.assertEqual(text.splitlines()[-2:], ["line one", "line two"])
+
+    def test_shortcut_list_mentions_every_menu_shortcut(self):
+        _, text = self.shown_text(self.frame.on_shortcuts_menu)
+        menu_bar = self.frame.GetMenuBar()
+        shortcuts = []
+        for menu, _ in menu_bar.GetMenus():
+            for item in menu.GetMenuItems():
+                accelerator = item.GetItemLabel().partition("\t")[2]
+                if accelerator and accelerator != "Alt+F4":
+                    shortcuts.append(accelerator)
+        self.assertGreater(len(shortcuts), 15)
+        self.assertEqual([shortcut for shortcut in shortcuts if shortcut not in text], [])
+
+
 class NewChatTest(WindowTestCase):
     chats = [(ALI, 0, False)]
 

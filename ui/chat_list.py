@@ -168,13 +168,26 @@ class ChatListMixin:
             if focus_messages:
                 self.messages_list.SetFocus()
             return
+        self.keep_draft()
         self.current_dialog_id = dialog_id
         self.set_compose()
+        self.message_input.SetValue(self.drafts.get(dialog_id, ""))
         self.messages = []
         self.has_older = False
         self.messages_list.Clear()
         self.enable_chat(False)
         self.load_messages(focus_messages)
+
+    def keep_draft(self):
+        """Remember what is typed for the chat being left, so it is there on coming back."""
+        # While editing, the field holds an old message's text, not something new to keep.
+        if self.current_dialog_id is None or self.editing is not None:
+            return
+        text = self.message_input.GetValue()
+        if text.strip():
+            self.drafts[self.current_dialog_id] = text
+        else:
+            self.drafts.pop(self.current_dialog_id, None)
 
     def open_chat(self, chat):
         """Show and open a chat that may not be in the list yet (a contact, a looked-up username)."""
