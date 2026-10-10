@@ -1,6 +1,6 @@
 ; Inno Setup script for AuraGram. Built by build.py, which passes the version and
 ; the publisher from core/constants.py:
-;   ISCC /DAppVersion=1.0.0 "/DAppPublisher=AuraGram Team" installer.iss
+;   ISCC /DAppVersion=1.0.0 "/DAppPublisher=Omnya Technology" installer.iss
 ; It packages dist\AuraGram, the folder PyInstaller produces.
 
 #define AppName "AuraGram"
@@ -9,7 +9,7 @@
   #define AppVersion "0.0.0"
 #endif
 #ifndef AppPublisher
-  #define AppPublisher "AuraGram Team"
+  #define AppPublisher "Omnya Technology"
 #endif
 #ifndef AppCopyright
   #define AppCopyright ""

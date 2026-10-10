@@ -9,7 +9,7 @@ APP_VERSION = "1.0.0"
 # Who makes the program, as Windows and the installer show it (file properties,
 # "Publisher" in the installed apps list). The About box uses the DEVELOPER_NAME
 # text from the locale file instead, so it can be written in the user's language.
-APP_PUBLISHER = "AuraGram Team"
+APP_PUBLISHER = "Omnya Technology"
 APP_COPYRIGHT = "Copyright (C) 2026 " + APP_PUBLISHER
 DEVELOPER_NAME_KEY = "DEVELOPER_NAME"
 MENU_ABOUT_KEY = "MENU_ABOUT"

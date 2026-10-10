@@ -276,7 +276,7 @@
     "READ_MESSAGE_TITLE": "نص الرسالة",
     "READ_MESSAGE_HEADER_FORMAT": "من: {sender}\nالوقت: {time}",
     "MENU_ABOUT": "حول AuraGram",
-    "DEVELOPER_NAME": "فريق AuraGram",
+    "DEVELOPER_NAME": "Omnya Technology",
     "ABOUT_FORMAT": "{name}\nالإصدار {version}\nمن تطوير {developer}\n\nعميل تيليجرام لسطح المكتب، مصمم للعمل بلوحة المفاتيح وقارئات الشاشة.",
     "MENU_HELP": "م&ساعدة",
     "MENU_SHORTCUTS": "اختصارات لوحة المفاتيح\tF1",
