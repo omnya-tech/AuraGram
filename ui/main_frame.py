@@ -1,9 +1,12 @@
 import datetime
 import os
 import wx
+from core.speech import speak
 from core.constants import (
     MESSAGES_LIMIT, MSG_LOAD_OLDER_KEY, MSG_DOWNLOADING_KEY,
-    DOWNLOADABLE_MEDIA, SAFE_OPEN_EXTENSIONS,
+    DOWNLOADABLE_MEDIA, SAFE_OPEN_EXTENSIONS, DIALOGS_LIMIT, SNIPPET_LENGTH,
+    MSG_LOAD_MORE_DIALOGS_KEY, MENU_MESSAGE_KEY, MENU_REPLY_KEY, REPLY_LABEL_FORMAT_KEY,
+    REPLY_PREFIX_FORMAT_KEY, MSG_REPLY_CANCELLED_KEY, ANNOUNCE_FORMAT_KEY,
     APP_TITLE_KEY, MAIN_TITLE_KEY, DIALOGS_LABEL_KEY, MESSAGES_LABEL_KEY,
     MESSAGE_INPUT_LABEL_KEY, BTN_SEND_MESSAGE_KEY, DIALOG_UNREAD_FORMAT_KEY,
     MESSAGE_FORMAT_KEY, SENDER_YOU_KEY, MSG_NO_TEXT_KEY, MSG_LOADING_KEY,
@@ -20,6 +23,9 @@ class MainFrame(wx.Frame):
         self.dialogs = []
         self.current_dialog_id = None
         self.select_timer = None
+        self.dialogs_limit = DIALOGS_LIMIT
+        self.has_more_dialogs = False
+        self.reply_to = None
         self.messages = []
         self.has_older = False
         # True while older messages or a media file are being fetched.
@@ -52,8 +58,8 @@ class MainFrame(wx.Frame):
         self.messages_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_activate_message)
         chat_box.Add(self.messages_list, proportion=1, flag=wx.EXPAND|wx.BOTTOM, border=15)
 
-        input_label = wx.StaticText(self.panel, label=self.i18n.get_string(MESSAGE_INPUT_LABEL_KEY))
-        chat_box.Add(input_label, flag=wx.BOTTOM, border=5)
+        self.input_label = wx.StaticText(self.panel, label=self.i18n.get_string(MESSAGE_INPUT_LABEL_KEY))
+        chat_box.Add(self.input_label, flag=wx.BOTTOM, border=5)
         input_box = wx.BoxSizer(wx.HORIZONTAL)
         self.message_input = wx.TextCtrl(self.panel, style=wx.TE_PROCESS_ENTER)
         self.message_input.Bind(wx.EVT_TEXT_ENTER, self.on_send_message)
@@ -79,9 +85,36 @@ class MainFrame(wx.Frame):
         exit_item = file_menu.Append(wx.ID_EXIT, self.i18n.get_string(MENU_EXIT_KEY))
         self.Bind(wx.EVT_MENU, lambda event: self.Close(), exit_item)
 
+        message_menu = wx.Menu()
+        reply_item = message_menu.Append(wx.ID_ANY, self.i18n.get_string(MENU_REPLY_KEY))
+        self.Bind(wx.EVT_MENU, self.on_reply_menu, reply_item)
+
         menu_bar = wx.MenuBar()
         menu_bar.Append(file_menu, self.i18n.get_string(MENU_FILE_KEY))
+        menu_bar.Append(message_menu, self.i18n.get_string(MENU_MESSAGE_KEY))
         self.SetMenuBar(menu_bar)
+
+    def on_reply_menu(self, event):
+        index = self.messages_list.GetSelection() - self.message_offset()
+        if 0 <= index < len(self.messages):
+            self.set_reply(self.messages[index])
+
+    def set_reply(self, message):
+        """Make the next sent message a reply to `message`; None goes back to a normal message."""
+        self.reply_to = message
+        if message is None:
+            label = self.i18n.get_string(MESSAGE_INPUT_LABEL_KEY)
+        else:
+            label = self.i18n.get_string(REPLY_LABEL_FORMAT_KEY).format(
+                sender=self.sender_name(message), text=self.message_snippet(message)
+            )
+        # The field's label is what the screen reader reads when it gets focus.
+        self.input_label.SetLabel(label)
+        self.message_input.SetName(label)
+        self.panel.Layout()
+        if message is not None:
+            self.message_input.SetFocus()
+            speak(label)
 
     def on_logout_menu(self, event):
         answer = wx.MessageBox(
@@ -123,14 +156,34 @@ class MainFrame(wx.Frame):
 
     def load_dialogs(self):
         self.set_status(MSG_LOADING_KEY)
-        self.telegram_manager.load_dialogs(self.on_ui_thread(self.show_dialogs))
+        self.telegram_manager.load_dialogs(self.on_ui_thread(self.show_dialogs), self.dialogs_limit)
 
     def show_dialogs(self, dialogs):
+        selected = self.dialogs_list.GetSelection()
+        was_on_load_more = self.has_more_dialogs and selected == len(self.dialogs)
+        first_new_index = len(self.dialogs)
+        selected_id = self.dialogs[selected]["id"] if 0 <= selected < len(self.dialogs) else None
+
         self.dialogs = dialogs
-        self.dialogs_list.Set([self.format_dialog(dialog) for dialog in dialogs])
-        if dialogs:
+        # A full page means Telegram most likely has more chats after it.
+        self.has_more_dialogs = len(dialogs) == self.dialogs_limit
+        items = [self.format_dialog(dialog) for dialog in dialogs]
+        if self.has_more_dialogs:
+            items.append(self.i18n.get_string(MSG_LOAD_MORE_DIALOGS_KEY))
+        self.dialogs_list.Set(items)
+
+        if was_on_load_more and first_new_index < len(dialogs):
+            # Continue from the first chat that was just added.
+            self.dialogs_list.SetSelection(first_new_index)
+        elif self.find_dialog_index(selected_id) != wx.NOT_FOUND:
+            self.dialogs_list.SetSelection(self.find_dialog_index(selected_id))
+        elif dialogs:
             self.dialogs_list.SetSelection(0)
         self.set_status(STATUS_READY_KEY)
+
+    def load_more_dialogs(self):
+        self.dialogs_limit += DIALOGS_LIMIT
+        self.load_dialogs()
 
     def format_dialog(self, dialog):
         if not dialog["unread"]:
@@ -146,6 +199,9 @@ class MainFrame(wx.Frame):
             self.on_open_dialog(event)
         elif is_enter and focused is self.messages_list:
             self.on_activate_message(event)
+        elif event.GetKeyCode() == wx.WXK_ESCAPE and self.reply_to is not None:
+            self.set_reply(None)
+            speak(self.i18n.get_string(MSG_REPLY_CANCELLED_KEY))
         else:
             event.Skip()
 
@@ -165,12 +221,18 @@ class MainFrame(wx.Frame):
         index = self.dialogs_list.GetSelection()
         if index == wx.NOT_FOUND:
             return
+        if index >= len(self.dialogs):
+            # The "load more chats" row: act on Enter only, not on merely passing over it.
+            if focus_messages:
+                self.load_more_dialogs()
+            return
         dialog_id = self.dialogs[index]["id"]
         if dialog_id == self.current_dialog_id:
             if focus_messages:
                 self.messages_list.SetFocus()
             return
         self.current_dialog_id = dialog_id
+        self.set_reply(None)
         self.messages = []
         self.has_older = False
         self.messages_list.Clear()
@@ -280,9 +342,15 @@ class MainFrame(wx.Frame):
         else:
             dialog = self.dialogs[index]
 
-        is_being_read = dialog_id == self.current_dialog_id and self.IsActive()
-        if not message["outgoing"] and not dialog["muted"] and not is_being_read:
-            wx.Bell()
+        is_current = dialog_id == self.current_dialog_id
+        if not message["outgoing"] and not dialog["muted"]:
+            if not (is_current and self.IsActive()):
+                wx.Bell()
+            # In the open chat the sender is what matters; elsewhere, which chat it came from.
+            speak(self.i18n.get_string(ANNOUNCE_FORMAT_KEY).format(
+                source=message["sender"] if is_current else dialog["title"],
+                text=self.message_snippet(message)
+            ))
 
         if dialog_id == self.current_dialog_id:
             self.append_message(message)
@@ -306,7 +374,7 @@ class MainFrame(wx.Frame):
     def move_dialog_to_top(self, index, dialog):
         """Put the dialog where Telegram shows the most recent chat: right below the pinned ones."""
         selected = self.dialogs_list.GetSelection()
-        selected_id = self.dialogs[selected]["id"] if selected != wx.NOT_FOUND else None
+        selected_id = self.dialogs[selected]["id"] if 0 <= selected < len(self.dialogs) else None
 
         if index != wx.NOT_FOUND:
             del self.dialogs[index]
@@ -321,21 +389,38 @@ class MainFrame(wx.Frame):
         if selected_id is not None:
             self.dialogs_list.SetSelection(self.find_dialog_index(selected_id))
 
-    def format_message(self, message):
+    def sender_name(self, message):
         if message["outgoing"]:
-            sender = self.i18n.get_string(SENDER_YOU_KEY)
-        else:
-            sender = message["sender"]
-        local_date = message["date"].astimezone()
-        is_today = local_date.date() == datetime.date.today()
+            return self.i18n.get_string(SENDER_YOU_KEY)
+        return message["sender"]
+
+    def message_text(self, message):
         text = message["text"]
         if message["media"]:
             text = self.i18n.get_string(MEDIA_FORMAT_KEY).format(
                 media=self.i18n.get_string(message["media"]), text=text
             ).strip()
+        return text or self.i18n.get_string(MSG_NO_TEXT_KEY)
+
+    def message_snippet(self, message):
+        text = " ".join(self.message_text(message).split())
+        if len(text) > SNIPPET_LENGTH:
+            text = text[:SNIPPET_LENGTH] + "…"
+        return text
+
+    def format_message(self, message):
+        local_date = message["date"].astimezone()
+        is_today = local_date.date() == datetime.date.today()
+        text = self.message_text(message)
+        # The replied-to message can only be quoted if it is among the loaded ones.
+        replied = next((m for m in self.messages if m["id"] == message["reply_to"]), None)
+        if replied is not None:
+            text = self.i18n.get_string(REPLY_PREFIX_FORMAT_KEY).format(
+                sender=self.sender_name(replied), quote=self.message_snippet(replied), text=text
+            )
         return self.i18n.get_string(MESSAGE_FORMAT_KEY).format(
-            sender=sender,
-            text=text or self.i18n.get_string(MSG_NO_TEXT_KEY),
+            sender=self.sender_name(message),
+            text=text,
             time=local_date.strftime(TIME_FORMAT if is_today else DATE_TIME_FORMAT)
         )
 
@@ -347,12 +432,16 @@ class MainFrame(wx.Frame):
         self.set_status(MSG_LOADING_KEY)
         dialog_id = self.current_dialog_id
         self.telegram_manager.send_message(
-            dialog_id, text, self.on_ui_thread(self.on_message_sent, dialog_id)
+            dialog_id, text, self.on_ui_thread(self.on_message_sent, dialog_id),
+            reply_to=self.reply_to["id"] if self.reply_to else None
         )
 
     def on_message_sent(self, result, dialog_id):
         if dialog_id != self.current_dialog_id:
             return
+        self.set_reply(None)
+        # Re-enable before focusing: a disabled field cannot take focus.
+        self.enable_chat(True)
         self.message_input.Clear()
         self.load_messages()
         self.message_input.SetFocus()

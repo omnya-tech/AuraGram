@@ -67,8 +67,8 @@ class TelegramManager(threading.Thread):
     def send_password(self, password):
         asyncio.run_coroutine_threadsafe(self._send_password_async(password), self.loop)
 
-    def load_dialogs(self, on_result):
-        self._request(on_result, self._load_dialogs_async)
+    def load_dialogs(self, on_result, limit=DIALOGS_LIMIT):
+        self._request(on_result, self._load_dialogs_async, limit)
 
     def load_messages(self, dialog_id, on_result, before_id=None):
         """Loads the latest page of a chat, or the page before message `before_id`."""
@@ -78,8 +78,8 @@ class TelegramManager(threading.Thread):
         """Saves the message's media to the downloads folder; the result is the file path."""
         self._request(on_result, self._download_media_async, dialog_id, message_id)
 
-    def send_message(self, dialog_id, text, on_result):
-        self._request(on_result, self._send_message_async, dialog_id, text)
+    def send_message(self, dialog_id, text, on_result, reply_to=None):
+        self._request(on_result, self._send_message_async, dialog_id, text, reply_to)
 
     def log_out(self):
         """Ends the session on Telegram, then reports the next login step through ui_callback."""
@@ -111,9 +111,10 @@ class TelegramManager(threading.Thread):
         else:
             on_result(result, None)
 
-    async def _load_dialogs_async(self):
-        dialogs = await self.client.get_dialogs(limit=DIALOGS_LIMIT)
-        self.entities = {dialog.id: dialog.input_entity for dialog in dialogs}
+    async def _load_dialogs_async(self, limit):
+        dialogs = await self.client.get_dialogs(limit=limit)
+        # update(), not replace: chats learned from live messages may not be in this page.
+        self.entities.update({dialog.id: dialog.input_entity for dialog in dialogs})
         return [
             {
                 "id": dialog.id, "title": dialog.name,
@@ -174,6 +175,7 @@ class TelegramManager(threading.Thread):
             "media": self._describe_media(message),
             "date": message.date,
             "outgoing": message.out,
+            "reply_to": getattr(message, "reply_to_msg_id", None),
         }
 
     def _describe_media(self, message):
@@ -200,8 +202,8 @@ class TelegramManager(threading.Thread):
             return
         self.message_listener(dialog_id, title, message)
 
-    async def _send_message_async(self, dialog_id, text):
-        await self.client.send_message(self.entities[dialog_id], text)
+    async def _send_message_async(self, dialog_id, text, reply_to):
+        await self.client.send_message(self.entities[dialog_id], text, reply_to=reply_to)
 
     async def _ensure_connected(self):
         if not self.client.is_connected():
