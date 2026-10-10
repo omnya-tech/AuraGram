@@ -4,14 +4,16 @@ from core.constants import (
     APP_TITLE_KEY, MAIN_TITLE_KEY, DIALOGS_LABEL_KEY, MESSAGES_LABEL_KEY,
     MESSAGE_INPUT_LABEL_KEY, BTN_SEND_MESSAGE_KEY, DIALOG_UNREAD_FORMAT_KEY,
     MESSAGE_FORMAT_KEY, SENDER_YOU_KEY, MSG_NO_TEXT_KEY, MSG_LOADING_KEY,
-    STATUS_READY_KEY, TIME_FORMAT, DATE_TIME_FORMAT, SELECT_DELAY_MS
+    STATUS_READY_KEY, TIME_FORMAT, DATE_TIME_FORMAT, SELECT_DELAY_MS,
+    MEDIA_FORMAT_KEY, MENU_FILE_KEY, MENU_LOGOUT_KEY, MENU_EXIT_KEY, MSG_CONFIRM_LOGOUT_KEY
 )
 
 class MainFrame(wx.Frame):
-    def __init__(self, i18n, telegram_manager):
+    def __init__(self, i18n, telegram_manager, on_logout):
         super().__init__(None, title=i18n.get_string(MAIN_TITLE_KEY), size=(900, 600))
         self.i18n = i18n
         self.telegram_manager = telegram_manager
+        self.on_logout = on_logout
         self.dialogs = []
         self.current_dialog_id = None
         self.select_timer = None
@@ -56,10 +58,31 @@ class MainFrame(wx.Frame):
         hbox.Add(chat_box, proportion=2, flag=wx.EXPAND|wx.TOP|wx.RIGHT|wx.BOTTOM, border=15)
 
         self.panel.SetSizer(hbox)
+        self.init_menu()
         self.CreateStatusBar()
         self.enable_chat(False)
         self.Center()
         wx.CallAfter(self.dialogs_list.SetFocus)
+
+    def init_menu(self):
+        file_menu = wx.Menu()
+        logout_item = file_menu.Append(wx.ID_ANY, self.i18n.get_string(MENU_LOGOUT_KEY))
+        self.Bind(wx.EVT_MENU, self.on_logout_menu, logout_item)
+        file_menu.AppendSeparator()
+        exit_item = file_menu.Append(wx.ID_EXIT, self.i18n.get_string(MENU_EXIT_KEY))
+        self.Bind(wx.EVT_MENU, lambda event: self.Close(), exit_item)
+
+        menu_bar = wx.MenuBar()
+        menu_bar.Append(file_menu, self.i18n.get_string(MENU_FILE_KEY))
+        self.SetMenuBar(menu_bar)
+
+    def on_logout_menu(self, event):
+        answer = wx.MessageBox(
+            self.i18n.get_string(MSG_CONFIRM_LOGOUT_KEY), self.i18n.get_string(APP_TITLE_KEY),
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION, self
+        )
+        if answer == wx.YES:
+            self.on_logout()
 
     def enable_chat(self, enabled):
         self.message_input.Enable(enabled)
@@ -182,9 +205,13 @@ class MainFrame(wx.Frame):
             return
         index = self.find_dialog_index(dialog_id)
         if index == wx.NOT_FOUND:
-            dialog = {"id": dialog_id, "title": title, "unread": 0, "pinned": False}
+            dialog = {"id": dialog_id, "title": title, "unread": 0, "pinned": False, "muted": False}
         else:
             dialog = self.dialogs[index]
+
+        is_being_read = dialog_id == self.current_dialog_id and self.IsActive()
+        if not message["outgoing"] and not dialog["muted"] and not is_being_read:
+            wx.Bell()
 
         if dialog_id == self.current_dialog_id:
             self.append_message(message)
@@ -230,9 +257,14 @@ class MainFrame(wx.Frame):
             sender = message["sender"]
         local_date = message["date"].astimezone()
         is_today = local_date.date() == datetime.date.today()
+        text = message["text"]
+        if message["media"]:
+            text = self.i18n.get_string(MEDIA_FORMAT_KEY).format(
+                media=self.i18n.get_string(message["media"]), text=text
+            ).strip()
         return self.i18n.get_string(MESSAGE_FORMAT_KEY).format(
             sender=sender,
-            text=message["text"] or self.i18n.get_string(MSG_NO_TEXT_KEY),
+            text=text or self.i18n.get_string(MSG_NO_TEXT_KEY),
             time=local_date.strftime(TIME_FORMAT if is_today else DATE_TIME_FORMAT)
         )
 

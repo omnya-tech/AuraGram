@@ -34,13 +34,23 @@ class MainApplication(wx.App):
             return
         if step == STEP_DONE:
             # Open the main window first so the app never has zero windows.
-            self.main_frame = MainFrame(self.i18n, self.telegram_manager)
+            self.main_frame = MainFrame(self.i18n, self.telegram_manager, self.log_out)
             self.main_frame.Show()
             self.login_frame.Destroy()
+            if error_key:
+                self.main_frame.show_error(error_key)
             return
         self.login_frame.set_step(step)
         if error_key:
             self.login_frame.show_error(error_key)
+
+    def log_out(self):
+        # The login window waits in its busy state until Telegram confirms.
+        self.login_frame = LoginFrame(self.i18n, self.telegram_manager)
+        self.login_frame.Show()
+        self.main_frame.Destroy()
+        self.telegram_manager.set_message_listener(None)
+        self.telegram_manager.log_out()
 
     def OnExit(self):
         if self.telegram_manager:

@@ -1,4 +1,5 @@
 import asyncio
+import datetime
 import threading
 from telethon import TelegramClient, events
 from telethon.errors import (
@@ -10,7 +11,8 @@ from core.constants import (
     API_ID, API_HASH, SESSION_NAME, EMPTY_STRING, DIALOGS_LIMIT, MESSAGES_LIMIT,
     STEP_PHONE, STEP_CODE, STEP_PASSWORD, STEP_DONE,
     ERR_CODE_INVALID_KEY, ERR_CODE_EXPIRED_KEY, ERR_PHONE_INVALID_KEY,
-    ERR_PASSWORD_INVALID_KEY, ERR_FLOOD_KEY, ERR_CONNECTION_KEY, ERR_GENERAL_KEY
+    ERR_PASSWORD_INVALID_KEY, ERR_FLOOD_KEY, ERR_CONNECTION_KEY, ERR_GENERAL_KEY,
+    ERR_LOGOUT_KEY, MEDIA_KINDS
 )
 
 STOP_TIMEOUT_SECONDS = 5
@@ -35,10 +37,14 @@ class TelegramManager(threading.Thread):
 
     def run(self):
         asyncio.set_event_loop(self.loop)
-        self.client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
-        self.client.add_event_handler(self._on_new_message, events.NewMessage())
+        self._create_client()
         self.loop.create_task(self._connect_async())
         self.loop.run_forever()
+
+    def _create_client(self):
+        self.client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
+        self.client.add_event_handler(self._on_new_message, events.NewMessage())
+        self.entities = {}
 
     def stop(self):
         if not self.is_alive():
@@ -68,6 +74,10 @@ class TelegramManager(threading.Thread):
 
     def send_message(self, dialog_id, text, on_result):
         self._request(on_result, self._send_message_async, dialog_id, text)
+
+    def log_out(self):
+        """Ends the session on Telegram, then reports the next login step through ui_callback."""
+        asyncio.run_coroutine_threadsafe(self._log_out_async(), self.loop)
 
     def mark_read(self, dialog_id):
         asyncio.run_coroutine_threadsafe(self._mark_read_async(dialog_id), self.loop)
@@ -102,9 +112,30 @@ class TelegramManager(threading.Thread):
             {
                 "id": dialog.id, "title": dialog.name,
                 "unread": dialog.unread_count, "pinned": dialog.pinned,
+                "muted": self._is_muted(dialog),
             }
             for dialog in dialogs
         ]
+
+    def _is_muted(self, dialog):
+        mute_until = getattr(dialog.dialog.notify_settings, "mute_until", None)
+        if not mute_until:
+            return False
+        return mute_until > datetime.datetime.now(datetime.timezone.utc)
+
+    async def _log_out_async(self):
+        try:
+            await self._ensure_connected()
+            logged_out = await self.client.log_out()
+        except Exception:
+            logged_out = False
+        if not logged_out:
+            # Still signed in: send the UI back to the main window with the reason.
+            self.ui_callback(STEP_DONE, ERR_LOGOUT_KEY)
+            return
+        # log_out() deletes the session, so the old client cannot be reused.
+        self._create_client()
+        await self._connect_async()
 
     async def _load_messages_async(self, dialog_id):
         entity = self.entities[dialog_id]
@@ -125,9 +156,21 @@ class TelegramManager(threading.Thread):
             "id": message.id,
             "sender": get_display_name(sender) if sender else EMPTY_STRING,
             "text": message.message or EMPTY_STRING,
+            "media": self._describe_media(message),
             "date": message.date,
             "outgoing": message.out,
         }
+
+    def _describe_media(self, message):
+        """Locale key naming the non-text content of a message, or None for plain text."""
+        # A link preview is media to Telegram, but the message is still just text.
+        if getattr(message, "web_preview", None):
+            return None
+        # Specific kinds first: a sticker, voice note or video is also a document.
+        for attribute, key in MEDIA_KINDS:
+            if getattr(message, attribute, None):
+                return key
+        return None
 
     async def _on_new_message(self, event):
         if self.message_listener is None:
