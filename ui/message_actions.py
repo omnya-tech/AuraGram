@@ -7,7 +7,7 @@ from core.constants import (
     MSG_CANNOT_PIN_KEY, MSG_CONFIRM_DELETE_OTHER_KEY, MSG_COPIED_KEY, MSG_CANNOT_DELETE_KEY,
     MSG_CONFIRM_DELETE_KEY, MSG_DELETED_KEY, APP_TITLE_KEY, MSG_LOADING_KEY,
     MSG_MARKED_COUNT_FORMAT_KEY, MSG_MARKS_CLEARED_KEY, MSG_CONFIRM_DELETE_MANY_FORMAT_KEY,
-    MSG_CANNOT_DELETE_SOME_KEY, MSG_DELETED_MANY_FORMAT_KEY
+    MSG_CANNOT_DELETE_SOME_KEY, MSG_DELETED_MANY_FORMAT_KEY, MSG_LINK_COPIED_KEY
 )
 
 class MessageActionsMixin:
@@ -167,6 +167,20 @@ class MessageActionsMixin:
         wx.TheClipboard.SetData(wx.TextDataObject("\n".join(texts)))
         wx.TheClipboard.Close()
         self.notify(MSG_COPIED_KEY)
+
+    def on_copy_link_menu(self, event):
+        message = self.actionable_message()
+        if message is None or not self.current_dialog()["has_links"]:
+            return
+        self.telegram_manager.load_message_link(
+            self.current_dialog_id, message["id"], self.on_ui_thread(self.copy_link)
+        )
+
+    def copy_link(self, link):
+        if wx.TheClipboard.Open():
+            wx.TheClipboard.SetData(wx.TextDataObject(link))
+            wx.TheClipboard.Close()
+            self.notify(MSG_LINK_COPIED_KEY)
 
     def on_forward_menu(self, event):
         message = self.actionable_message()

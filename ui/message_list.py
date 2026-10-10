@@ -4,7 +4,8 @@ import wx
 from core import audio
 from core.settings import SETTING_MARK_READ_ON_OPEN
 from core.constants import (
-    CONTEXT_READ_MESSAGE_KEY, READ_MESSAGE_TITLE_KEY, READ_MESSAGE_HEADER_FORMAT_KEY, MARKED_FORMAT_KEY, MESSAGE_VIEW_SEARCH, MESSAGE_VIEW_SCHEDULED, MSG_VIEW_RESULTS_FORMAT_KEY, MSG_VIEW_EMPTY_KEY,
+    CONTEXT_COPY_LINK_KEY, CONTEXT_SAVE_AS_KEY, CONTEXT_SELECT_KEY, CONTEXT_UNSELECT_KEY,
+    MSG_CHOOSE_SAVE_FOLDER_KEY, MSG_SAVED_FORMAT_KEY, CONTEXT_READ_MESSAGE_KEY, READ_MESSAGE_TITLE_KEY, READ_MESSAGE_HEADER_FORMAT_KEY, MARKED_FORMAT_KEY, MESSAGE_VIEW_SEARCH, MESSAGE_VIEW_SCHEDULED, MSG_VIEW_RESULTS_FORMAT_KEY, MSG_VIEW_EMPTY_KEY,
     POLL_FORMAT_KEY, POLL_OPTION_FORMAT_KEY, POLL_CHOSEN_KEY, POLL_VOTERS_FORMAT_KEY,
     POLL_CLOSED_SUFFIX_KEY, CONTEXT_VOTE_KEY, CONTEXT_REACT_KEY, REACTIONS_FORMAT_KEY,
     REACTION_COUNT_FORMAT_KEY, CONTEXT_FORWARD_KEY, CONTEXT_PIN_KEY, CONTEXT_UNPIN_KEY,
@@ -42,6 +43,11 @@ class MessageListMixin:
         # A full page means Telegram most likely has more before it.
         self.has_older = len(messages) == MESSAGES_LIMIT
         self.render_messages(len(messages) - 1)
+        chat = self.find_known_dialog(dialog_id)
+        if chat is not None and messages:
+            # The conversation is fresher than the chat list's preview of it.
+            chat["last_message"] = messages[-1]
+            self.refresh_dialog_row(chat)
         if marked_read:
             self.set_unread(dialog_id, 0)
         self.enable_chat(True)
@@ -148,26 +154,51 @@ class MessageListMixin:
                 entries.append((CONTEXT_COPY_KEY, self.on_copy_message))
             self.show_context_menu(entries)
             return
-        # Only offer what will actually work on this message.
+        # Same order as Telegram's own desktop apps, and only what works on this message.
+        chat = self.current_dialog()
+        has_media = message["media"] in DOWNLOADABLE_MEDIA
         entries = []
         if message["poll"] and not message["poll"]["closed"]:
             entries.append((CONTEXT_VOTE_KEY, self.on_vote_menu))
-        entries += [
-            (CONTEXT_REPLY_KEY, self.on_reply_menu), (CONTEXT_REACT_KEY, self.on_react_menu),
-            (CONTEXT_FORWARD_KEY, self.on_forward_menu), (CONTEXT_READ_MESSAGE_KEY, self.on_read_message_menu),
-        ]
+        entries.append((CONTEXT_REACT_KEY, self.on_react_menu))
+        if chat["can_send"]:
+            entries.append((CONTEXT_REPLY_KEY, self.on_reply_menu))
         if message["outgoing"] and message["text"]:
             entries.append((CONTEXT_EDIT_KEY, self.on_edit_menu))
-        if self.can_delete(message):
-            entries.append((CONTEXT_DELETE_KEY, self.on_delete_menu))
-        if self.current_dialog()["can_pin"]:
-            pin_key = CONTEXT_UNPIN_KEY if message["pinned"] else CONTEXT_PIN_KEY
-            entries.append((pin_key, self.on_pin_menu))
+        if chat["can_pin"]:
+            entries.append((CONTEXT_UNPIN_KEY if message["pinned"] else CONTEXT_PIN_KEY, self.on_pin_menu))
+        entries.append((CONTEXT_FORWARD_KEY, self.on_forward_menu))
         if message["text"]:
             entries.append((CONTEXT_COPY_KEY, self.on_copy_message))
-        if message["media"] in DOWNLOADABLE_MEDIA:
+        if chat["has_links"]:
+            entries.append((CONTEXT_COPY_LINK_KEY, self.on_copy_link_menu))
+        if has_media:
             entries.append((CONTEXT_OPEN_MEDIA_KEY, self.on_activate_message))
+            entries.append((CONTEXT_SAVE_AS_KEY, self.on_save_as_menu))
+        entries.append((CONTEXT_READ_MESSAGE_KEY, self.on_read_message_menu))
+        is_marked = message["id"] in self.marked
+        entries.append((CONTEXT_UNSELECT_KEY if is_marked else CONTEXT_SELECT_KEY, self.on_mark_menu))
+        if self.can_delete(message):
+            entries.append((CONTEXT_DELETE_KEY, self.on_delete_menu))
         self.show_context_menu(entries)
+
+    def on_save_as_menu(self, event):
+        message = self.actionable_message()
+        if message is None or message["media"] not in DOWNLOADABLE_MEDIA or self.is_busy:
+            return
+        with wx.DirDialog(self, self.i18n.get_string(MSG_CHOOSE_SAVE_FOLDER_KEY)) as folder_dialog:
+            if folder_dialog.ShowModal() != wx.ID_OK:
+                return
+            folder = folder_dialog.GetPath()
+        self.is_busy = True
+        self.set_status(MSG_DOWNLOADING_KEY)
+        self.telegram_manager.download_media(
+            self.current_dialog_id, message["id"], self.on_ui_thread(self.on_media_saved), folder=folder
+        )
+
+    def on_media_saved(self, path):
+        self.is_busy = False
+        self.announce(self.i18n.get_string(MSG_SAVED_FORMAT_KEY).format(path=path))
 
     def download_media(self, message):
         cache_key = (self.current_dialog_id, message["id"])

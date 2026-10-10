@@ -132,10 +132,19 @@ class FakeTelegramClient:
             Record(
                 id=telegram_client.get_peer_id(entity), entity=entity, unread_count=unread,
                 pinned=False, archived=archived, input_entity=telegram_client.get_input_peer(entity),
-                dialog=Record(notify_settings=Record(mute_until=None))
+                dialog=Record(notify_settings=Record(mute_until=None), unread_mark=False),
+                # The chat list previews the newest message of each chat.
+                message=(self.history.get(telegram_client.get_peer_id(entity)) or [None])[-1]
             )
             for entity, unread, archived in self.chats
         ]
+
+    async def edit_folder(self, entity, folder):
+        self.calls.append(("folder", telegram_client.get_peer_id(entity), folder))
+
+    async def download_media(self, message, file):
+        self.calls.append(("download", message.id, file))
+        return file + "saved.bin"
 
     async def get_messages(self, entity, limit=None, max_id=0, ids=None, search=None, filter=None, scheduled=False):
         peer_id = telegram_client.get_peer_id(entity)
@@ -212,6 +221,10 @@ class FakeTelegramClient:
         if name == "DeleteScheduledMessagesRequest":
             peer_id = telegram_client.get_peer_id(request.peer)
             self.scheduled[peer_id] = [m for m in self.scheduled.get(peer_id, []) if m.id not in request.id]
+        if name == "DeleteHistoryRequest":
+            return Record(offset=0)
+        if name == "ExportMessageLinkRequest":
+            return Record(link="https://t.me/c/%d/%d" % (request.channel.channel_id, request.id))
         if name == "GetExportedChatInvitesRequest":
             return Record(invites=list(self.invites))
         if name == "ExportChatInviteRequest":
@@ -347,9 +360,12 @@ class WindowTestCase(unittest.TestCase):
         self.frame.on_open_dialog(None)
         chat_id = self.frame.dialogs[index]["id"]
         expected = len(FakeTelegramClient.history.get(chat_id, []))
+        # The status bar turns "ready" last; the send button cannot be the sign,
+        # since it stays disabled in a channel this account may not post to.
+        ready = self.text("STATUS_READY")
         self.assertTrue(pump(
             lambda: self.frame.current_dialog_id == chat_id and len(self.frame.messages) == min(expected, 50)
-            and self.frame.send_btn.IsEnabled()
+            and self.frame.GetStatusBar().GetStatusText() == ready
         ), "chat did not open")
 
     def calls(self, name):

@@ -9,7 +9,7 @@ from telethon.errors import (
     MessageNotModifiedError, ChatAdminRequiredError, ChatWriteForbiddenError,
     ChatNotModifiedError, ChatAboutNotModifiedError, UserAdminInvalidError,
     RightForbiddenError, UserCreatorError, MessageDeleteForbiddenError, RPCError,
-    SendCodeUnavailableError
+    SendCodeUnavailableError, VoiceMessagesForbiddenError
 )
 from telethon.tl import functions, types
 from telethon.utils import get_display_name, get_input_peer, get_peer_id
@@ -31,7 +31,7 @@ from core.constants import (
     MESSAGE_VIEW_PINNED, MESSAGE_VIEW_SCHEDULED, MESSAGE_VIEW_PHOTOS, MESSAGE_VIEW_FILES,
     MESSAGE_VIEW_VOICE, MESSAGE_VIEW_MUSIC, MESSAGE_VIEW_LINKS, ADMIN_LOG_LIMIT, MEMBER_PERMISSIONS,
     INVITE_LINKS_LIMIT, CODE_DELIVERY_KEYS, NEXT_CODE_DELIVERY_KEYS, CODE_DELIVERY_OTHER_KEY,
-    ERR_NO_OTHER_DELIVERY_KEY,
+    ERR_NO_OTHER_DELIVERY_KEY, ERR_VOICE_FORBIDDEN_KEY,
     EVENT_NEW_MESSAGE, EVENT_MESSAGE_EDITED, EVENT_MESSAGES_DELETED
 )
 
@@ -144,8 +144,27 @@ class TelegramManager(threading.Thread):
     def save_profile(self, profile, on_result):
         self._request(on_result, self._save_profile_async, profile)
 
-    def set_muted(self, dialog_id, muted, on_result):
-        self._request(on_result, self._set_muted_async, dialog_id, muted)
+    def set_muted(self, dialog_id, seconds, on_result):
+        """Mutes a chat for `seconds`, forever with MUTE_FOREVER, or unmutes it with 0."""
+        self._request(on_result, self._set_muted_async, dialog_id, seconds)
+
+    def set_marked_unread(self, dialog_id, unread, on_result):
+        """Flags a chat as unread, or removes the flag, without touching its messages."""
+        self._request(on_result, self._set_marked_unread_async, dialog_id, unread)
+
+    def set_chat_pinned(self, dialog_id, pinned, on_result):
+        self._request(on_result, self._set_chat_pinned_async, dialog_id, pinned)
+
+    def set_archived(self, dialog_id, archived, on_result):
+        self._request(on_result, self._set_archived_async, dialog_id, archived)
+
+    def clear_history(self, dialog_id, on_result):
+        """Removes every message of the chat for this account only; the chat itself stays."""
+        self._request(on_result, self._clear_history_async, dialog_id)
+
+    def load_message_link(self, dialog_id, message_id, on_result):
+        """The web address of a message in a channel or large group."""
+        self._request(on_result, self._load_message_link_async, dialog_id, message_id)
 
     def load_chat_info(self, dialog_id, on_result):
         """The result describes the chat: kind, title, about, username, members_count, can_edit."""
@@ -251,9 +270,9 @@ class TelegramManager(threading.Thread):
     def set_pinned(self, dialog_id, message_id, pinned, on_result):
         self._request(on_result, self._set_pinned_async, dialog_id, message_id, pinned)
 
-    def download_media(self, dialog_id, message_id, on_result):
-        """Saves the message's media to the downloads folder; the result is the file path."""
-        self._request(on_result, self._download_media_async, dialog_id, message_id)
+    def download_media(self, dialog_id, message_id, on_result, folder=None):
+        """Saves the message's media to `folder` (the downloads folder by default); the result is the file path."""
+        self._request(on_result, self._download_media_async, dialog_id, message_id, folder or DOWNLOADS_DIR)
 
     def send_message(self, dialog_id, text, on_result, reply_to=None, schedule=None):
         """`schedule` is a datetime to deliver the message at, instead of now."""
@@ -303,6 +322,8 @@ class TelegramManager(threading.Thread):
             on_result(None, ERR_FLOOD_KEY)
         except ChatNotFoundError:
             on_result(None, ERR_CHAT_NOT_FOUND_KEY)
+        except VoiceMessagesForbiddenError:
+            on_result(None, ERR_VOICE_FORBIDDEN_KEY)
         except (
             ChatAdminRequiredError, ChatWriteForbiddenError, UserAdminInvalidError,
             RightForbiddenError, UserCreatorError, MessageDeleteForbiddenError
@@ -322,16 +343,48 @@ class TelegramManager(threading.Thread):
         return [
             self._describe_chat(
                 dialog.entity, unread=dialog.unread_count, pinned=dialog.pinned,
-                muted=self._is_muted(dialog), archived=bool(dialog.archived)
+                muted=self._is_muted(dialog), archived=bool(dialog.archived),
+                marked_unread=bool(getattr(dialog.dialog, "unread_mark", False)),
+                last_message=self._describe_last_message(getattr(dialog, "message", None))
             )
             for dialog in dialogs
         ]
 
-    def _describe_chat(self, entity, unread=0, pinned=False, muted=False, archived=False):
+    def _describe_last_message(self, message):
+        if message is None:
+            return None
+        return self._describe_message(message, getattr(message, "sender", None))
+
+    def _can_send(self, entity):
+        """Whether this account may write in the chat."""
+        if isinstance(entity, types.User):
+            return True
+        if getattr(entity, "left", False) or getattr(entity, "deactivated", False):
+            return False
+        if isinstance(entity, types.Channel) and not entity.megagroup:
+            # A broadcast channel takes posts only from its owner and posting admins.
+            return self._has_right(entity, "post_messages")
+        if getattr(entity, "creator", False) or getattr(entity, "admin_rights", None):
+            return True
+        # Restrictions on this member in particular, then the group's rules for everyone.
+        for rights in (getattr(entity, "banned_rights", None), getattr(entity, "default_banned_rights", None)):
+            if rights is not None and rights.send_messages:
+                return False
+        return True
+
+    def _describe_chat(self, entity, unread=0, pinned=False, muted=False, archived=False,
+                       marked_unread=False, last_message=None):
         is_user = isinstance(entity, types.User)
         return {
             "id": get_peer_id(entity), "title": get_display_name(entity),
             "unread": unread, "pinned": pinned, "muted": muted, "archived": archived,
+            # Flagged unread by hand, with no unread messages behind it.
+            "marked_unread": marked_unread,
+            # The newest message, read or not, for the preview in the chat list.
+            "last_message": last_message,
+            "can_send": self._can_send(entity),
+            # Only messages of channels and large groups have a web address.
+            "has_links": isinstance(entity, types.Channel),
             "category": self._chat_category(entity),
             "can_delete_others": self._has_right(entity, "delete_messages"),
             # Anyone may pin in a private chat; elsewhere it takes the right.
@@ -541,11 +594,48 @@ class TelegramManager(threading.Thread):
             first_name=profile["first_name"], last_name=profile["last_name"], about=profile["about"]
         ))
 
-    async def _set_muted_async(self, dialog_id, muted):
+    async def _set_muted_async(self, dialog_id, seconds):
+        if seconds in (0, MUTE_FOREVER):
+            mute_until = seconds
+        else:
+            mute_until = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=seconds)
         await self.client(functions.account.UpdateNotifySettingsRequest(
             peer=types.InputNotifyPeer(self.entities[dialog_id]),
-            settings=types.InputPeerNotifySettings(mute_until=MUTE_FOREVER if muted else 0)
+            settings=types.InputPeerNotifySettings(mute_until=mute_until)
         ))
+
+    async def _set_marked_unread_async(self, dialog_id, unread):
+        await self.client(functions.messages.MarkDialogUnreadRequest(
+            peer=types.InputDialogPeer(self.entities[dialog_id]), unread=unread
+        ))
+
+    async def _set_chat_pinned_async(self, dialog_id, pinned):
+        await self.client(functions.messages.ToggleDialogPinRequest(
+            peer=types.InputDialogPeer(self.entities[dialog_id]), pinned=pinned
+        ))
+
+    async def _set_archived_async(self, dialog_id, archived):
+        # Telegram's folder 1 is the archive, folder 0 the main list.
+        await self.client.edit_folder(self.entities[dialog_id], 1 if archived else 0)
+
+    async def _clear_history_async(self, dialog_id):
+        entity = self.entities[dialog_id]
+        if isinstance(entity, types.InputPeerChannel):
+            await self.client(functions.channels.DeleteHistoryRequest(channel=entity, max_id=0))
+            return
+        # Telegram clears a long history in several rounds and says when none are left.
+        while True:
+            result = await self.client(functions.messages.DeleteHistoryRequest(
+                peer=entity, max_id=0, just_clear=True, revoke=False
+            ))
+            if not getattr(result, "offset", 0):
+                return
+
+    async def _load_message_link_async(self, dialog_id, message_id):
+        result = await self.client(functions.channels.ExportMessageLinkRequest(
+            channel=self.entities[dialog_id], id=message_id
+        ))
+        return result.link
 
     async def _load_chat_info_async(self, dialog_id):
         entity = await self.client.get_entity(self.entities[dialog_id])
@@ -696,10 +786,10 @@ class TelegramManager(threading.Thread):
         )
         return [self._describe_message(message, message.sender) for message in reversed(messages)]
 
-    async def _download_media_async(self, dialog_id, message_id):
+    async def _download_media_async(self, dialog_id, message_id, folder):
         message = await self.client.get_messages(self.entities[dialog_id], ids=message_id)
-        os.makedirs(DOWNLOADS_DIR, exist_ok=True)
-        path = await self.client.download_media(message, file=DOWNLOADS_DIR + os.sep)
+        os.makedirs(folder, exist_ok=True)
+        path = await self.client.download_media(message, file=folder + os.sep)
         if not path:
             raise ValueError("message has no downloadable media")
         return path

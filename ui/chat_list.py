@@ -10,7 +10,12 @@ from core.constants import (
     MSG_CHAT_SAVED_KEY, CONTEXT_OPEN_KEY, CONTEXT_MARK_READ_KEY, CONTEXT_MUTE_KEY,
     CONTEXT_UNMUTE_KEY, MSG_MARKED_READ_KEY, MSG_MUTED_KEY, MSG_UNMUTED_KEY, DIALOGS_LIMIT,
     MSG_LOAD_MORE_DIALOGS_KEY, MSG_FIND_PROMPT_KEY, MSG_NOT_FOUND_KEY, APP_TITLE_KEY,
-    DIALOG_UNREAD_FORMAT_KEY, MSG_LOADING_KEY, STATUS_READY_KEY, SELECT_DELAY_MS,
+    MSG_LOADING_KEY, STATUS_READY_KEY, SELECT_DELAY_MS, SENDER_YOU_KEY, MUTE_DURATIONS,
+    CONTEXT_MARK_UNREAD_KEY, CONTEXT_PIN_CHAT_KEY, CONTEXT_UNPIN_CHAT_KEY, CONTEXT_ARCHIVE_KEY,
+    CONTEXT_UNARCHIVE_KEY, CONTEXT_CLEAR_HISTORY_KEY, MSG_MARKED_UNREAD_KEY, MSG_CHAT_PINNED_KEY,
+    MSG_CHAT_UNPINNED_KEY, MSG_ARCHIVED_KEY, MSG_UNARCHIVED_KEY, MSG_CONFIRM_CLEAR_HISTORY_KEY,
+    MSG_HISTORY_CLEARED_KEY, DIALOG_FORMAT_KEY, DIALOG_PINNED_KEY, DIALOG_MARKED_UNREAD_KEY,
+    DIALOG_UNREAD_COUNT_FORMAT_KEY, PREVIEW_SENDER_FORMAT_KEY,
     MSG_NEW_CHAT_NAME_PROMPT_KEY, MSG_NEW_CHAT_ABOUT_PROMPT_KEY, MSG_CHAT_CREATED_FORMAT_KEY
 )
 
@@ -72,11 +77,42 @@ class ChatListMixin:
         self.load_dialogs()
 
     def format_dialog(self, dialog):
-        if not dialog["unread"]:
-            return dialog["title"]
-        return self.i18n.get_string(DIALOG_UNREAD_FORMAT_KEY).format(
-            title=dialog["title"], count=dialog["unread"]
+        """One row of the chat list: name, state, then the latest message whether read or not."""
+        details = []
+        if dialog["unread"]:
+            details.append(self.i18n.get_string(DIALOG_UNREAD_COUNT_FORMAT_KEY).format(count=dialog["unread"]))
+        elif dialog["marked_unread"]:
+            details.append(self.i18n.get_string(DIALOG_MARKED_UNREAD_KEY))
+        if dialog["pinned"]:
+            details.append(self.i18n.get_string(DIALOG_PINNED_KEY))
+        preview = self.dialog_preview(dialog)
+        return self.i18n.get_string(DIALOG_FORMAT_KEY).format(
+            title=dialog["title"],
+            details="".join("، " + detail for detail in details),
+            preview=". " + preview if preview else ""
         )
+
+    def dialog_preview(self, dialog):
+        message = dialog["last_message"]
+        if message is None:
+            return ""
+        text = self.message_snippet(message)
+        if message["outgoing"]:
+            sender = self.i18n.get_string(SENDER_YOU_KEY)
+        elif dialog["category"] == CATEGORY_GROUPS:
+            # In a group the name of the chat does not say who wrote.
+            sender = message["sender"]
+        else:
+            sender = ""
+        if not sender:
+            return text
+        return self.i18n.get_string(PREVIEW_SENDER_FORMAT_KEY).format(sender=sender, text=text)
+
+    def refresh_dialog_row(self, dialog):
+        index = self.find_dialog_index(dialog["id"])
+        # It may be hidden by the current view.
+        if index != wx.NOT_FOUND:
+            self.dialogs_list.SetString(index, self.format_dialog(dialog))
 
     def find_dialog_index(self, dialog_id):
         for index, dialog in enumerate(self.dialogs):
@@ -101,6 +137,7 @@ class ChatListMixin:
         """The open chat; before any is open, a stand-in with no special rights."""
         return self.find_known_dialog(self.current_dialog_id) or {
             "can_delete_others": False, "can_pin": False, "is_channel": False,
+            "can_send": False, "has_links": False,
         }
 
     def set_unread(self, dialog_id, count):
@@ -307,13 +344,24 @@ class ChatListMixin:
         if dialog is None:
             return
         entries = [(CONTEXT_OPEN_KEY, self.on_open_dialog)]
-        if dialog["unread"]:
+        # Each entry names the change it makes, so the menu also tells the chat's current state.
+        if dialog["unread"] or dialog["marked_unread"]:
             entries.append((CONTEXT_MARK_READ_KEY, lambda event: self.mark_dialog_read(dialog)))
-        if dialog["muted"]:
-            entries.append((CONTEXT_UNMUTE_KEY, lambda event: self.set_dialog_muted(dialog, False)))
         else:
-            entries.append((CONTEXT_MUTE_KEY, lambda event: self.set_dialog_muted(dialog, True)))
+            entries.append((CONTEXT_MARK_UNREAD_KEY, lambda event: self.mark_dialog_unread(dialog)))
+        pin_key = CONTEXT_UNPIN_CHAT_KEY if dialog["pinned"] else CONTEXT_PIN_CHAT_KEY
+        entries.append((pin_key, lambda event: self.set_chat_pinned(dialog, not dialog["pinned"])))
+        if dialog["muted"]:
+            entries.append((CONTEXT_UNMUTE_KEY, lambda event: self.set_dialog_muted(dialog, 0)))
+        else:
+            entries.append((CONTEXT_MUTE_KEY, [
+                (label_key, lambda event, seconds=seconds: self.set_dialog_muted(dialog, seconds))
+                for seconds, label_key in MUTE_DURATIONS
+            ]))
+        archive_key = CONTEXT_UNARCHIVE_KEY if dialog["archived"] else CONTEXT_ARCHIVE_KEY
+        entries.append((archive_key, lambda event: self.set_chat_archived(dialog, not dialog["archived"])))
         entries.append((CONTEXT_INFO_KEY, lambda event: self.show_chat_info(dialog)))
+        entries.append((CONTEXT_CLEAR_HISTORY_KEY, lambda event: self.clear_history(dialog)))
         # Last, away from the everyday entries: it cannot be undone.
         is_private = dialog["category"] not in (CATEGORY_GROUPS, CATEGORY_BROADCASTS)
         leave_key = CONTEXT_DELETE_CHAT_KEY if is_private else CONTEXT_LEAVE_KEY
@@ -333,17 +381,80 @@ class ChatListMixin:
 
     def mark_dialog_read(self, dialog):
         self.telegram_manager.mark_read(dialog["id"])
-        self.set_unread(dialog["id"], 0)
+        if dialog["marked_unread"]:
+            # The hand-set flag is separate from the messages and has to be cleared too.
+            self.telegram_manager.set_marked_unread(dialog["id"], False, lambda result, error_key: None)
+            dialog["marked_unread"] = False
+        dialog["unread"] = 0
+        self.refresh_dialog_row(dialog)
         self.notify(MSG_MARKED_READ_KEY)
 
-    def set_dialog_muted(self, dialog, muted):
-        self.telegram_manager.set_muted(
-            dialog["id"], muted, self.on_ui_thread(self.on_dialog_muted, dialog, muted)
+    def mark_dialog_unread(self, dialog):
+        self.telegram_manager.set_marked_unread(
+            dialog["id"], True, self.on_ui_thread(self.on_dialog_changed, dialog, "marked_unread", True, MSG_MARKED_UNREAD_KEY)
         )
 
-    def on_dialog_muted(self, result, dialog, muted):
-        dialog["muted"] = muted
-        self.notify(MSG_MUTED_KEY if muted else MSG_UNMUTED_KEY)
+    def on_dialog_changed(self, result, dialog, field, value, message_key):
+        """Telegram accepted a change to one of the chat's flags: show it."""
+        dialog[field] = value
+        self.refresh_dialog_row(dialog)
+        self.notify(message_key)
+
+    def set_dialog_muted(self, dialog, seconds):
+        self.telegram_manager.set_muted(
+            dialog["id"], seconds, self.on_ui_thread(
+                self.on_dialog_changed, dialog, "muted", bool(seconds),
+                MSG_MUTED_KEY if seconds else MSG_UNMUTED_KEY
+            )
+        )
+
+    def set_chat_pinned(self, dialog, pinned):
+        self.telegram_manager.set_chat_pinned(
+            dialog["id"], pinned, self.on_ui_thread(self.on_chat_pinned, dialog, pinned)
+        )
+
+    def on_chat_pinned(self, result, dialog, pinned):
+        dialog["pinned"] = pinned
+        # Pinned chats lead the list; one just unpinned drops to right below them.
+        self.all_dialogs.remove(dialog)
+        position = 0 if pinned else sum(1 for other in self.all_dialogs if other["pinned"])
+        self.all_dialogs.insert(position, dialog)
+        self.render_dialogs()
+        self.notify(MSG_CHAT_PINNED_KEY if pinned else MSG_CHAT_UNPINNED_KEY)
+
+    def set_chat_archived(self, dialog, archived):
+        self.telegram_manager.set_archived(
+            dialog["id"], archived, self.on_ui_thread(self.on_chat_archived, dialog, archived)
+        )
+
+    def on_chat_archived(self, result, dialog, archived):
+        index = self.find_dialog_index(dialog["id"])
+        dialog["archived"] = archived
+        self.render_dialogs()
+        # It usually leaves the current view; stay where it was instead of jumping to the top.
+        if self.find_dialog_index(dialog["id"]) == wx.NOT_FOUND and self.dialogs:
+            self.dialogs_list.SetSelection(min(max(index, 0), len(self.dialogs) - 1))
+        self.notify(MSG_ARCHIVED_KEY if archived else MSG_UNARCHIVED_KEY)
+
+    def clear_history(self, dialog):
+        answer = wx.MessageBox(
+            self.i18n.get_string(MSG_CONFIRM_CLEAR_HISTORY_KEY).format(title=dialog["title"]),
+            self.i18n.get_string(APP_TITLE_KEY),
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING, self
+        )
+        if answer == wx.YES:
+            self.telegram_manager.clear_history(dialog["id"], self.on_ui_thread(self.on_history_cleared, dialog))
+
+    def on_history_cleared(self, result, dialog):
+        dialog["last_message"] = None
+        dialog["unread"] = 0
+        self.refresh_dialog_row(dialog)
+        if dialog["id"] == self.current_dialog_id:
+            self.messages = []
+            self.has_older = False
+            self.marked = set()
+            self.messages_list.Clear()
+        self.notify(MSG_HISTORY_CLEARED_KEY)
 
     def leave_chat(self, dialog, is_private):
         confirm_key = MSG_CONFIRM_DELETE_CHAT_KEY if is_private else MSG_CONFIRM_LEAVE_KEY

@@ -2,7 +2,7 @@ import os
 import wx
 from core import audio
 from core.constants import (
-    VOICE_NOTE_FILE, MIN_VOICE_SECONDS, MSG_RECORDING_KEY, MSG_RECORDING_CANCELLED_KEY,
+    BTN_RECORD_KEY, BTN_STOP_AND_SEND_KEY, VOICE_NOTE_FILE, MIN_VOICE_SECONDS, MSG_RECORDING_KEY, MSG_RECORDING_CANCELLED_KEY,
     MSG_RECORDING_TOO_SHORT_KEY, MSG_SENDING_VOICE_KEY, MSG_VOICE_SENT_KEY, MSG_PLAYING_KEY,
     MSG_PLAYBACK_STOPPED_KEY, ERR_AUDIO_KEY, ERR_NO_AUDIO_SUPPORT_KEY, STATUS_READY_KEY
 )
@@ -18,8 +18,15 @@ class VoiceMixin:
             self.show_error(ERR_NO_AUDIO_SUPPORT_KEY)
         elif self.recorder.is_recording():
             self.finish_recording()
-        elif self.current_dialog_id is not None and not self.is_busy:
+        elif self.current_dialog_id is not None and not self.is_busy and self.current_dialog()["can_send"]:
             self.start_recording()
+
+    def update_record_buttons(self):
+        """Make the record button say what pressing it does now, and offer Cancel only mid-recording."""
+        recording = self.recorder.is_recording()
+        self.record_btn.SetLabel(self.i18n.get_string(BTN_STOP_AND_SEND_KEY if recording else BTN_RECORD_KEY))
+        self.cancel_record_btn.Show(recording)
+        self.panel.Layout()
 
     def start_recording(self):
         self.stop_playback()
@@ -31,6 +38,7 @@ class VoiceMixin:
             return
         # The recording goes to the chat it was started in, even if another is opened meanwhile.
         self.recording_dialog_id = self.current_dialog_id
+        self.update_record_buttons()
         self.notify(MSG_RECORDING_KEY)
 
     def finish_recording(self):
@@ -39,8 +47,10 @@ class VoiceMixin:
             seconds = self.recorder.finish(VOICE_NOTE_FILE)
         except Exception:
             self.recorder.cancel()
+            self.update_record_buttons()
             self.show_error(ERR_AUDIO_KEY)
             return
+        self.update_record_buttons()
         if seconds < MIN_VOICE_SECONDS:
             self.notify(MSG_RECORDING_TOO_SHORT_KEY)
             return
@@ -54,6 +64,9 @@ class VoiceMixin:
 
     def cancel_recording(self):
         self.recorder.cancel()
+        self.update_record_buttons()
+        # The Cancel button just vanished from under the focus; put it somewhere sensible.
+        self.record_btn.SetFocus()
         self.notify(MSG_RECORDING_CANCELLED_KEY)
 
     def play_voice(self, path):

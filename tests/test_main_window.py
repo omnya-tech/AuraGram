@@ -54,7 +54,7 @@ class ChatListTest(WindowTestCase):
         self.open_chat(0)
         self.assertEqual(self.frame.messages_list.GetCount(), 3)
         self.assertEqual(self.calls("read"), [("read", 1)])
-        self.assertEqual(self.frame.dialogs_list.GetString(0), "Ali")
+        self.assertEqual(self.frame.dialogs_list.GetString(0), "Ali. pinned note")
 
     def test_enter_on_the_chat_list_opens_the_selected_chat(self):
         self.frame.dialogs_list.SetSelection(0)
@@ -276,6 +276,253 @@ class MessagesTest(WindowTestCase):
         self.frame.on_messages_deleted(None, [1])
         self.assertEqual(self.messages.GetCount(), 2)
         self.assertNotIn("رداً على", self.messages.GetString(0))
+
+
+class ChatPreviewAndMenuTest(WindowTestCase):
+    chats = [(ALI, 2, False), (NEWS, 0, False), (MY_GROUP, 0, False), (make_user(7, "Sara"), 0, False)]
+    history = {
+        1: [make_message(1, "are you there?", sender=ALI)],
+        NEWS_ID: [make_message(1, "headline of the day")],
+        GROUP_ID: [make_message(1, "hello all", sender=make_user(9, "Mona"))],
+        7: [make_message(1, "see you", outgoing=True)],
+    }
+
+    def rows(self):
+        return self.frame.dialogs_list.GetItems()
+
+    def menu(self, row):
+        self.frame.dialogs_list.SetSelection(row)
+        self.frame.on_dialog_context_menu(self.context_event(self.frame.dialogs_list))
+        return list(self.menu_labels)
+
+    def test_every_chat_shows_its_latest_message_read_or_not(self):
+        rows = self.rows()
+        self.assertEqual(rows[0], "Ali، 2 غير مقروءة. are you there?")
+        self.assertEqual(rows[1], "News. headline of the day")
+
+    def test_group_preview_names_the_sender_and_own_messages_say_you(self):
+        rows = self.rows()
+        self.assertEqual(rows[2], "MyGroup. Mona: hello all")
+        self.assertEqual(rows[3], "Sara. أنت: see you")
+
+    def test_preview_follows_what_is_sent(self):
+        self.open_chat(3)
+        self.frame.message_input.SetValue("new plan")
+        self.frame.on_send_message(None)
+        self.assertTrue(pump(lambda: self.rows()[3] == "Sara. أنت: new plan"))
+
+    def test_menu_follows_the_order_of_telegram_desktop(self):
+        self.assertEqual(self.menu(0), [self.text(key) for key in (
+            c.CONTEXT_OPEN_KEY, c.CONTEXT_MARK_READ_KEY, c.CONTEXT_PIN_CHAT_KEY, c.CONTEXT_MUTE_KEY,
+            c.CONTEXT_ARCHIVE_KEY, c.CONTEXT_INFO_KEY, c.CONTEXT_CLEAR_HISTORY_KEY, c.CONTEXT_DELETE_CHAT_KEY,
+        )])
+        self.assertEqual(self.menu(1)[1], self.text(c.CONTEXT_MARK_UNREAD_KEY))
+        self.assertEqual(self.menu(1)[-1], self.text(c.CONTEXT_LEAVE_KEY))
+
+    def test_mark_unread_and_back(self):
+        sara = self.frame.dialogs[3]
+        self.frame.mark_dialog_unread(sara)
+        self.assertTrue(pump(lambda: sara["marked_unread"]))
+        self.assertEqual(self.rows()[3], "Sara، غير مقروءة. أنت: see you")
+        self.assertEqual(self.menu(3)[1], self.text(c.CONTEXT_MARK_READ_KEY))
+        self.frame.mark_dialog_read(sara)
+        self.assertTrue(pump(lambda: len(self.calls("MarkDialogUnreadRequest")) == 2))
+        self.assertEqual([call[1].unread for call in self.calls("MarkDialogUnreadRequest")], [True, False])
+        self.assertEqual(self.rows()[3], "Sara. أنت: see you")
+
+    def test_pinning_moves_the_chat_to_the_top_and_unpinning_back_below(self):
+        sara = self.frame.dialogs[3]
+        self.frame.dialogs_list.SetSelection(3)
+        self.frame.set_chat_pinned(sara, True)
+        self.assertTrue(pump(lambda: self.rows()[0].startswith("Sara، مثبتة")))
+        self.assertEqual(self.frame.dialogs_list.GetSelection(), 0)
+        self.assertTrue(self.calls("ToggleDialogPinRequest")[0][1].pinned)
+        self.assertEqual(self.menu(0)[2], self.text(c.CONTEXT_UNPIN_CHAT_KEY))
+        self.frame.set_chat_pinned(sara, False)
+        self.assertTrue(pump(lambda: not sara["pinned"]))
+        self.assertTrue(self.rows()[0].startswith("Sara."))
+
+    def test_mute_offers_durations_and_sends_the_chosen_one(self):
+        import datetime
+        news = self.frame.dialogs[1]
+        self.frame.set_dialog_muted(news, 3600)
+        self.assertTrue(pump(lambda: news["muted"]))
+        until = self.calls("UpdateNotifySettingsRequest")[0][1].settings.mute_until
+        remaining = (until - datetime.datetime.now(datetime.timezone.utc)).total_seconds()
+        self.assertTrue(3500 < remaining <= 3600)
+        self.assertIn(self.text(c.CONTEXT_UNMUTE_KEY), self.menu(1))
+        self.frame.set_dialog_muted(news, 0)
+        self.assertTrue(pump(lambda: not news["muted"]))
+        self.assertEqual(self.calls("UpdateNotifySettingsRequest")[1][1].settings.mute_until, 0)
+        self.frame.set_dialog_muted(news, c.MUTE_FOREVER)
+        self.assertTrue(pump(lambda: news["muted"]))
+        self.assertEqual(self.calls("UpdateNotifySettingsRequest")[2][1].settings.mute_until, c.MUTE_FOREVER)
+
+    def test_archiving_takes_the_chat_out_of_the_main_list(self):
+        news = self.frame.dialogs[1]
+        self.frame.dialogs_list.SetSelection(1)
+        self.frame.set_chat_archived(news, True)
+        self.assertTrue(pump(lambda: len(self.rows()) == 3))
+        self.assertEqual(self.calls("folder"), [("folder", NEWS_ID, 1)])
+        self.assertEqual(self.frame.dialogs_list.GetSelection(), 1)
+        self.frame.view_choice.SetSelection(2)
+        self.frame.on_view_changed(None)
+        self.assertEqual(self.menu(0)[4], self.text(c.CONTEXT_UNARCHIVE_KEY))
+
+    def test_clearing_history_needs_confirmation_and_empties_the_open_chat(self):
+        self.open_chat(0)
+        ali = self.frame.dialogs[0]
+        self.box_answer = wx.NO
+        self.frame.clear_history(ali)
+        pump(timeout=0.2)
+        self.assertEqual(self.calls("DeleteHistoryRequest"), [])
+        self.box_answer = wx.YES
+        self.frame.clear_history(ali)
+        self.assertTrue(pump(lambda: self.frame.messages_list.GetCount() == 0))
+        request = self.calls("DeleteHistoryRequest")[0][1]
+        self.assertTrue(request.just_clear)
+        self.assertFalse(request.revoke)
+        self.assertEqual(self.rows()[0], "Ali")
+
+
+class MessageMenuAndRecordingTest(WindowTestCase):
+    chats = [(ALI, 0, False), (NEWS, 0, False), (MY_GROUP, 0, False)]
+    history = {
+        1: [make_message(1, "theirs", sender=ALI), make_message(2, "mine", outgoing=True),
+            make_message(3, "", sender=ALI, media=object(), document=object())],
+        NEWS_ID: [make_message(5, "headline")],
+        GROUP_ID: [make_message(8, "in the group", sender=ALI)],
+    }
+
+    class FakeRecorder:
+        def __init__(self):
+            self.recording = False
+
+        def is_recording(self):
+            return self.recording
+
+        def start(self):
+            self.recording = True
+
+        def cancel(self):
+            self.recording = False
+
+        def finish(self, path):
+            self.recording = False
+            return 3.0
+
+    def setUp(self):
+        super().setUp()
+        # The real recorder would open the microphone.
+        self.frame.recorder = self.FakeRecorder()
+
+    def menu(self, row):
+        self.frame.messages_list.SetSelection(row)
+        self.frame.on_message_context_menu(self.context_event(self.frame.messages_list))
+        return list(self.menu_labels)
+
+    def test_own_text_message_menu_in_a_private_chat(self):
+        self.open_chat(0)
+        self.assertEqual(self.menu(1), [self.text(key) for key in (
+            c.CONTEXT_REACT_KEY, c.CONTEXT_REPLY_KEY, c.CONTEXT_EDIT_KEY, c.CONTEXT_PIN_KEY,
+            c.CONTEXT_FORWARD_KEY, c.CONTEXT_COPY_KEY, c.CONTEXT_READ_MESSAGE_KEY,
+            c.CONTEXT_SELECT_KEY, c.CONTEXT_DELETE_KEY,
+        )])
+
+    def test_media_message_offers_open_and_save_but_no_copy(self):
+        self.open_chat(0)
+        labels = self.menu(2)
+        self.assertIn(self.text(c.CONTEXT_OPEN_MEDIA_KEY), labels)
+        self.assertIn(self.text(c.CONTEXT_SAVE_AS_KEY), labels)
+        self.assertNotIn(self.text(c.CONTEXT_COPY_KEY), labels)
+        self.assertNotIn(self.text(c.CONTEXT_COPY_LINK_KEY), labels)
+
+    def test_channel_post_has_a_link_but_no_reply_for_a_subscriber(self):
+        self.open_chat(1)
+        labels = self.menu(0)
+        self.assertIn(self.text(c.CONTEXT_COPY_LINK_KEY), labels)
+        self.assertNotIn(self.text(c.CONTEXT_REPLY_KEY), labels)
+        self.frame.on_copy_link_menu(None)
+        self.assertTrue(pump(lambda: self.spoken and self.spoken[-1] == self.text(c.MSG_LINK_COPIED_KEY)))
+        data = wx.TextDataObject()
+        wx.TheClipboard.Open()
+        wx.TheClipboard.GetData(data)
+        wx.TheClipboard.Close()
+        self.assertEqual(data.GetText(), "https://t.me/c/3/5")
+
+    def test_select_entry_flips_once_the_message_is_marked(self):
+        self.open_chat(0)
+        self.assertIn(self.text(c.CONTEXT_SELECT_KEY), self.menu(0))
+        self.frame.on_mark_menu(None)
+        self.assertIn(self.text(c.CONTEXT_UNSELECT_KEY), self.menu(0))
+
+    def test_save_as_downloads_into_the_chosen_folder(self):
+        self.open_chat(0)
+        self.frame.messages_list.SetSelection(2)
+
+        class FolderDialog:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def ShowModal(self):
+                return wx.ID_OK
+
+            def GetPath(self):
+                return r"C:\chosen"
+
+        with mock.patch.object(wx, "DirDialog", FolderDialog), mock.patch("core.telegram_client.os.makedirs"):
+            self.frame.on_save_as_menu(None)
+            self.assertTrue(pump(lambda: self.calls("download")))
+        self.assertEqual(self.calls("download"), [("download", 3, "C:\\chosen\\")])
+        self.assertTrue(pump(lambda: "C:\\chosen" in self.spoken[-1]))
+
+    def test_record_button_starts_then_stops_and_sends(self):
+        self.open_chat(0)
+        button = self.frame.record_btn
+        self.assertTrue(button.IsEnabled())
+        self.assertEqual(button.GetLabel(), self.text(c.BTN_RECORD_KEY))
+        self.assertFalse(self.frame.cancel_record_btn.IsShown())
+        self.frame.on_record_menu(None)
+        self.assertEqual(button.GetLabel(), self.text(c.BTN_STOP_AND_SEND_KEY))
+        self.assertTrue(self.frame.cancel_record_btn.IsShown())
+        with mock.patch.object(self.manager, "send_file") as send_file:
+            self.frame.on_record_menu(None)
+        self.assertEqual(button.GetLabel(), self.text(c.BTN_RECORD_KEY))
+        self.assertFalse(self.frame.cancel_record_btn.IsShown())
+        self.assertEqual(send_file.call_args.args[0], 1)
+        self.assertTrue(send_file.call_args.kwargs["voice_note"])
+
+    def test_cancel_button_discards_the_recording(self):
+        self.open_chat(0)
+        self.frame.on_record_menu(None)
+        with mock.patch.object(self.manager, "send_file") as send_file:
+            self.frame.cancel_recording()
+        send_file.assert_not_called()
+        self.assertFalse(self.frame.recorder.is_recording())
+        self.assertFalse(self.frame.cancel_record_btn.IsShown())
+        self.assertEqual(self.frame.record_btn.GetLabel(), self.text(c.BTN_RECORD_KEY))
+
+    def test_recording_works_in_a_group_too(self):
+        self.open_chat(2)
+        self.assertTrue(self.frame.record_btn.IsEnabled())
+        self.frame.on_record_menu(None)
+        self.assertTrue(self.frame.recorder.is_recording())
+
+    def test_channel_that_only_admins_post_to_is_read_only(self):
+        self.open_chat(1)
+        for control in (self.frame.record_btn, self.frame.send_btn, self.frame.message_input):
+            self.assertFalse(control.IsEnabled())
+        self.assertEqual(self.frame.input_label.GetLabel(), self.text(c.MSG_CANNOT_WRITE_KEY))
+        self.frame.on_record_menu(None)
+        self.assertFalse(self.frame.recorder.is_recording())
+        self.open_chat(0)
+        self.assertEqual(self.frame.input_label.GetLabel(), self.text(c.MESSAGE_INPUT_LABEL_KEY))
 
 
 class MarkingTest(WindowTestCase):

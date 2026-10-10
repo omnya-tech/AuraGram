@@ -43,6 +43,8 @@ class LiveUpdatesMixin:
                     text=self.message_snippet(message)
                 ))
 
+        # The chat list previews the newest message, whoever sent it.
+        dialog["last_message"] = message
         reads_it = is_current and is_on_screen and self.settings.get(SETTING_MARK_READ_ON_OPEN)
         if is_current:
             self.append_message(message)

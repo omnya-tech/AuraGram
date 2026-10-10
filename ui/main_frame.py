@@ -9,7 +9,8 @@ from core.constants import (
     MENU_READ_MESSAGE_KEY, MENU_HELP_KEY, MENU_SHORTCUTS_KEY, SHORTCUTS_TITLE_KEY, SHORTCUTS_TEXT_KEY,
     MENU_MARK_KEY, MENU_UNMARK_ALL_KEY, MENU_NEW_GROUP_KEY, MENU_NEW_CHANNEL_KEY, MESSAGE_VIEWS,
     MENU_CHAT_VIEWS_KEY, MENU_NEW_POLL_KEY, MENU_REACT_KEY, MENU_SCHEDULE_KEY,
-    MSG_IN_BACKGROUND_FORMAT_KEY, SHOW_HOTKEY_TEXT, ICON_FILE,
+    MSG_IN_BACKGROUND_FORMAT_KEY, SHOW_HOTKEY_TEXT, ICON_FILE, BTN_RECORD_KEY,
+    BTN_CANCEL_RECORDING_KEY, MSG_CANNOT_WRITE_KEY,
     VIEW_LABEL_KEY, MSG_PRIVACY_SAVED_KEY, MENU_CHATS_KEY, MENU_NEW_CHAT_KEY, MENU_FIND_CHAT_KEY,
     MENU_FORWARD_KEY, MENU_PIN_KEY, MENU_SETTINGS_KEY, MSG_SETTINGS_SAVED_KEY,
     MSG_PROFILE_SAVED_KEY, ERR_FIRST_NAME_REQUIRED_KEY, MENU_RECORD_KEY, MENU_SEARCH_MESSAGES_KEY,
@@ -118,7 +119,15 @@ class MainFrame(
         input_box.Add(self.message_input, proportion=1, flag=wx.EXPAND|wx.RIGHT, border=10)
         self.send_btn = wx.Button(self.panel, label=self.i18n.get_string(BTN_SEND_MESSAGE_KEY))
         self.send_btn.Bind(wx.EVT_BUTTON, self.on_send_message)
-        input_box.Add(self.send_btn)
+        input_box.Add(self.send_btn, flag=wx.RIGHT, border=10)
+        # One button starts the recording and, renamed while it runs, stops and sends it.
+        self.record_btn = wx.Button(self.panel, label=self.i18n.get_string(BTN_RECORD_KEY))
+        self.record_btn.Bind(wx.EVT_BUTTON, self.on_record_menu)
+        input_box.Add(self.record_btn)
+        self.cancel_record_btn = wx.Button(self.panel, label=self.i18n.get_string(BTN_CANCEL_RECORDING_KEY))
+        self.cancel_record_btn.Bind(wx.EVT_BUTTON, lambda event: self.cancel_recording())
+        self.cancel_record_btn.Hide()
+        input_box.Add(self.cancel_record_btn, flag=wx.LEFT, border=10)
         chat_box.Add(input_box, flag=wx.EXPAND)
         hbox.Add(chat_box, proportion=2, flag=wx.EXPAND|wx.TOP|wx.RIGHT|wx.BOTTOM, border=15)
 
@@ -232,12 +241,21 @@ class MainFrame(
             if index != wx.NOT_FOUND:
                 list_box.SetSelection(index)
 
-    def show_context_menu(self, entries):
+    def build_menu(self, entries):
+        """A menu from (label key, handler) pairs; a list in place of the handler makes a submenu."""
         menu = wx.Menu()
         for label_key, handler in entries:
-            item = menu.Append(wx.ID_ANY, self.i18n.get_string(label_key))
-            # Bound to the menu, not the frame, so the handlers go away with it.
-            menu.Bind(wx.EVT_MENU, handler, item)
+            label = self.i18n.get_string(label_key)
+            if isinstance(handler, list):
+                menu.AppendSubMenu(self.build_menu(handler), label)
+            else:
+                item = menu.Append(wx.ID_ANY, label)
+                # Bound to the menu, not the frame, so the handlers go away with it.
+                menu.Bind(wx.EVT_MENU, handler, item)
+        return menu
+
+    def show_context_menu(self, entries):
+        menu = self.build_menu(entries)
         if entries:
             self.PopupMenu(menu)
         menu.Destroy()
@@ -256,6 +274,7 @@ class MainFrame(
         if event.CanVeto() and not self.is_quitting and self.settings.get(SETTING_KEEP_IN_BACKGROUND):
             event.Veto()
             self.recorder.cancel()
+            self.update_record_buttons()
             self.Hide()
             speak(self.i18n.get_string(MSG_IN_BACKGROUND_FORMAT_KEY).format(hotkey=SHOW_HOTKEY_TEXT))
             return
@@ -293,8 +312,18 @@ class MainFrame(
             self.on_logout()
 
     def enable_chat(self, enabled):
-        self.message_input.Enable(enabled)
-        self.send_btn.Enable(enabled)
+        """Unlock the writing controls, as far as the open chat lets this account write."""
+        can_send = self.current_dialog().get("can_send", True)
+        usable = enabled and can_send
+        self.message_input.Enable(usable)
+        self.send_btn.Enable(usable)
+        self.record_btn.Enable(usable and audio.AVAILABLE)
+        if not self.reply_to and not self.editing:
+            # In a channel that only its admins post to, say why the field is locked.
+            read_only = self.current_dialog_id is not None and not can_send
+            label = self.i18n.get_string(MSG_CANNOT_WRITE_KEY if read_only else MESSAGE_INPUT_LABEL_KEY)
+            self.input_label.SetLabel(label)
+            self.message_input.SetName(label)
 
     def set_status(self, key):
         self.SetStatusText(self.i18n.get_string(key))
