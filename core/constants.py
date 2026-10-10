@@ -110,6 +110,10 @@ SHOW_HOTKEY_ID = 1
 SHOW_HOTKEY_TEXT = "Ctrl+Alt+Shift+A"
 BACKGROUND_FLAG = "--background"
 CHECK_FLAG = "--check"
+# Used by the installer and uninstaller: asks the copy running in the background
+# to close properly, so its files can be replaced or removed.
+QUIT_FLAG = "--quit"
+QUIT_WAIT_SECONDS = 8
 SETTINGS_KEEP_IN_BACKGROUND_KEY = "SETTINGS_KEEP_IN_BACKGROUND"
 TRAY_OPEN_KEY = "TRAY_OPEN"
 TRAY_EXIT_KEY = "TRAY_EXIT"

@@ -2,14 +2,15 @@ import sys
 import wx
 from core.config import load_credentials, save_credentials
 from core.constants import (
-    APP_NAME, DEFAULT_LANG, APP_TITLE_KEY, STEP_DONE, BACKGROUND_FLAG, CHECK_FLAG,
+    APP_NAME, DEFAULT_LANG, APP_TITLE_KEY, STEP_DONE, BACKGROUND_FLAG, CHECK_FLAG, QUIT_FLAG,
+    QUIT_WAIT_SECONDS,
     SHOW_HOTKEY_TEXT, ERR_HOTKEY_TAKEN_FORMAT_KEY
 )
 from core.i18n import I18NManager
 from core.settings import Settings
 from core.telegram_client import TelegramManager
 from ui.api_setup_dialog import ApiSetupDialog
-from ui.background import BackgroundWindow, ask_running_copy_to_show
+from ui.background import BackgroundWindow, ask_running_copy_to_quit, ask_running_copy_to_show
 from ui.login_frame import LoginFrame
 from ui.main_frame import MainFrame
 
@@ -141,5 +142,8 @@ def self_check():
 if __name__ == '__main__':
     if CHECK_FLAG in sys.argv:
         sys.exit(self_check())
+    if QUIT_FLAG in sys.argv:
+        # Exit code 0 tells the installer the program is closed and its files are free.
+        sys.exit(0 if ask_running_copy_to_quit(QUIT_WAIT_SECONDS) else 1)
     app = MainApplication()
     app.MainLoop()

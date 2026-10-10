@@ -106,6 +106,82 @@ class VersionTest(unittest.TestCase):
         self.assertIn(APP_PUBLISHER, APP_COPYRIGHT)
 
 
+class QuitRequestTest(unittest.TestCase):
+    """--quit, which the installer uses to close the copy running in the background."""
+
+    class FakeUser32:
+        """Windows with one hidden AuraGram window that goes away some time after being told to close."""
+
+        def __init__(self, running, lookups_until_gone=None):
+            self.running = running
+            self.lookups_until_gone = lookups_until_gone
+            self.posted = []
+
+        def FindWindowW(self, class_name, title):
+            from core.constants import BACKGROUND_WINDOW_TITLE
+            assert title == BACKGROUND_WINDOW_TITLE
+            if self.running and self.posted and self.lookups_until_gone is not None:
+                self.lookups_until_gone -= 1
+                if self.lookups_until_gone <= 0:
+                    self.running = False
+            return 1234 if self.running else 0
+
+        def PostMessageW(self, window, message, wparam, lparam):
+            self.posted.append((window, message))
+
+    def ask(self, user32, wait_seconds=1):
+        from unittest import mock
+        import ui.background as background
+        with mock.patch.object(background.ctypes, "windll", mock.Mock(user32=user32)), \
+                mock.patch.object(background.time, "sleep", lambda seconds: None):
+            return background.ask_running_copy_to_quit(wait_seconds)
+
+    def test_nothing_running_is_already_done(self):
+        user32 = self.FakeUser32(running=False)
+        self.assertTrue(self.ask(user32))
+        self.assertEqual(user32.posted, [])
+
+    def test_running_copy_is_asked_to_close_and_waited_for(self):
+        user32 = self.FakeUser32(running=True, lookups_until_gone=3)
+        self.assertTrue(self.ask(user32))
+        self.assertEqual(user32.posted, [(1234, 0x0010)])
+
+    def test_copy_that_will_not_close_is_reported(self):
+        user32 = self.FakeUser32(running=True)
+        self.assertFalse(self.ask(user32, wait_seconds=0.05))
+        self.assertEqual(len(user32.posted), 1)
+
+
+class InstallerScriptTest(unittest.TestCase):
+    """The installer cannot be run in tests; these catch the script drifting from the app."""
+
+    def setUp(self):
+        with open(os.path.join(BASE_DIR, "installer.iss"), encoding="utf-8") as file:
+            self.script = file.read()
+
+    def test_installs_for_all_users_under_program_files(self):
+        self.assertIn("PrivilegesRequired=admin", self.script)
+        self.assertIn("DefaultDirName={autopf}\\", self.script)
+
+    def test_uses_the_flags_the_program_understands(self):
+        from core.constants import BACKGROUND_FLAG, QUIT_FLAG
+        self.assertIn(BACKGROUND_FLAG, self.script)
+        self.assertIn("'%s'" % QUIT_FLAG, self.script)
+
+    def test_user_data_is_looked_for_where_the_program_keeps_it(self):
+        from core.constants import APP_NAME
+        self.assertIn('#define AppName "%s"' % APP_NAME, self.script)
+        self.assertIn("{userappdata}\\{#AppName}", self.script)
+
+    def test_every_custom_message_exists_in_both_languages(self):
+        import re
+        used = set(re.findall(r"\{cm:(\w+)", self.script)) | set(re.findall(r"CustomMessage\('(\w+)'\)", self.script))
+        self.assertTrue(used)
+        for name in used:
+            for language in ("arabic", "english"):
+                self.assertIn("%s.%s=" % (language, name), self.script)
+
+
 class CredentialsTest(unittest.TestCase):
     def setUp(self):
         import tempfile
