@@ -8,10 +8,10 @@ from telethon.errors import (
     SessionPasswordNeededError, PasswordHashInvalidError, FloodWaitError,
     MessageNotModifiedError, ChatAdminRequiredError, ChatWriteForbiddenError,
     ChatNotModifiedError, ChatAboutNotModifiedError, UserAdminInvalidError,
-    RightForbiddenError, UserCreatorError, MessageDeleteForbiddenError
+    RightForbiddenError, UserCreatorError, MessageDeleteForbiddenError, RPCError
 )
 from telethon.tl import functions, types
-from telethon.utils import get_display_name, get_input_peer
+from telethon.utils import get_display_name, get_input_peer, get_peer_id
 from core.constants import (
     API_ID, API_HASH, SESSION_NAME, EMPTY_STRING, DIALOGS_LIMIT, MESSAGES_LIMIT,
     STEP_PHONE, STEP_CODE, STEP_PASSWORD, STEP_DONE,
@@ -21,10 +21,26 @@ from core.constants import (
     CHAT_KIND_USER, CHAT_KIND_GROUP, CHAT_KIND_SUPERGROUP, CHAT_KIND_CHANNEL,
     MEMBER_ROLE_OWNER, MEMBER_ROLE_ADMIN, MEMBERS_LIMIT,
     MEMBER_ACTION_KICK, MEMBER_ACTION_BAN, MEMBER_ACTION_PROMOTE, MEMBER_ACTION_DEMOTE,
+    MEMBER_ACTION_UNBAN, MEMBER_ROLE_BANNED, ADMIN_RIGHTS, FOLDER_CATEGORIES,
+    CATEGORY_CONTACTS, CATEGORY_NON_CONTACTS, CATEGORY_GROUPS, CATEGORY_BROADCASTS, CATEGORY_BOTS,
+    PRIVACY_EVERYONE, PRIVACY_CONTACTS, PRIVACY_NOBODY, ERR_CHAT_NOT_FOUND_KEY,
     EVENT_NEW_MESSAGE, EVENT_MESSAGE_EDITED, EVENT_MESSAGES_DELETED
 )
 
 STOP_TIMEOUT_SECONDS = 5
+
+class ChatNotFoundError(Exception):
+    """No user or chat matches what was typed."""
+
+# Privacy settings offered in the app, by the name the UI uses for each.
+PRIVACY_KEYS = {
+    "last_seen": types.InputPrivacyKeyStatusTimestamp,
+    "phone": types.InputPrivacyKeyPhoneNumber,
+    "photo": types.InputPrivacyKeyProfilePhoto,
+    "invites": types.InputPrivacyKeyChatInvite,
+    "calls": types.InputPrivacyKeyPhoneCall,
+    "forwards": types.InputPrivacyKeyForwards,
+}
 
 class TelegramManager(threading.Thread):
     """Runs Telethon on its own event loop.
@@ -104,13 +120,47 @@ class TelegramManager(threading.Thread):
         """Pass None for a field that should stay as it is."""
         self._request(on_result, self._save_chat_info_async, dialog_id, title, about)
 
-    def load_members(self, dialog_id, search, on_result):
-        """The result is a list of members, each with id, name, role and is_self."""
-        self._request(on_result, self._load_members_async, dialog_id, search)
+    def load_members(self, dialog_id, search, on_result, banned=False):
+        """The result is a list of members (or of banned users), each with id, name, role, rights and is_self."""
+        self._request(on_result, self._load_members_async, dialog_id, search, banned)
 
-    def manage_member(self, dialog_id, user_id, action, on_result):
-        """Applies one of the MEMBER_ACTION_* constants to a member loaded by load_members."""
-        self._request(on_result, self._manage_member_async, dialog_id, user_id, action)
+    def manage_member(self, dialog_id, user_id, action, on_result, rights=None):
+        """Applies one of the MEMBER_ACTION_* constants to a member loaded by load_members.
+
+        `rights` is the set of admin right names to grant with MEMBER_ACTION_PROMOTE.
+        """
+        self._request(on_result, self._manage_member_async, dialog_id, user_id, action, rights)
+
+    def load_folders(self, on_result):
+        """The result is the account's chat folders with the rules for what belongs in each."""
+        self._request(on_result, self._load_folders_async)
+
+    def find_chat(self, query, on_result):
+        """Looks up a username, phone number or link; the result is a chat like those of load_dialogs."""
+        self._request(on_result, self._find_chat_async, query)
+
+    def load_contacts(self, on_result):
+        self._request(on_result, self._load_contacts_async)
+
+    def forward_message(self, from_dialog_id, message_id, to_dialog_id, on_result):
+        self._request(on_result, self._forward_message_async, from_dialog_id, message_id, to_dialog_id)
+
+    def load_sessions(self, on_result):
+        """The result lists every device signed in to the account."""
+        self._request(on_result, self._load_sessions_async)
+
+    def end_session(self, session_hash, on_result):
+        self._request(on_result, self._end_session_async, session_hash)
+
+    def load_privacy(self, on_result):
+        """The result maps each PRIVACY_KEYS name to a PRIVACY_* level, or None if it has exceptions."""
+        self._request(on_result, self._load_privacy_async)
+
+    def save_privacy(self, changes, on_result):
+        self._request(on_result, self._save_privacy_async, changes)
+
+    def load_invite_link(self, dialog_id, on_result):
+        self._request(on_result, self._load_invite_link_async, dialog_id)
 
     def set_pinned(self, dialog_id, message_id, pinned, on_result):
         self._request(on_result, self._set_pinned_async, dialog_id, message_id, pinned)
@@ -146,7 +196,7 @@ class TelegramManager(threading.Thread):
     def set_message_listener(self, listener):
         """listener(event, *details) is called from this thread when a chat changes:
 
-        EVENT_NEW_MESSAGE, dialog_id, dialog_title, message
+        EVENT_NEW_MESSAGE, chat, message  (chat is shaped like those of load_dialogs)
         EVENT_MESSAGE_EDITED, dialog_id, message
         EVENT_MESSAGES_DELETED, dialog_id, message_ids  (dialog_id is None outside channels)
         """
@@ -164,6 +214,8 @@ class TelegramManager(threading.Thread):
             result = await coroutine_function(*args)
         except FloodWaitError:
             on_result(None, ERR_FLOOD_KEY)
+        except ChatNotFoundError:
+            on_result(None, ERR_CHAT_NOT_FOUND_KEY)
         except (
             ChatAdminRequiredError, ChatWriteForbiddenError, UserAdminInvalidError,
             RightForbiddenError, UserCreatorError, MessageDeleteForbiddenError
@@ -181,18 +233,140 @@ class TelegramManager(threading.Thread):
         # update(), not replace: chats learned from live messages may not be in this page.
         self.entities.update({dialog.id: dialog.input_entity for dialog in dialogs})
         return [
-            {
-                "id": dialog.id, "title": dialog.name,
-                "unread": dialog.unread_count, "pinned": dialog.pinned,
-                "muted": self._is_muted(dialog),
-                "can_delete_others": self._has_right(dialog.entity, "delete_messages"),
-                # Anyone may pin in a private chat; elsewhere it takes the right.
-                "can_pin": dialog.is_user or self._has_right(dialog.entity, "pin_messages"),
-                # Channels and supergroups number their messages separately from everything else.
-                "is_channel": dialog.is_channel,
-            }
+            self._describe_chat(
+                dialog.entity, unread=dialog.unread_count, pinned=dialog.pinned,
+                muted=self._is_muted(dialog), archived=bool(dialog.archived)
+            )
             for dialog in dialogs
         ]
+
+    def _describe_chat(self, entity, unread=0, pinned=False, muted=False, archived=False):
+        is_user = isinstance(entity, types.User)
+        return {
+            "id": get_peer_id(entity), "title": get_display_name(entity),
+            "unread": unread, "pinned": pinned, "muted": muted, "archived": archived,
+            "category": self._chat_category(entity),
+            "can_delete_others": self._has_right(entity, "delete_messages"),
+            # Anyone may pin in a private chat; elsewhere it takes the right.
+            "can_pin": is_user or self._has_right(entity, "pin_messages"),
+            # Channels and supergroups number their messages separately from everything else.
+            "is_channel": isinstance(entity, types.Channel),
+        }
+
+    def _chat_category(self, entity):
+        """Which of Telegram's folder categories a chat falls under."""
+        if isinstance(entity, types.User):
+            if entity.bot:
+                return CATEGORY_BOTS
+            return CATEGORY_CONTACTS if entity.contact else CATEGORY_NON_CONTACTS
+        if isinstance(entity, types.Channel) and not entity.megagroup:
+            return CATEGORY_BROADCASTS
+        return CATEGORY_GROUPS
+
+    async def _load_folders_async(self):
+        result = await self.client(functions.messages.GetDialogFiltersRequest())
+        folders = []
+        for chat_filter in getattr(result, "filters", result):
+            # The built-in "All chats" entry has no id or rules of its own.
+            if not hasattr(chat_filter, "include_peers"):
+                continue
+            title = chat_filter.title
+            included = list(chat_filter.include_peers) + list(chat_filter.pinned_peers)
+            folders.append({
+                "id": chat_filter.id,
+                # Newer Telegram layers wrap the title in a formatted-text object.
+                "title": getattr(title, "text", title),
+                "include_ids": {get_peer_id(peer) for peer in included},
+                "exclude_ids": {get_peer_id(peer) for peer in getattr(chat_filter, "exclude_peers", [])},
+                "categories": {
+                    category for category in FOLDER_CATEGORIES if getattr(chat_filter, category, False)
+                },
+                "exclude_muted": bool(getattr(chat_filter, "exclude_muted", False)),
+                "exclude_read": bool(getattr(chat_filter, "exclude_read", False)),
+                "exclude_archived": bool(getattr(chat_filter, "exclude_archived", False)),
+            })
+        return folders
+
+    async def _find_chat_async(self, query):
+        try:
+            entity = await self.client.get_entity(query)
+        except FloodWaitError:
+            raise
+        except (ValueError, TypeError, RPCError) as error:
+            # Telethon reports an unknown username or number in several different ways.
+            raise ChatNotFoundError() from error
+        chat = self._describe_chat(entity)
+        self.entities[chat["id"]] = get_input_peer(entity)
+        return chat
+
+    async def _load_contacts_async(self):
+        result = await self.client(functions.contacts.GetContactsRequest(hash=0))
+        chats = []
+        for user in result.users:
+            chat = self._describe_chat(user)
+            self.entities[chat["id"]] = get_input_peer(user)
+            chats.append(chat)
+        return sorted(chats, key=lambda chat: chat["title"].casefold())
+
+    async def _forward_message_async(self, from_dialog_id, message_id, to_dialog_id):
+        await self.client.forward_messages(
+            self.entities[to_dialog_id], message_id, self.entities[from_dialog_id]
+        )
+
+    async def _load_sessions_async(self):
+        result = await self.client(functions.account.GetAuthorizationsRequest())
+        return [
+            {
+                "hash": session.hash, "current": bool(session.current),
+                "device": session.device_model, "app": session.app_name,
+                "platform": session.platform, "country": session.country,
+                "last_active": session.date_active,
+            }
+            for session in result.authorizations
+        ]
+
+    async def _end_session_async(self, session_hash):
+        await self.client(functions.account.ResetAuthorizationRequest(hash=session_hash))
+
+    async def _load_privacy_async(self):
+        privacy = {}
+        for name, key_type in PRIVACY_KEYS.items():
+            result = await self.client(functions.account.GetPrivacyRequest(key_type()))
+            privacy[name] = self._privacy_level(result.rules)
+        return privacy
+
+    def _privacy_level(self, rules):
+        """Everyone, contacts or nobody; None when the setting also has per-person
+        exceptions, which this simple three-way choice cannot represent."""
+        kinds = {type(rule) for rule in rules}
+        if kinds == {types.PrivacyValueAllowAll}:
+            return PRIVACY_EVERYONE
+        if kinds and kinds <= {types.PrivacyValueAllowContacts, types.PrivacyValueDisallowAll}:
+            if types.PrivacyValueAllowContacts in kinds:
+                return PRIVACY_CONTACTS
+            return PRIVACY_NOBODY
+        return None
+
+    async def _save_privacy_async(self, changes):
+        rules = {
+            PRIVACY_EVERYONE: [types.InputPrivacyValueAllowAll()],
+            PRIVACY_CONTACTS: [types.InputPrivacyValueAllowContacts()],
+            PRIVACY_NOBODY: [types.InputPrivacyValueDisallowAll()],
+        }
+        for name, level in changes.items():
+            await self.client(functions.account.SetPrivacyRequest(PRIVACY_KEYS[name](), rules[level]))
+
+    async def _load_invite_link_async(self, dialog_id):
+        """The chat's main invite link, created first if it has none yet."""
+        entity = self.entities[dialog_id]
+        if isinstance(entity, types.InputPeerChannel):
+            full = await self.client(functions.channels.GetFullChannelRequest(entity))
+        else:
+            full = await self.client(functions.messages.GetFullChatRequest(entity.chat_id))
+        invite = full.full_chat.exported_invite
+        if invite is None or not getattr(invite, "link", None):
+            invite = await self.client(functions.messages.ExportChatInviteRequest(entity))
+        return invite.link
 
     def _has_right(self, entity, right):
         """Whether this account holds an admin right in a group or channel."""
@@ -247,7 +421,7 @@ class TelegramManager(threading.Thread):
             "title": get_display_name(entity),
             "username": getattr(entity, "username", None) or EMPTY_STRING,
             "about": EMPTY_STRING, "members_count": None,
-            "can_edit": False, "can_ban": False, "can_promote": False,
+            "can_edit": False, "can_ban": False, "can_promote": False, "can_invite": False,
         }
         if isinstance(entity, types.User):
             full = await self.client(functions.users.GetFullUserRequest(entity))
@@ -269,6 +443,7 @@ class TelegramManager(threading.Thread):
         info["can_edit"] = is_owner or bool(rights and rights.change_info)
         info["can_ban"] = is_owner or bool(rights and rights.ban_users)
         info["can_promote"] = is_owner or bool(rights and rights.add_admins)
+        info["can_invite"] = is_owner or bool(rights and rights.invite_users)
         return info
 
     async def _save_chat_info_async(self, dialog_id, title, about):
@@ -285,31 +460,46 @@ class TelegramManager(threading.Thread):
             # Saving the same value again is not a failure.
             pass
 
-    async def _load_members_async(self, dialog_id, search):
+    async def _load_members_async(self, dialog_id, search, banned):
         participants = await self.client.get_participants(
-            self.entities[dialog_id], limit=MEMBERS_LIMIT, search=search
+            self.entities[dialog_id], limit=MEMBERS_LIMIT, search=search,
+            filter=types.ChannelParticipantsKicked if banned else None
         )
         self.member_entities = {user.id: get_input_peer(user) for user in participants}
         return [
             {
                 "id": user.id,
                 "name": get_display_name(user) or EMPTY_STRING,
-                "role": self._member_role(getattr(user, "participant", None)),
+                "role": MEMBER_ROLE_BANNED if banned else self._member_role(getattr(user, "participant", None)),
+                "rights": self._member_rights(getattr(user, "participant", None)),
                 "is_self": bool(user.is_self),
             }
             for user in participants
         ]
 
-    async def _manage_member_async(self, dialog_id, user_id, action):
+    def _member_rights(self, participant):
+        rights = getattr(participant, "admin_rights", None)
+        return {name for name in ADMIN_RIGHTS if getattr(rights, name, False)}
+
+    async def _manage_member_async(self, dialog_id, user_id, action, rights):
         entity = self.entities[dialog_id]
         user = self.member_entities[user_id]
         if action == MEMBER_ACTION_KICK:
             await self.client.kick_participant(entity, user)
         elif action == MEMBER_ACTION_BAN:
             await self.client.edit_permissions(entity, user, view_messages=False)
+        elif action == MEMBER_ACTION_UNBAN:
+            # Default permissions: lifts the ban without re-adding the user.
+            await self.client.edit_permissions(entity, user)
         elif action == MEMBER_ACTION_PROMOTE:
-            # Every admin right except appointing further admins, which stays with the owner.
-            await self.client.edit_admin(entity, user, is_admin=True, add_admins=False)
+            if isinstance(entity, types.InputPeerChat):
+                # Small basic groups have a single admin level, no separate rights.
+                await self.client.edit_admin(entity, user, is_admin=True)
+            else:
+                # Each right is set explicitly, so nothing is granted that was not chosen.
+                await self.client.edit_admin(
+                    entity, user, **{name: name in rights for name in ADMIN_RIGHTS}
+                )
         elif action == MEMBER_ACTION_DEMOTE:
             await self.client.edit_admin(entity, user, is_admin=False)
 
@@ -399,11 +589,11 @@ class TelegramManager(threading.Thread):
             dialog_id = event.chat_id
             if dialog_id not in self.entities:
                 self.entities[dialog_id] = await event.get_input_chat()
-            title = get_display_name(await event.get_chat())
+            chat = self._describe_chat(await event.get_chat())
             message = self._describe_message(event.message, await event.get_sender())
         except Exception:
             return
-        self.message_listener(EVENT_NEW_MESSAGE, dialog_id, title, message)
+        self.message_listener(EVENT_NEW_MESSAGE, chat, message)
 
     async def _on_message_edited(self, event):
         if self.message_listener is None:

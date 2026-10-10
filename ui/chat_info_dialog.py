@@ -4,7 +4,10 @@ from core.constants import (
     APP_TITLE_KEY, MSG_LOADING_KEY, CHAT_KIND_USER, CHAT_KIND_GROUP,
     MEMBER_ROLE_OWNER, MEMBER_ROLE_ADMIN, MEMBER_ACTION_KICK, MEMBER_ACTION_BAN,
     MEMBER_ACTION_PROMOTE, MEMBER_ACTION_DEMOTE, MEMBER_ACTION_TEXTS,
-    INFO_MEMBERS_HINT_KEY, MSG_NO_MEMBER_ACTIONS_KEY,
+    INFO_MEMBERS_HINT_KEY, MSG_NO_MEMBER_ACTIONS_KEY, MEMBER_ACTION_UNBAN, MEMBER_ROLE_BANNED,
+    ADMIN_RIGHTS, CHANNEL_ONLY_RIGHTS, ADMIN_RIGHT_KEY_PREFIX, MEMBER_EDIT_RIGHTS_KEY,
+    MSG_CHOOSE_RIGHTS_FORMAT_KEY, MSG_NO_RIGHTS_CHOSEN_KEY, INFO_SHOW_BANNED_KEY,
+    BTN_COPY_INVITE_KEY, MSG_INVITE_COPIED_KEY, CHAT_KIND_CHANNEL,
     INFO_TITLE_FORMAT_KEY, INFO_SUMMARY_LABEL_KEY, INFO_KIND_FORMAT_KEY,
     INFO_USERNAME_FORMAT_KEY, INFO_MEMBERS_COUNT_FORMAT_KEY, INFO_ROLE_MANAGER_KEY,
     INFO_ROLE_VIEWER_KEY, INFO_NAME_LABEL_KEY, INFO_ABOUT_LABEL_KEY,
@@ -61,6 +64,10 @@ class ChatInfoDialog(wx.Dialog):
         search_box.Add(self.search_btn)
         sizer.Add(search_box, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
 
+        self.banned_checkbox = wx.CheckBox(self, label=self.i18n.get_string(INFO_SHOW_BANNED_KEY))
+        self.banned_checkbox.Bind(wx.EVT_CHECKBOX, self.on_search_members)
+        sizer.Add(self.banned_checkbox, flag=wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
+
         self.members_label = self.add_label(sizer, INFO_MEMBERS_LABEL_KEY)
         self.members_controls.append(self.members_label)
         self.members_list = wx.ListBox(self, style=wx.LB_SINGLE)
@@ -72,11 +79,17 @@ class ChatInfoDialog(wx.Dialog):
         self.save_btn = wx.Button(self, label=self.i18n.get_string(BTN_SAVE_KEY))
         self.save_btn.Bind(wx.EVT_BUTTON, self.on_save)
         buttons.Add(self.save_btn, flag=wx.RIGHT, border=10)
+        self.invite_btn = wx.Button(self, label=self.i18n.get_string(BTN_COPY_INVITE_KEY))
+        self.invite_btn.Bind(wx.EVT_BUTTON, self.on_copy_invite)
+        buttons.Add(self.invite_btn, flag=wx.RIGHT, border=10)
         buttons.Add(wx.Button(self, wx.ID_CANCEL, self.i18n.get_string(BTN_CLOSE_KEY)))
         sizer.Add(buttons, flag=wx.ALL, border=10)
 
         # Nothing can be edited or searched until the chat's details arrive.
-        for control in (self.title_input, self.about_input, self.save_btn, *self.members_controls):
+        for control in (
+            self.title_input, self.about_input, self.save_btn, self.invite_btn,
+            self.banned_checkbox, *self.members_controls
+        ):
             control.Disable()
         self.SetSizer(sizer)
         self.CenterOnParent()
@@ -136,6 +149,11 @@ class ChatInfoDialog(wx.Dialog):
         if info["can_ban"] or info["can_promote"]:
             # Tell managers the list is more than a list; viewers get the plain label.
             self.members_label.SetLabel(self.i18n.get_string(INFO_MEMBERS_HINT_KEY))
+        # Small basic groups keep no ban list, so there is nothing to show for them.
+        has_ban_list = info["can_ban"] and info["kind"] not in (CHAT_KIND_USER, CHAT_KIND_GROUP)
+        for control, usable in ((self.banned_checkbox, has_ban_list), (self.invite_btn, info["can_invite"])):
+            control.Show(usable)
+            control.Enable(usable)
         self.Layout()
         if not is_user:
             self.load_members()
@@ -145,11 +163,22 @@ class ChatInfoDialog(wx.Dialog):
 
     def load_members(self):
         self.members_list.Set([self.i18n.get_string(MSG_LOADING_KEY)])
+        self.members = []
         self.telegram_manager.load_members(
             self.dialog_id, self.search_input.GetValue().strip(),
             # E.g. a channel where only admins may see the subscribers.
-            self.on_ui_thread(self.show_members, on_error=self.members_list.Clear)
+            self.on_ui_thread(self.show_members, on_error=self.members_list.Clear),
+            banned=self.banned_checkbox.GetValue()
         )
+
+    def on_copy_invite(self, event):
+        self.telegram_manager.load_invite_link(self.dialog_id, self.on_ui_thread(self.copy_invite))
+
+    def copy_invite(self, link):
+        if wx.TheClipboard.Open():
+            wx.TheClipboard.SetData(wx.TextDataObject(link))
+            wx.TheClipboard.Close()
+            speak(self.i18n.get_string(MSG_INVITE_COPIED_KEY))
 
     def show_members(self, members):
         self.members = members
@@ -162,6 +191,8 @@ class ChatInfoDialog(wx.Dialog):
         """What this account may do to a member; never anything to itself or to the owner."""
         if member["is_self"] or member["role"] == MEMBER_ROLE_OWNER:
             return []
+        if member["role"] == MEMBER_ROLE_BANNED:
+            return [MEMBER_ACTION_UNBAN] if self.info["can_ban"] else []
         actions = []
         if self.info["can_ban"]:
             actions.append(MEMBER_ACTION_KICK)
@@ -169,9 +200,40 @@ class ChatInfoDialog(wx.Dialog):
             if self.info["kind"] != CHAT_KIND_GROUP:
                 actions.append(MEMBER_ACTION_BAN)
         if self.info["can_promote"]:
-            is_admin = member["role"] == MEMBER_ROLE_ADMIN
-            actions.append(MEMBER_ACTION_DEMOTE if is_admin else MEMBER_ACTION_PROMOTE)
+            # On someone who is already an admin, "promote" means changing their rights.
+            actions.append(MEMBER_ACTION_PROMOTE)
+            if member["role"] == MEMBER_ROLE_ADMIN:
+                actions.append(MEMBER_ACTION_DEMOTE)
         return actions
+
+    def action_label(self, member, action):
+        if action == MEMBER_ACTION_PROMOTE and member["role"] == MEMBER_ROLE_ADMIN:
+            return self.i18n.get_string(MEMBER_EDIT_RIGHTS_KEY)
+        return self.i18n.get_string(MEMBER_ACTION_TEXTS[action][0])
+
+    def choose_rights(self, member):
+        """Ask which admin rights the member should hold; None if cancelled or nothing chosen."""
+        is_channel = self.info["kind"] == CHAT_KIND_CHANNEL
+        names = [name for name in ADMIN_RIGHTS if is_channel or name not in CHANNEL_ONLY_RIGHTS]
+        if member["role"] == MEMBER_ROLE_ADMIN:
+            chosen = member["rights"]
+        else:
+            # A sensible start for a new admin: everything but appointing more admins.
+            chosen = set(names) - {"add_admins"}
+        with wx.MultiChoiceDialog(
+            self,
+            self.i18n.get_string(MSG_CHOOSE_RIGHTS_FORMAT_KEY).format(name=member["name"], chat=self.info["title"]),
+            self.i18n.get_string(APP_TITLE_KEY),
+            [self.i18n.get_string(ADMIN_RIGHT_KEY_PREFIX + name) for name in names]
+        ) as rights_dialog:
+            rights_dialog.SetSelections([index for index, name in enumerate(names) if name in chosen])
+            if rights_dialog.ShowModal() != wx.ID_OK:
+                return None
+            rights = {names[index] for index in rights_dialog.GetSelections()}
+        if not rights:
+            self.show_error(MSG_NO_RIGHTS_CHOSEN_KEY)
+            return None
+        return rights
 
     def on_member_context_menu(self, event):
         position = event.GetPosition()
@@ -190,23 +252,31 @@ class ChatInfoDialog(wx.Dialog):
             return
         menu = wx.Menu()
         for action in actions:
-            item = menu.Append(wx.ID_ANY, self.i18n.get_string(MEMBER_ACTION_TEXTS[action][0]))
+            item = menu.Append(wx.ID_ANY, self.action_label(member, action))
             menu.Bind(wx.EVT_MENU, lambda event, action=action: self.manage_member(member, action), item)
         self.PopupMenu(menu)
         menu.Destroy()
 
     def manage_member(self, member, action):
         _, confirm_key, done_key = MEMBER_ACTION_TEXTS[action]
-        answer = wx.MessageBox(
-            self.i18n.get_string(confirm_key).format(name=member["name"], chat=self.info["title"]),
-            self.i18n.get_string(APP_TITLE_KEY),
-            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING, self
-        )
-        if answer != wx.YES:
-            return
+        rights = None
+        if action == MEMBER_ACTION_PROMOTE and self.info["kind"] != CHAT_KIND_GROUP:
+            # Picking the rights and pressing OK is the confirmation here.
+            rights = self.choose_rights(member)
+            if rights is None:
+                return
+        else:
+            answer = wx.MessageBox(
+                self.i18n.get_string(confirm_key).format(name=member["name"], chat=self.info["title"]),
+                self.i18n.get_string(APP_TITLE_KEY),
+                wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING, self
+            )
+            if answer != wx.YES:
+                return
         self.telegram_manager.manage_member(
             self.dialog_id, member["id"], action,
-            self.on_ui_thread(lambda result: self.on_member_managed(member, done_key))
+            self.on_ui_thread(lambda result: self.on_member_managed(member, done_key)),
+            rights=rights
         )
 
     def on_member_managed(self, member, done_key):

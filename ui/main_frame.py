@@ -9,7 +9,11 @@ from core.settings import (
 )
 from ui.settings_dialog import SettingsDialog
 from ui.chat_info_dialog import ChatInfoDialog
+from core.chat_views import build_views
 from core.constants import (
+    VIEW_LABEL_KEY, MSG_VIEW_COUNT_FORMAT_KEY, MSG_PRIVACY_SAVED_KEY, MENU_CHATS_KEY, MENU_NEW_CHAT_KEY,
+    MENU_FIND_CHAT_KEY, MENU_FORWARD_KEY, CONTEXT_FORWARD_KEY, MSG_CHOOSE_CONTACT_KEY,
+    MSG_NO_CONTACTS_KEY, MSG_FIND_CHAT_PROMPT_KEY, MSG_FORWARD_TO_KEY, MSG_FORWARDED_FORMAT_KEY,
     CONTEXT_INFO_KEY, MSG_CHAT_SAVED_KEY, MENU_PIN_KEY, CONTEXT_PIN_KEY, CONTEXT_UNPIN_KEY,
     MSG_PINNED_KEY, MSG_UNPINNED_KEY, MSG_CANNOT_PIN_KEY, PINNED_FORMAT_KEY,
     MSG_CONFIRM_DELETE_OTHER_KEY,
@@ -45,7 +49,11 @@ class MainFrame(wx.Frame):
         self.telegram_manager = telegram_manager
         self.settings = settings
         self.on_logout = on_logout
+        # Every loaded chat, and the subset the current view shows in the list.
+        self.all_dialogs = []
         self.dialogs = []
+        self.views = build_views(i18n, [])
+        self.view_index = 0
         self.current_dialog_id = None
         self.select_timer = None
         self.dialogs_limit = DIALOGS_LIMIT
@@ -70,12 +78,19 @@ class MainFrame(wx.Frame):
             lambda *args: wx.CallAfter(self.on_telegram_event, *args)
         )
         self.load_dialogs()
+        self.telegram_manager.load_folders(self.on_ui_thread(self.show_folders))
 
     def init_ui(self):
         self.panel = wx.Panel(self)
         hbox = wx.BoxSizer(wx.HORIZONTAL)
 
         dialogs_box = wx.BoxSizer(wx.VERTICAL)
+        view_label = wx.StaticText(self.panel, label=self.i18n.get_string(VIEW_LABEL_KEY))
+        dialogs_box.Add(view_label, flag=wx.BOTTOM, border=5)
+        self.view_choice = wx.Choice(self.panel, choices=[view.label for view in self.views])
+        self.view_choice.SetSelection(self.view_index)
+        self.view_choice.Bind(wx.EVT_CHOICE, self.on_view_changed)
+        dialogs_box.Add(self.view_choice, flag=wx.EXPAND|wx.BOTTOM, border=10)
         dialogs_label = wx.StaticText(self.panel, label=self.i18n.get_string(DIALOGS_LABEL_KEY))
         dialogs_box.Add(dialogs_label, flag=wx.BOTTOM, border=5)
         self.dialogs_list = wx.ListBox(self.panel, style=wx.LB_SINGLE)
@@ -131,6 +146,7 @@ class MainFrame(wx.Frame):
             (MENU_DELETE_KEY, self.on_delete_menu),
             (MENU_SEND_FILE_KEY, self.on_send_file_menu),
             (MENU_PIN_KEY, self.on_pin_menu),
+            (MENU_FORWARD_KEY, self.on_forward_menu),
             (MENU_RECORD_KEY, self.on_record_menu),
         ):
             item = message_menu.Append(wx.ID_ANY, self.i18n.get_string(label_key))
@@ -145,8 +161,17 @@ class MainFrame(wx.Frame):
             item = search_menu.Append(wx.ID_ANY, self.i18n.get_string(label_key))
             self.Bind(wx.EVT_MENU, handler, item)
 
+        chats_menu = wx.Menu()
+        for label_key, handler in (
+            (MENU_NEW_CHAT_KEY, self.on_new_chat_menu),
+            (MENU_FIND_CHAT_KEY, self.on_find_chat_menu),
+        ):
+            item = chats_menu.Append(wx.ID_ANY, self.i18n.get_string(label_key))
+            self.Bind(wx.EVT_MENU, handler, item)
+
         menu_bar = wx.MenuBar()
         menu_bar.Append(file_menu, self.i18n.get_string(MENU_FILE_KEY))
+        menu_bar.Append(chats_menu, self.i18n.get_string(MENU_CHATS_KEY))
         menu_bar.Append(message_menu, self.i18n.get_string(MENU_MESSAGE_KEY))
         menu_bar.Append(search_menu, self.i18n.get_string(MENU_SEARCH_KEY))
         self.SetMenuBar(menu_bar)
@@ -157,7 +182,14 @@ class MainFrame(wx.Frame):
                 return
             settings_dialog.apply_app_settings()
             profile = settings_dialog.changed_profile()
+            privacy = settings_dialog.changed_privacy()
+        if privacy:
+            self.telegram_manager.save_privacy(
+                privacy, self.on_ui_thread(lambda result: self.notify(MSG_PRIVACY_SAVED_KEY))
+            )
         if profile is None:
+            if privacy:
+                return
             self.notify(MSG_SETTINGS_SAVED_KEY)
         elif not profile["first_name"]:
             # Telegram rejects an empty first name; say so instead of a vague failure.
@@ -237,7 +269,7 @@ class MainFrame(wx.Frame):
         if message is None:
             return
         # Only offer what will actually work on this message.
-        entries = [(CONTEXT_REPLY_KEY, self.on_reply_menu)]
+        entries = [(CONTEXT_REPLY_KEY, self.on_reply_menu), (CONTEXT_FORWARD_KEY, self.on_forward_menu)]
         if message["outgoing"] and message["text"]:
             entries.append((CONTEXT_EDIT_KEY, self.on_edit_menu))
         if self.can_delete(message):
@@ -252,11 +284,10 @@ class MainFrame(wx.Frame):
         self.show_context_menu(entries)
 
     def current_dialog(self):
-        """The open chat; one that is not in the list has no special rights."""
-        index = self.find_dialog_index(self.current_dialog_id)
-        if index == wx.NOT_FOUND:
-            return {"can_delete_others": False, "can_pin": False}
-        return self.dialogs[index]
+        """The open chat; before any is open, a stand-in with no special rights."""
+        return self.find_known_dialog(self.current_dialog_id) or {
+            "can_delete_others": False, "can_pin": False, "is_channel": False,
+        }
 
     def can_delete(self, message):
         return message["outgoing"] or self.current_dialog()["can_delete_others"]
@@ -604,27 +635,124 @@ class MainFrame(wx.Frame):
         self.telegram_manager.load_dialogs(self.on_ui_thread(self.show_dialogs), self.dialogs_limit)
 
     def show_dialogs(self, dialogs):
+        self.all_dialogs = dialogs
+        # A full page means Telegram most likely has more chats after it.
+        self.has_more_dialogs = len(dialogs) == self.dialogs_limit
+        self.render_dialogs()
+        self.set_status(STATUS_READY_KEY)
+
+    def render_dialogs(self):
+        """Refill the chat list with the chats of the current view, keeping the user's place."""
         selected = self.dialogs_list.GetSelection()
         was_on_load_more = self.has_more_dialogs and selected == len(self.dialogs)
         first_new_index = len(self.dialogs)
         selected_id = self.dialogs[selected]["id"] if 0 <= selected < len(self.dialogs) else None
 
-        self.dialogs = dialogs
-        # A full page means Telegram most likely has more chats after it.
-        self.has_more_dialogs = len(dialogs) == self.dialogs_limit
-        items = [self.format_dialog(dialog) for dialog in dialogs]
+        view = self.views[self.view_index]
+        self.dialogs = [dialog for dialog in self.all_dialogs if view.matches(dialog)]
+        items = [self.format_dialog(dialog) for dialog in self.dialogs]
         if self.has_more_dialogs:
             items.append(self.i18n.get_string(MSG_LOAD_MORE_DIALOGS_KEY))
         self.dialogs_list.Set(items)
 
-        if was_on_load_more and first_new_index < len(dialogs):
+        if was_on_load_more and first_new_index < len(self.dialogs):
             # Continue from the first chat that was just added.
             self.dialogs_list.SetSelection(first_new_index)
         elif self.find_dialog_index(selected_id) != wx.NOT_FOUND:
             self.dialogs_list.SetSelection(self.find_dialog_index(selected_id))
-        elif dialogs:
+        elif items:
             self.dialogs_list.SetSelection(0)
+
+    def show_folders(self, folders):
+        self.views = build_views(self.i18n, folders)
+        self.view_choice.Set([view.label for view in self.views])
+        self.view_choice.SetSelection(self.view_index)
+
+    def on_view_changed(self, event):
+        self.view_index = self.view_choice.GetSelection()
+        # A different view is a different list: start it from the top.
+        self.dialogs_list.SetSelection(wx.NOT_FOUND)
+        self.render_dialogs()
+        self.announce(self.i18n.get_string(MSG_VIEW_COUNT_FORMAT_KEY).format(
+            view=self.views[self.view_index].label, count=len(self.dialogs)
+        ))
+
+    def find_known_dialog(self, dialog_id):
+        """A chat by id among all loaded chats, including those the current view hides."""
+        for dialog in self.all_dialogs:
+            if dialog["id"] == dialog_id:
+                return dialog
+        return None
+
+    def open_chat(self, chat):
+        """Show and open a chat that may not be in the list yet (a contact, a looked-up username)."""
+        known = self.find_known_dialog(chat["id"])
+        if known is None:
+            known = chat
+            self.all_dialogs.insert(sum(1 for other in self.all_dialogs if other["pinned"]), chat)
+        if self.find_dialog_index(known["id"]) == wx.NOT_FOUND:
+            if not self.views[self.view_index].matches(known):
+                # The current view would hide it: fall back to the view that shows everything.
+                self.view_index = 0
+                self.view_choice.SetSelection(0)
+            self.render_dialogs()
+        index = self.find_dialog_index(known["id"])
+        if index == wx.NOT_FOUND:
+            # Archived chats are in no view but the archive.
+            self.view_index = 2
+            self.view_choice.SetSelection(2)
+            self.render_dialogs()
+            index = self.find_dialog_index(known["id"])
+        self.dialogs_list.SetSelection(index)
+        self.open_selected_dialog(True)
+
+    def on_new_chat_menu(self, event):
+        self.set_status(MSG_LOADING_KEY)
+        self.telegram_manager.load_contacts(self.on_ui_thread(self.choose_contact))
+
+    def choose_contact(self, contacts):
         self.set_status(STATUS_READY_KEY)
+        if not contacts:
+            self.notify(MSG_NO_CONTACTS_KEY)
+            return
+        chat = self.choose_chat(MSG_CHOOSE_CONTACT_KEY, contacts)
+        if chat is not None:
+            self.open_chat(chat)
+
+    def choose_chat(self, prompt_key, chats):
+        """Let the user pick one chat from a list; None if they cancel."""
+        with wx.SingleChoiceDialog(
+            self, self.i18n.get_string(prompt_key), self.i18n.get_string(APP_TITLE_KEY),
+            [chat["title"] for chat in chats]
+        ) as choice_dialog:
+            if choice_dialog.ShowModal() != wx.ID_OK:
+                return None
+            return chats[choice_dialog.GetSelection()]
+
+    def on_find_chat_menu(self, event):
+        with wx.TextEntryDialog(
+            self, self.i18n.get_string(MSG_FIND_CHAT_PROMPT_KEY), self.i18n.get_string(APP_TITLE_KEY)
+        ) as find_dialog:
+            if find_dialog.ShowModal() != wx.ID_OK:
+                return
+            query = find_dialog.GetValue().strip()
+        if query:
+            self.set_status(MSG_LOADING_KEY)
+            self.telegram_manager.find_chat(query, self.on_ui_thread(self.open_chat))
+
+    def on_forward_menu(self, event):
+        message = self.selected_message()
+        if message is None or not self.all_dialogs:
+            return
+        target = self.choose_chat(MSG_FORWARD_TO_KEY, self.all_dialogs)
+        if target is None:
+            return
+        self.telegram_manager.forward_message(
+            self.current_dialog_id, message["id"], target["id"],
+            self.on_ui_thread(lambda result: self.announce(
+                self.i18n.get_string(MSG_FORWARDED_FORMAT_KEY).format(title=target["title"])
+            ))
+        )
 
     def load_more_dialogs(self):
         self.dialogs_limit += DIALOGS_LIMIT
@@ -800,11 +928,14 @@ class MainFrame(wx.Frame):
         return wx.NOT_FOUND
 
     def set_unread(self, dialog_id, count):
-        index = self.find_dialog_index(dialog_id)
-        if index == wx.NOT_FOUND or self.dialogs[index]["unread"] == count:
+        dialog = self.find_known_dialog(dialog_id)
+        if dialog is None or dialog["unread"] == count:
             return
-        self.dialogs[index]["unread"] = count
-        self.dialogs_list.SetString(index, self.format_dialog(self.dialogs[index]))
+        dialog["unread"] = count
+        index = self.find_dialog_index(dialog_id)
+        # It may be open while the current view does not list it.
+        if index != wx.NOT_FOUND:
+            self.dialogs_list.SetString(index, self.format_dialog(dialog))
 
     def on_telegram_event(self, event, *details):
         if not self:
@@ -830,25 +961,18 @@ class MainFrame(wx.Frame):
         if dialog_id is None:
             # Telegram does not say which chat. Outside channels message ids are
             # unique across chats, so matching by id is safe there, but only there.
-            index = self.find_dialog_index(self.current_dialog_id)
-            if index == wx.NOT_FOUND or self.dialogs[index]["is_channel"]:
+            if self.current_dialog_id is None or self.current_dialog()["is_channel"]:
                 return
         elif dialog_id != self.current_dialog_id:
             return
         for message_id in message_ids:
             self.remove_message(message_id)
 
-    def on_new_message(self, dialog_id, title, message):
+    def on_new_message(self, chat, message):
+        dialog_id = chat["id"]
         index = self.find_dialog_index(dialog_id)
-        if index == wx.NOT_FOUND:
-            dialog = {
-                "id": dialog_id, "title": title, "unread": 0,
-                "pinned": False, "muted": False, "is_channel": False,
-                # Rights are unknown for a chat seen only through a live message.
-                "can_delete_others": False, "can_pin": False,
-            }
-        else:
-            dialog = self.dialogs[index]
+        # Prefer the chat as already loaded: it knows its unread count and mute state.
+        dialog = self.find_known_dialog(dialog_id) or chat
 
         is_current = dialog_id == self.current_dialog_id
         if not message["outgoing"] and not dialog["muted"]:
@@ -887,6 +1011,16 @@ class MainFrame(wx.Frame):
 
     def move_dialog_to_top(self, index, dialog):
         """Put the dialog where Telegram shows the most recent chat: right below the pinned ones."""
+        # First in the full list, which also holds the chats the current view hides.
+        if not dialog["pinned"]:
+            if dialog in self.all_dialogs:
+                self.all_dialogs.remove(dialog)
+            self.all_dialogs.insert(sum(1 for other in self.all_dialogs if other["pinned"]), dialog)
+        if not self.views[self.view_index].matches(dialog):
+            if index != wx.NOT_FOUND:
+                # E.g. it was just read while the "unread" view is showing: leave it in place.
+                self.dialogs_list.SetString(index, self.format_dialog(dialog))
+            return
         selected = self.dialogs_list.GetSelection()
         selected_id = self.dialogs[selected]["id"] if 0 <= selected < len(self.dialogs) else None
 
