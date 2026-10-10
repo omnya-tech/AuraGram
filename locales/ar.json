@@ -18,6 +18,8 @@
     "MESSAGE_FORMAT": "{sender}: {text}، {time}",
     "SENDER_YOU": "أنت",
     "MSG_NO_TEXT": "[رسالة فارغة]",
+    "MSG_LOAD_OLDER": "تحميل رسائل أقدم",
+    "MSG_DOWNLOADING": "جاري تنزيل الملف، يرجى الانتظار...",
     "MEDIA_FORMAT": "[{media}] {text}",
     "MEDIA_PHOTO": "صورة",
     "MEDIA_STICKER": "ملصق",

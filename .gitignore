@@ -3,5 +3,8 @@ config.json
 *.session
 *.session-journal
 
+# Media saved from chats
+downloads/
+
 __pycache__/
 *.pyc

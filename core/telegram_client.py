@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import os
 import threading
 from telethon import TelegramClient, events
 from telethon.errors import (
@@ -12,7 +13,7 @@ from core.constants import (
     STEP_PHONE, STEP_CODE, STEP_PASSWORD, STEP_DONE,
     ERR_CODE_INVALID_KEY, ERR_CODE_EXPIRED_KEY, ERR_PHONE_INVALID_KEY,
     ERR_PASSWORD_INVALID_KEY, ERR_FLOOD_KEY, ERR_CONNECTION_KEY, ERR_GENERAL_KEY,
-    ERR_LOGOUT_KEY, MEDIA_KINDS
+    ERR_LOGOUT_KEY, MEDIA_KINDS, DOWNLOADS_DIR
 )
 
 STOP_TIMEOUT_SECONDS = 5
@@ -69,8 +70,13 @@ class TelegramManager(threading.Thread):
     def load_dialogs(self, on_result):
         self._request(on_result, self._load_dialogs_async)
 
-    def load_messages(self, dialog_id, on_result):
-        self._request(on_result, self._load_messages_async, dialog_id)
+    def load_messages(self, dialog_id, on_result, before_id=None):
+        """Loads the latest page of a chat, or the page before message `before_id`."""
+        self._request(on_result, self._load_messages_async, dialog_id, before_id)
+
+    def download_media(self, dialog_id, message_id, on_result):
+        """Saves the message's media to the downloads folder; the result is the file path."""
+        self._request(on_result, self._download_media_async, dialog_id, message_id)
 
     def send_message(self, dialog_id, text, on_result):
         self._request(on_result, self._send_message_async, dialog_id, text)
@@ -137,12 +143,21 @@ class TelegramManager(threading.Thread):
         self._create_client()
         await self._connect_async()
 
-    async def _load_messages_async(self, dialog_id):
+    async def _load_messages_async(self, dialog_id, before_id):
         entity = self.entities[dialog_id]
-        messages = await self.client.get_messages(entity, limit=MESSAGES_LIMIT)
-        await self._mark_read_async(dialog_id)
+        messages = await self.client.get_messages(entity, limit=MESSAGES_LIMIT, max_id=before_id or 0)
+        if before_id is None:
+            await self._mark_read_async(dialog_id)
         # Telegram returns newest first; the UI reads oldest first.
         return [self._describe_message(message, message.sender) for message in reversed(messages)]
+
+    async def _download_media_async(self, dialog_id, message_id):
+        message = await self.client.get_messages(self.entities[dialog_id], ids=message_id)
+        os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+        path = await self.client.download_media(message, file=DOWNLOADS_DIR + os.sep)
+        if not path:
+            raise ValueError("message has no downloadable media")
+        return path
 
     async def _mark_read_async(self, dialog_id):
         # Best effort: failing to mark as read must not fail the request around it.

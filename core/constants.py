@@ -71,6 +71,21 @@ MEDIA_KINDS = (
     ("action", "MEDIA_SERVICE"),
 )
 
+MSG_LOAD_OLDER_KEY = "MSG_LOAD_OLDER"
+MSG_DOWNLOADING_KEY = "MSG_DOWNLOADING"
+
+DOWNLOADS_DIR = os.path.join(BASE_DIR, "downloads")
+DOWNLOADABLE_MEDIA = {
+    "MEDIA_PHOTO", "MEDIA_GIF", "MEDIA_VOICE", "MEDIA_VIDEO_NOTE",
+    "MEDIA_VIDEO", "MEDIA_AUDIO", "MEDIA_FILE",
+}
+# Formats that are safe to hand straight to their default app.
+SAFE_OPEN_EXTENSIONS = {
+    ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp",
+    ".oga", ".ogg", ".opus", ".mp3", ".m4a", ".wav", ".flac", ".aac",
+    ".mp4", ".mov", ".mkv", ".webm", ".avi",
+}
+
 DIALOGS_LIMIT = 100
 MESSAGES_LIMIT = 50
 SELECT_DELAY_MS = 400

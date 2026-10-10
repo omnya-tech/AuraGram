@@ -1,6 +1,9 @@
 import datetime
+import os
 import wx
 from core.constants import (
+    MESSAGES_LIMIT, MSG_LOAD_OLDER_KEY, MSG_DOWNLOADING_KEY,
+    DOWNLOADABLE_MEDIA, SAFE_OPEN_EXTENSIONS,
     APP_TITLE_KEY, MAIN_TITLE_KEY, DIALOGS_LABEL_KEY, MESSAGES_LABEL_KEY,
     MESSAGE_INPUT_LABEL_KEY, BTN_SEND_MESSAGE_KEY, DIALOG_UNREAD_FORMAT_KEY,
     MESSAGE_FORMAT_KEY, SENDER_YOU_KEY, MSG_NO_TEXT_KEY, MSG_LOADING_KEY,
@@ -17,7 +20,10 @@ class MainFrame(wx.Frame):
         self.dialogs = []
         self.current_dialog_id = None
         self.select_timer = None
-        self.message_ids = set()
+        self.messages = []
+        self.has_older = False
+        # True while older messages or a media file are being fetched.
+        self.is_busy = False
         self.init_ui()
         self.telegram_manager.set_message_listener(
             lambda *args: wx.CallAfter(self.on_new_message, *args)
@@ -43,6 +49,7 @@ class MainFrame(wx.Frame):
         messages_label = wx.StaticText(self.panel, label=self.i18n.get_string(MESSAGES_LABEL_KEY))
         chat_box.Add(messages_label, flag=wx.BOTTOM, border=5)
         self.messages_list = wx.ListBox(self.panel, style=wx.LB_SINGLE)
+        self.messages_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_activate_message)
         chat_box.Add(self.messages_list, proportion=1, flag=wx.EXPAND|wx.BOTTOM, border=15)
 
         input_label = wx.StaticText(self.panel, label=self.i18n.get_string(MESSAGE_INPUT_LABEL_KEY))
@@ -93,6 +100,7 @@ class MainFrame(wx.Frame):
 
     def show_error(self, error_key):
         self.set_status(STATUS_READY_KEY)
+        self.is_busy = False
         self.enable_chat(self.current_dialog_id is not None)
         wx.MessageBox(
             self.i18n.get_string(error_key), self.i18n.get_string(APP_TITLE_KEY),
@@ -133,8 +141,11 @@ class MainFrame(wx.Frame):
 
     def on_char_hook(self, event):
         is_enter = event.GetKeyCode() in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER)
-        if is_enter and wx.Window.FindFocus() is self.dialogs_list:
+        focused = wx.Window.FindFocus()
+        if is_enter and focused is self.dialogs_list:
             self.on_open_dialog(event)
+        elif is_enter and focused is self.messages_list:
+            self.on_activate_message(event)
         else:
             event.Skip()
 
@@ -160,8 +171,9 @@ class MainFrame(wx.Frame):
                 self.messages_list.SetFocus()
             return
         self.current_dialog_id = dialog_id
+        self.messages = []
+        self.has_older = False
         self.messages_list.Clear()
-        self.message_ids = set()
         self.enable_chat(False)
         self.load_messages(focus_messages)
 
@@ -176,16 +188,75 @@ class MainFrame(wx.Frame):
         # The user may have opened another chat while this one was loading.
         if dialog_id != self.current_dialog_id:
             return
-        self.messages_list.Set([self.format_message(message) for message in messages])
-        self.message_ids = {message["id"] for message in messages}
-        if messages:
-            self.messages_list.SetSelection(len(messages) - 1)
+        self.messages = messages
+        # A full page means Telegram most likely has more before it.
+        self.has_older = len(messages) == MESSAGES_LIMIT
+        self.render_messages(len(messages) - 1)
         # Loading a chat marks it as read on Telegram's side.
         self.set_unread(dialog_id, 0)
         self.enable_chat(True)
         self.set_status(STATUS_READY_KEY)
         if focus_messages:
             self.messages_list.SetFocus()
+
+    def render_messages(self, selected_message_index):
+        """Refill the list; when older messages exist, its first row is the "load older" action."""
+        items = [self.format_message(message) for message in self.messages]
+        if self.has_older:
+            items.insert(0, self.i18n.get_string(MSG_LOAD_OLDER_KEY))
+        self.messages_list.Set(items)
+        if self.messages:
+            self.messages_list.SetSelection(selected_message_index + self.message_offset())
+
+    def message_offset(self):
+        return 1 if self.has_older else 0
+
+    def on_activate_message(self, event):
+        index = self.messages_list.GetSelection()
+        if index == wx.NOT_FOUND or self.is_busy:
+            return
+        if self.has_older and index == 0:
+            self.load_older_messages()
+            return
+        message = self.messages[index - self.message_offset()]
+        if message["media"] in DOWNLOADABLE_MEDIA:
+            self.download_media(message)
+
+    def load_older_messages(self):
+        self.is_busy = True
+        self.set_status(MSG_LOADING_KEY)
+        dialog_id = self.current_dialog_id
+        self.telegram_manager.load_messages(
+            dialog_id, self.on_ui_thread(self.show_older_messages, dialog_id),
+            before_id=self.messages[0]["id"]
+        )
+
+    def show_older_messages(self, older, dialog_id):
+        self.is_busy = False
+        if dialog_id != self.current_dialog_id:
+            return
+        self.messages = older + self.messages
+        self.has_older = len(older) == MESSAGES_LIMIT
+        # Land on the message just before the ones already read, so Up keeps going back in time.
+        self.render_messages(max(len(older) - 1, 0))
+        self.set_status(STATUS_READY_KEY)
+
+    def download_media(self, message):
+        self.is_busy = True
+        self.set_status(MSG_DOWNLOADING_KEY)
+        self.telegram_manager.download_media(
+            self.current_dialog_id, message["id"], self.on_ui_thread(self.open_media)
+        )
+
+    def open_media(self, path):
+        self.is_busy = False
+        self.set_status(STATUS_READY_KEY)
+        # Only hand known media formats to their default app; anything else
+        # could be a program, so just show the folder it was saved in.
+        if os.path.splitext(path)[1].lower() in SAFE_OPEN_EXTENSIONS:
+            wx.LaunchDefaultApplication(path)
+        else:
+            wx.LaunchDefaultApplication(os.path.dirname(path))
 
     def find_dialog_index(self, dialog_id):
         for index, dialog in enumerate(self.dialogs):
@@ -222,9 +293,9 @@ class MainFrame(wx.Frame):
         self.move_dialog_to_top(index, dialog)
 
     def append_message(self, message):
-        if message["id"] in self.message_ids:
+        if any(shown["id"] == message["id"] for shown in self.messages):
             return
-        self.message_ids.add(message["id"])
+        self.messages.append(message)
         count = self.messages_list.GetCount()
         was_at_end = self.messages_list.GetSelection() in (wx.NOT_FOUND, count - 1)
         self.messages_list.Append(self.format_message(message))
