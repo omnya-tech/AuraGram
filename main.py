@@ -1,11 +1,12 @@
 import wx
 from core.constants import (
     API_ID, API_HASH, DEFAULT_LANG, APP_TITLE_KEY,
-    MSG_LOGIN_SUCCESS_KEY, ERR_NO_CONFIG_KEY, STEP_DONE
+    ERR_NO_CONFIG_KEY, STEP_DONE
 )
 from core.i18n import I18NManager
 from core.telegram_client import TelegramManager
 from ui.login_frame import LoginFrame
+from ui.main_frame import MainFrame
 
 class MainApplication(wx.App):
     def OnInit(self):
@@ -32,9 +33,9 @@ class MainApplication(wx.App):
         if not self.login_frame:
             return
         if step == STEP_DONE:
-            self.login_frame.Hide()
-            success_msg = self.i18n.get_string(MSG_LOGIN_SUCCESS_KEY)
-            wx.MessageBox(success_msg, self.i18n.get_string(APP_TITLE_KEY), wx.OK | wx.ICON_INFORMATION)
+            # Open the main window first so the app never has zero windows.
+            self.main_frame = MainFrame(self.i18n, self.telegram_manager)
+            self.main_frame.Show()
             self.login_frame.Destroy()
             return
         self.login_frame.set_step(step)

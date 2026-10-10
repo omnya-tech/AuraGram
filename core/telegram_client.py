@@ -5,8 +5,9 @@ from telethon.errors import (
     PhoneCodeInvalidError, PhoneCodeExpiredError, PhoneNumberInvalidError,
     SessionPasswordNeededError, PasswordHashInvalidError, FloodWaitError
 )
+from telethon.utils import get_display_name
 from core.constants import (
-    API_ID, API_HASH, SESSION_NAME,
+    API_ID, API_HASH, SESSION_NAME, EMPTY_STRING, DIALOGS_LIMIT, MESSAGES_LIMIT,
     STEP_PHONE, STEP_CODE, STEP_PASSWORD, STEP_DONE,
     ERR_CODE_INVALID_KEY, ERR_CODE_EXPIRED_KEY, ERR_PHONE_INVALID_KEY,
     ERR_PASSWORD_INVALID_KEY, ERR_FLOOD_KEY, ERR_CONNECTION_KEY, ERR_GENERAL_KEY
@@ -29,6 +30,7 @@ class TelegramManager(threading.Thread):
         self.client = None
         self.phone = None
         self.phone_hash = None
+        self.entities = {}
 
     def run(self):
         asyncio.set_event_loop(self.loop)
@@ -55,6 +57,58 @@ class TelegramManager(threading.Thread):
 
     def send_password(self, password):
         asyncio.run_coroutine_threadsafe(self._send_password_async(password), self.loop)
+
+    def load_dialogs(self, on_result):
+        self._request(on_result, self._load_dialogs_async)
+
+    def load_messages(self, dialog_id, on_result):
+        self._request(on_result, self._load_messages_async, dialog_id)
+
+    def send_message(self, dialog_id, text, on_result):
+        self._request(on_result, self._send_message_async, dialog_id, text)
+
+    def _request(self, on_result, coroutine_function, *args):
+        """Run a data request; on_result(result, error_key) is called from this thread."""
+        asyncio.run_coroutine_threadsafe(
+            self._run_request(on_result, coroutine_function, *args), self.loop
+        )
+
+    async def _run_request(self, on_result, coroutine_function, *args):
+        try:
+            await self._ensure_connected()
+            result = await coroutine_function(*args)
+        except FloodWaitError:
+            on_result(None, ERR_FLOOD_KEY)
+        except (ConnectionError, OSError):
+            on_result(None, ERR_CONNECTION_KEY)
+        except Exception:
+            on_result(None, ERR_GENERAL_KEY)
+        else:
+            on_result(result, None)
+
+    async def _load_dialogs_async(self):
+        dialogs = await self.client.get_dialogs(limit=DIALOGS_LIMIT)
+        self.entities = {dialog.id: dialog.input_entity for dialog in dialogs}
+        return [
+            {"id": dialog.id, "title": dialog.name, "unread": dialog.unread_count}
+            for dialog in dialogs
+        ]
+
+    async def _load_messages_async(self, dialog_id):
+        messages = await self.client.get_messages(self.entities[dialog_id], limit=MESSAGES_LIMIT)
+        # Telegram returns newest first; the UI reads oldest first.
+        return [
+            {
+                "sender": get_display_name(message.sender) if message.sender else EMPTY_STRING,
+                "text": message.message or EMPTY_STRING,
+                "date": message.date,
+                "outgoing": message.out,
+            }
+            for message in reversed(messages)
+        ]
+
+    async def _send_message_async(self, dialog_id, text):
+        await self.client.send_message(self.entities[dialog_id], text)
 
     async def _ensure_connected(self):
         if not self.client.is_connected():
