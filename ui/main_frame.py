@@ -1,8 +1,15 @@
 import datetime
 import os
 import wx
+from core import audio
 from core.speech import speak
 from core.constants import (
+    EVENT_NEW_MESSAGE, EVENT_MESSAGE_EDITED, EVENT_MESSAGES_DELETED,
+    VOICE_NOTE_FILE, MIN_VOICE_SECONDS, MENU_RECORD_KEY, MENU_SEARCH_MESSAGES_KEY,
+    MSG_RECORDING_KEY, MSG_RECORDING_CANCELLED_KEY, MSG_RECORDING_TOO_SHORT_KEY,
+    MSG_SENDING_VOICE_KEY, MSG_VOICE_SENT_KEY, MSG_PLAYING_KEY, MSG_PLAYBACK_STOPPED_KEY,
+    MSG_SEARCH_MESSAGES_PROMPT_KEY, MSG_SEARCH_RESULTS_FORMAT_KEY, MSG_SEARCH_NO_RESULTS_KEY,
+    MSG_SEARCH_CLOSED_KEY, ERR_AUDIO_KEY, ERR_NO_AUDIO_SUPPORT_KEY, MEDIA_VOICE,
     MESSAGES_LIMIT, MSG_LOAD_OLDER_KEY, MSG_DOWNLOADING_KEY,
     DOWNLOADABLE_MEDIA, SAFE_OPEN_EXTENSIONS, DIALOGS_LIMIT, SNIPPET_LENGTH,
     MSG_LOAD_MORE_DIALOGS_KEY, MENU_MESSAGE_KEY, MENU_REPLY_KEY, REPLY_LABEL_FORMAT_KEY,
@@ -32,13 +39,21 @@ class MainFrame(wx.Frame):
         self.reply_to = None
         self.editing = None
         self.find_text = ""
+        # Set while the message list shows search results instead of the conversation.
+        self.search_query = None
+        self.player = audio.Player()
+        self.recorder = audio.Recorder()
+        self.recording_dialog_id = None
+        # (dialog id, message id) -> path, so replaying a voice note does not download it again.
+        self.downloaded = {}
         self.messages = []
         self.has_older = False
         # True while older messages or a media file are being fetched.
         self.is_busy = False
         self.init_ui()
+        self.Bind(wx.EVT_CLOSE, self.on_close)
         self.telegram_manager.set_message_listener(
-            lambda *args: wx.CallAfter(self.on_new_message, *args)
+            lambda *args: wx.CallAfter(self.on_telegram_event, *args)
         )
         self.load_dialogs()
 
@@ -97,6 +112,7 @@ class MainFrame(wx.Frame):
             (MENU_EDIT_KEY, self.on_edit_menu),
             (MENU_DELETE_KEY, self.on_delete_menu),
             (MENU_SEND_FILE_KEY, self.on_send_file_menu),
+            (MENU_RECORD_KEY, self.on_record_menu),
         ):
             item = message_menu.Append(wx.ID_ANY, self.i18n.get_string(label_key))
             self.Bind(wx.EVT_MENU, handler, item)
@@ -105,6 +121,7 @@ class MainFrame(wx.Frame):
         for label_key, handler in (
             (MENU_FIND_KEY, self.on_find_menu),
             (MENU_FIND_NEXT_KEY, self.on_find_next_menu),
+            (MENU_SEARCH_MESSAGES_KEY, self.on_search_messages_menu),
         ):
             item = search_menu.Append(wx.ID_ANY, self.i18n.get_string(label_key))
             self.Bind(wx.EVT_MENU, handler, item)
@@ -123,8 +140,122 @@ class MainFrame(wx.Frame):
 
     def notify(self, key):
         """Short feedback that needs no dialog: shown in the status bar and spoken."""
-        self.set_status(key)
-        speak(self.i18n.get_string(key))
+        self.announce(self.i18n.get_string(key))
+
+    def announce(self, text):
+        self.SetStatusText(text)
+        speak(text)
+
+    def on_close(self, event):
+        self.player.stop()
+        self.recorder.cancel()
+        event.Skip()
+
+    def on_record_menu(self, event):
+        if not audio.AVAILABLE:
+            self.show_error(ERR_NO_AUDIO_SUPPORT_KEY)
+        elif self.recorder.is_recording():
+            self.finish_recording()
+        elif self.current_dialog_id is not None and not self.is_busy:
+            self.start_recording()
+
+    def start_recording(self):
+        self.stop_playback()
+        try:
+            self.recorder.start()
+        except Exception:
+            self.recorder.cancel()
+            self.show_error(ERR_AUDIO_KEY)
+            return
+        # The recording goes to the chat it was started in, even if another is opened meanwhile.
+        self.recording_dialog_id = self.current_dialog_id
+        self.notify(MSG_RECORDING_KEY)
+
+    def finish_recording(self):
+        try:
+            os.makedirs(os.path.dirname(VOICE_NOTE_FILE), exist_ok=True)
+            seconds = self.recorder.finish(VOICE_NOTE_FILE)
+        except Exception:
+            self.recorder.cancel()
+            self.show_error(ERR_AUDIO_KEY)
+            return
+        if seconds < MIN_VOICE_SECONDS:
+            self.notify(MSG_RECORDING_TOO_SHORT_KEY)
+            return
+        self.is_busy = True
+        self.notify(MSG_SENDING_VOICE_KEY)
+        dialog_id = self.recording_dialog_id
+        self.telegram_manager.send_file(
+            dialog_id, VOICE_NOTE_FILE,
+            self.on_ui_thread(self.on_file_sent, dialog_id, MSG_VOICE_SENT_KEY), voice_note=True
+        )
+
+    def cancel_recording(self):
+        self.recorder.cancel()
+        self.notify(MSG_RECORDING_CANCELLED_KEY)
+
+    def play_voice(self, path):
+        # Status bar only: speaking here would talk over the start of the recording.
+        self.set_status(MSG_PLAYING_KEY)
+        self.player.play(
+            path, lambda completed, error: wx.CallAfter(self.on_playback_finished, completed, error)
+        )
+
+    def on_playback_finished(self, completed, error):
+        if not self:
+            return
+        if error is not None:
+            self.show_error(ERR_AUDIO_KEY)
+        elif completed:
+            self.set_status(STATUS_READY_KEY)
+
+    def stop_playback(self):
+        """Returns True if something was playing."""
+        if not self.player.is_playing():
+            return False
+        self.player.stop()
+        self.notify(MSG_PLAYBACK_STOPPED_KEY)
+        return True
+
+    def on_search_messages_menu(self, event):
+        if self.current_dialog_id is None or self.is_busy:
+            return
+        with wx.TextEntryDialog(
+            self, self.i18n.get_string(MSG_SEARCH_MESSAGES_PROMPT_KEY),
+            self.i18n.get_string(APP_TITLE_KEY), self.search_query or ""
+        ) as search_dialog:
+            if search_dialog.ShowModal() != wx.ID_OK:
+                return
+            query = search_dialog.GetValue().strip()
+        if not query:
+            return
+        self.is_busy = True
+        self.set_status(MSG_LOADING_KEY)
+        dialog_id = self.current_dialog_id
+        self.telegram_manager.search_messages(
+            dialog_id, query, self.on_ui_thread(self.show_search_results, dialog_id, query)
+        )
+
+    def show_search_results(self, results, dialog_id, query):
+        self.is_busy = False
+        if dialog_id != self.current_dialog_id:
+            return
+        if not results:
+            self.notify(MSG_SEARCH_NO_RESULTS_KEY)
+            return
+        self.search_query = query
+        self.set_compose()
+        self.messages = results
+        self.has_older = False
+        self.render_messages(len(results) - 1)
+        self.messages_list.SetFocus()
+        self.announce(
+            self.i18n.get_string(MSG_SEARCH_RESULTS_FORMAT_KEY).format(count=len(results))
+        )
+
+    def close_search(self):
+        self.notify(MSG_SEARCH_CLOSED_KEY)
+        self.load_messages(focus_messages=True)
 
     def on_reply_menu(self, event):
         message = self.selected_message()
@@ -225,9 +356,9 @@ class MainFrame(wx.Frame):
             dialog_id, path, self.on_ui_thread(self.on_file_sent, dialog_id)
         )
 
-    def on_file_sent(self, result, dialog_id):
+    def on_file_sent(self, result, dialog_id, message_key=MSG_FILE_SENT_KEY):
         self.is_busy = False
-        self.notify(MSG_FILE_SENT_KEY)
+        self.notify(message_key)
         if dialog_id == self.current_dialog_id:
             self.load_messages()
 
@@ -346,11 +477,23 @@ class MainFrame(wx.Frame):
             self.on_open_dialog(event)
         elif is_enter and focused is self.messages_list:
             self.on_activate_message(event)
-        elif event.GetKeyCode() == wx.WXK_ESCAPE and (self.reply_to or self.editing):
+        elif event.GetKeyCode() != wx.WXK_ESCAPE or not self.on_escape():
+            event.Skip()
+
+    def on_escape(self):
+        """Back out of the most recent thing in progress; False if there was nothing to cancel."""
+        if self.recorder.is_recording():
+            self.cancel_recording()
+        elif self.stop_playback():
+            pass
+        elif self.reply_to or self.editing:
             self.set_compose()
             self.notify(MSG_REPLY_CANCELLED_KEY)
+        elif self.search_query is not None:
+            self.close_search()
         else:
-            event.Skip()
+            return False
+        return True
 
     def on_select_dialog(self, event):
         # Wait for the selection to settle so arrowing through the list
@@ -387,6 +530,7 @@ class MainFrame(wx.Frame):
         self.load_messages(focus_messages)
 
     def load_messages(self, focus_messages=False):
+        self.search_query = None
         self.set_status(MSG_LOADING_KEY)
         dialog_id = self.current_dialog_id
         self.telegram_manager.load_messages(
@@ -427,6 +571,9 @@ class MainFrame(wx.Frame):
         if self.has_older and index == 0:
             self.load_older_messages()
             return
+        # Enter while a voice note plays stops it, like a play/stop button.
+        if self.stop_playback():
+            return
         message = self.messages[index - self.message_offset()]
         if message["media"] in DOWNLOADABLE_MEDIA:
             self.download_media(message)
@@ -451,18 +598,27 @@ class MainFrame(wx.Frame):
         self.set_status(STATUS_READY_KEY)
 
     def download_media(self, message):
+        cache_key = (self.current_dialog_id, message["id"])
+        cached = self.downloaded.get(cache_key)
+        if cached and os.path.exists(cached):
+            self.open_media(cached, cache_key, message["media"])
+            return
         self.is_busy = True
         self.set_status(MSG_DOWNLOADING_KEY)
         self.telegram_manager.download_media(
-            self.current_dialog_id, message["id"], self.on_ui_thread(self.open_media)
+            self.current_dialog_id, message["id"],
+            self.on_ui_thread(self.open_media, cache_key, message["media"])
         )
 
-    def open_media(self, path):
+    def open_media(self, path, cache_key, media):
         self.is_busy = False
+        self.downloaded[cache_key] = path
         self.set_status(STATUS_READY_KEY)
+        if media == MEDIA_VOICE and audio.AVAILABLE:
+            self.play_voice(path)
         # Only hand known media formats to their default app; anything else
         # could be a program, so just show the folder it was saved in.
-        if os.path.splitext(path)[1].lower() in SAFE_OPEN_EXTENSIONS:
+        elif os.path.splitext(path)[1].lower() in SAFE_OPEN_EXTENSIONS:
             wx.LaunchDefaultApplication(path)
         else:
             wx.LaunchDefaultApplication(os.path.dirname(path))
@@ -480,12 +636,45 @@ class MainFrame(wx.Frame):
         self.dialogs[index]["unread"] = count
         self.dialogs_list.SetString(index, self.format_dialog(self.dialogs[index]))
 
-    def on_new_message(self, dialog_id, title, message):
+    def on_telegram_event(self, event, *details):
         if not self:
             return
+        handlers = {
+            EVENT_NEW_MESSAGE: self.on_new_message,
+            EVENT_MESSAGE_EDITED: self.on_message_edited,
+            EVENT_MESSAGES_DELETED: self.on_messages_deleted,
+        }
+        handlers[event](*details)
+
+    def on_message_edited(self, dialog_id, message):
+        if dialog_id != self.current_dialog_id:
+            return
+        for index, shown in enumerate(self.messages):
+            if shown["id"] == message["id"]:
+                self.messages[index] = message
+                # Re-render: replies quoting this message show its text too.
+                self.render_messages(self.messages_list.GetSelection() - self.message_offset())
+                return
+
+    def on_messages_deleted(self, dialog_id, message_ids):
+        if dialog_id is None:
+            # Telegram does not say which chat. Outside channels message ids are
+            # unique across chats, so matching by id is safe there, but only there.
+            index = self.find_dialog_index(self.current_dialog_id)
+            if index == wx.NOT_FOUND or self.dialogs[index]["is_channel"]:
+                return
+        elif dialog_id != self.current_dialog_id:
+            return
+        for message_id in message_ids:
+            self.remove_message(message_id)
+
+    def on_new_message(self, dialog_id, title, message):
         index = self.find_dialog_index(dialog_id)
         if index == wx.NOT_FOUND:
-            dialog = {"id": dialog_id, "title": title, "unread": 0, "pinned": False, "muted": False}
+            dialog = {
+                "id": dialog_id, "title": title, "unread": 0,
+                "pinned": False, "muted": False, "is_channel": False,
+            }
         else:
             dialog = self.dialogs[index]
 
@@ -508,6 +697,9 @@ class MainFrame(wx.Frame):
         self.move_dialog_to_top(index, dialog)
 
     def append_message(self, message):
+        # Search results are a fixed list; the message shows up once the search is closed.
+        if self.search_query is not None:
+            return
         if any(shown["id"] == message["id"] for shown in self.messages):
             return
         self.messages.append(message)

@@ -48,7 +48,8 @@ class MainApplication(wx.App):
         # The login window waits in its busy state until Telegram confirms.
         self.login_frame = LoginFrame(self.i18n, self.telegram_manager)
         self.login_frame.Show()
-        self.main_frame.Destroy()
+        # Close(), not Destroy(): the window stops playback and recording on its way out.
+        self.main_frame.Close()
         self.telegram_manager.set_message_listener(None)
         self.telegram_manager.log_out()
 

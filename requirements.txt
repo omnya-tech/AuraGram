@@ -2,3 +2,7 @@ wxPython>=4.2
 Telethon>=1.45,<2
 # Optional: announces new messages through the running screen reader.
 accessible_output2
+# Optional: playing and recording voice messages inside the app.
+av
+numpy
+sounddevice
