@@ -1,0 +1,185 @@
+"""The chat info and management window, through the real manager and the fake Telegram."""
+import unittest
+
+import wx
+from telethon.tl import types
+
+import core.constants as c
+import core.telegram_client as telegram_client
+from tests.harness import (
+    NOW, FakeChooser, FakeTelegramClient, WindowTestCase, make_channel, make_member, make_user, pump
+)
+from ui.chat_info_dialog import ChatInfoDialog
+
+ADMIN_RIGHTS = types.ChatAdminRights(delete_messages=True, ban_users=True)
+RESTRICTED = types.ChannelParticipantBanned(
+    peer=types.PeerUser(13), kicked_by=10, date=NOW, left=False,
+    banned_rights=types.ChatBannedRights(until_date=None, send_messages=True)
+)
+MEMBERS = [
+    make_member(10, "Me", types.ChannelParticipantCreator(10, types.ChatAdminRights()), is_self=True),
+    make_member(11, "Mona", types.ChannelParticipantAdmin(11, 10, NOW, ADMIN_RIGHTS)),
+    make_member(12, "Zed"),
+    make_member(13, "Quiet", RESTRICTED),
+]
+
+
+class ChatInfoTestCase(WindowTestCase):
+    """Opens the info window on the first chat of `chats`."""
+
+    def setUp(self):
+        super().setUp()
+        FakeTelegramClient.members = list(MEMBERS)
+        FakeTelegramClient.banned = [make_member(30, "Spammer")]
+        self.dialog = ChatInfoDialog(self.frame, self.i18n, self.manager, self.frame.all_dialogs[0])
+        self.addCleanup(self.dialog.Destroy)
+        self.dialog.PopupMenu = self.frame.PopupMenu
+        self.assertTrue(pump(lambda: self.dialog.info is not None), "chat info did not load")
+
+    def wait_for_members(self, count):
+        self.assertTrue(pump(lambda: len(self.dialog.members) == count), "members did not load")
+
+    def member(self, name):
+        return next(member for member in self.dialog.members if member["name"] == name)
+
+
+class OwnedGroupTest(ChatInfoTestCase):
+    chats = [(make_channel(4, "MyGroup", group=True, creator=True), 0, False)]
+
+    def setUp(self):
+        super().setUp()
+        self.wait_for_members(4)
+
+    def test_owner_can_edit_and_sees_every_management_control(self):
+        self.assertTrue(self.dialog.title_input.IsEditable())
+        for control in (self.dialog.save_btn, self.dialog.invite_btn, self.dialog.log_btn,
+                        self.dialog.permissions_btn, self.dialog.list_choice):
+            self.assertTrue(control.IsShown())
+        self.assertEqual(self.dialog.list_choice.GetCount(), 3)
+
+    def test_members_are_listed_with_their_roles(self):
+        rows = self.dialog.members_list.GetItems()
+        self.assertEqual(rows[2], "Zed")
+        self.assertIn(self.text(c.MEMBER_ROLE_OWNER), rows[0])
+        self.assertIn(self.text(c.MEMBER_ROLE_ADMIN), rows[1])
+        self.assertIn(self.text(c.MEMBER_ROLE_RESTRICTED), rows[3])
+
+    def test_actions_depend_on_who_the_member_is(self):
+        actions = self.dialog.member_actions
+        self.assertEqual(actions(self.member("Me")), [])
+        self.assertEqual(actions(self.member("Zed")),
+                         [c.MEMBER_ACTION_MUTE, c.MEMBER_ACTION_KICK, c.MEMBER_ACTION_BAN, c.MEMBER_ACTION_PROMOTE])
+        self.assertEqual(actions(self.member("Quiet"))[0], c.MEMBER_ACTION_UNMUTE)
+        self.assertEqual(actions(self.member("Mona")),
+                         [c.MEMBER_ACTION_KICK, c.MEMBER_ACTION_BAN, c.MEMBER_ACTION_PROMOTE, c.MEMBER_ACTION_DEMOTE])
+
+    def test_nothing_happens_without_confirmation(self):
+        self.box_answer = wx.NO
+        self.dialog.manage_member(self.member("Zed"), c.MEMBER_ACTION_BAN)
+        pump(timeout=0.2)
+        self.assertIn("Zed", self.boxes[-1])
+        self.assertIn("MyGroup", self.boxes[-1])
+        self.assertEqual(self.calls("permissions"), [])
+
+    def test_ban_mute_and_kick_reach_the_right_member(self):
+        self.dialog.manage_member(self.member("Zed"), c.MEMBER_ACTION_BAN)
+        self.dialog.manage_member(self.member("Zed"), c.MEMBER_ACTION_MUTE)
+        self.dialog.manage_member(self.member("Zed"), c.MEMBER_ACTION_KICK)
+        self.assertTrue(pump(lambda: len(self.calls("permissions")) == 2 and self.calls("kick")))
+        self.assertEqual(self.calls("permissions"), [
+            ("permissions", 12, {"view_messages": False}),
+            ("permissions", 12, {"send_messages": False}),
+        ])
+        self.assertEqual(self.calls("kick"), [("kick", 12)])
+
+    def test_editing_an_admin_starts_from_their_rights_and_sets_each_one_explicitly(self):
+        mona = self.member("Mona")
+        self.assertEqual(mona["rights"], {"delete_messages", "ban_users"})
+        offered = [name for name in c.ADMIN_RIGHTS if name not in c.CHANNEL_ONLY_RIGHTS]
+        FakeChooser.selections = [offered.index("pin_messages")]
+        self.dialog.manage_member(mona, c.MEMBER_ACTION_PROMOTE)
+        self.assertTrue(pump(lambda: self.calls("admin")))
+        self.assertEqual(len(FakeChooser.last_choices), len(offered))
+        self.assertEqual(self.calls("admin")[0], ("admin", 11, {name: name == "pin_messages" for name in c.ADMIN_RIGHTS}))
+
+    def test_promoting_with_no_rights_chosen_sends_nothing(self):
+        FakeChooser.selections = []
+        self.dialog.manage_member(self.member("Zed"), c.MEMBER_ACTION_PROMOTE)
+        pump(timeout=0.2)
+        self.assertEqual(self.calls("admin"), [])
+        self.assertEqual(self.boxes, [self.text(c.MSG_NO_RIGHTS_CHOSEN_KEY)])
+
+    def test_banned_list_offers_only_unban(self):
+        self.dialog.list_choice.SetSelection(1)
+        self.dialog.on_search_members(None)
+        self.wait_for_members(1)
+        spammer = self.dialog.members[0]
+        self.assertEqual(self.dialog.member_actions(spammer), [c.MEMBER_ACTION_UNBAN])
+        self.dialog.manage_member(spammer, c.MEMBER_ACTION_UNBAN)
+        self.assertTrue(pump(lambda: self.calls("permissions") == [("permissions", 30, {})]))
+
+    def test_member_search_filters_by_name(self):
+        self.dialog.search_input.SetValue("mo")
+        self.dialog.on_search_members(None)
+        self.wait_for_members(1)
+        self.assertEqual(self.dialog.members[0]["name"], "Mona")
+
+    def test_member_permissions_change_only_what_was_edited(self):
+        # Everything is allowed to start with; take away sending media.
+        FakeChooser.selections = [i for i, name in enumerate(c.MEMBER_PERMISSIONS) if name != "send_media"]
+        self.dialog.on_member_permissions(None)
+        self.assertTrue(pump(lambda: self.calls("permissions")))
+        target, permissions = self.calls("permissions")[0][1:]
+        self.assertIsNone(target)
+        self.assertFalse(permissions["send_media"])
+        self.assertTrue(all(value for name, value in permissions.items() if name != "send_media"))
+        self.assertEqual(set(permissions), set(telegram_client.ALL_MEMBER_PERMISSIONS))
+
+    def test_unchanged_member_permissions_are_not_saved(self):
+        FakeChooser.selections = list(range(len(c.MEMBER_PERMISSIONS)))
+        self.dialog.on_member_permissions(None)
+        pump(timeout=0.3)
+        self.assertEqual(self.calls("permissions"), [])
+
+
+class RestrictedGroupPermissionsTest(ChatInfoTestCase):
+    """A group that already limits things this app does not show: saving must not undo them."""
+
+    restricted = make_channel(4, "Strict", group=True, creator=True)
+    restricted.default_banned_rights = types.ChatBannedRights(until_date=None, send_stickers=True, embed_links=True)
+    chats = [(restricted, 0, False)]
+
+    def test_hidden_restrictions_survive_a_save(self):
+        FakeChooser.selections = [i for i, name in enumerate(c.MEMBER_PERMISSIONS) if name != "invite_users"]
+        self.dialog.on_member_permissions(None)
+        self.assertTrue(pump(lambda: self.calls("permissions")))
+        permissions = self.calls("permissions")[0][2]
+        self.assertFalse(permissions["send_stickers"])
+        self.assertFalse(permissions["embed_link_previews"])
+        self.assertFalse(permissions["invite_users"])
+        self.assertTrue(permissions["send_messages"])
+
+
+class SubscriberTest(ChatInfoTestCase):
+    chats = [(make_channel(3, "News"), 0, False)]
+
+    def test_plain_subscriber_gets_a_read_only_window(self):
+        self.assertFalse(self.dialog.title_input.IsEditable())
+        for control in (self.dialog.save_btn, self.dialog.invite_btn, self.dialog.log_btn,
+                        self.dialog.permissions_btn, self.dialog.list_choice):
+            self.assertFalse(control.IsShown())
+        self.wait_for_members(4)
+        self.assertEqual(self.dialog.member_actions(self.member("Zed")), [])
+
+
+class PrivateChatTest(ChatInfoTestCase):
+    chats = [(make_user(1, "Ali"), 0, False)]
+
+    def test_private_chat_has_no_members_section(self):
+        self.assertFalse(self.dialog.members_list.IsShown())
+        self.assertFalse(self.dialog.search_input.IsShown())
+        self.assertIn(self.text(c.CHAT_KIND_USER), self.dialog.summary.GetValue())
+
+
+if __name__ == "__main__":
+    unittest.main()

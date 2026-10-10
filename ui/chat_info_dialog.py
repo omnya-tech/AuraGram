@@ -10,7 +10,9 @@ from core.constants import (
     MSG_CHOOSE_RIGHTS_FORMAT_KEY, MSG_NO_RIGHTS_CHOSEN_KEY, INFO_MEMBER_LIST_LABEL_KEY,
     MEMBERS_CURRENT, MEMBERS_BANNED, MEMBERS_REQUESTS, MEMBER_LISTS, MEMBER_ROLE_PENDING,
     MEMBER_ROLE_RESTRICTED, MEMBER_ACTION_MUTE, MEMBER_ACTION_UNMUTE, MEMBER_ACTION_APPROVE,
-    MEMBER_ACTION_DECLINE, CHAT_KIND_SUPERGROUP, BTN_ADMIN_LOG_KEY,
+    MEMBER_ACTION_DECLINE, CHAT_KIND_SUPERGROUP, BTN_ADMIN_LOG_KEY, MEMBER_PERMISSIONS,
+    MEMBER_PERMISSION_KEY_PREFIX, BTN_MEMBER_PERMISSIONS_KEY, MSG_CHOOSE_PERMISSIONS_FORMAT_KEY,
+    MSG_PERMISSIONS_SAVED_KEY,
     BTN_COPY_INVITE_KEY, MSG_INVITE_COPIED_KEY, CHAT_KIND_CHANNEL,
     INFO_TITLE_FORMAT_KEY, INFO_SUMMARY_LABEL_KEY, INFO_KIND_FORMAT_KEY,
     INFO_USERNAME_FORMAT_KEY, INFO_MEMBERS_COUNT_FORMAT_KEY, INFO_ROLE_MANAGER_KEY,
@@ -88,6 +90,9 @@ class ChatInfoDialog(wx.Dialog):
         self.invite_btn = wx.Button(self, label=self.i18n.get_string(BTN_COPY_INVITE_KEY))
         self.invite_btn.Bind(wx.EVT_BUTTON, self.on_copy_invite)
         buttons.Add(self.invite_btn, flag=wx.RIGHT, border=10)
+        self.permissions_btn = wx.Button(self, label=self.i18n.get_string(BTN_MEMBER_PERMISSIONS_KEY))
+        self.permissions_btn.Bind(wx.EVT_BUTTON, self.on_member_permissions)
+        buttons.Add(self.permissions_btn, flag=wx.RIGHT, border=10)
         self.log_btn = wx.Button(self, label=self.i18n.get_string(BTN_ADMIN_LOG_KEY))
         self.log_btn.Bind(wx.EVT_BUTTON, self.on_admin_log)
         buttons.Add(self.log_btn, flag=wx.RIGHT, border=10)
@@ -97,6 +102,7 @@ class ChatInfoDialog(wx.Dialog):
         # Nothing can be edited or searched until the chat's details arrive.
         for control in (
             self.title_input, self.about_input, self.save_btn, self.invite_btn, self.log_btn,
+            self.permissions_btn,
             self.list_label, self.list_choice, *self.members_controls
         ):
             control.Disable()
@@ -170,9 +176,12 @@ class ChatInfoDialog(wx.Dialog):
         # Telegram keeps an admin log only for channels and large groups, and shows it to admins.
         is_admin = info["can_edit"] or info["can_ban"] or info["can_promote"] or info["can_invite"]
         has_log = is_admin and info["kind"] in (CHAT_KIND_CHANNEL, CHAT_KIND_SUPERGROUP)
+        # A broadcast channel has no ordinary members who write, so nothing to permit.
+        has_permissions = info["can_ban"] and info["kind"] in (CHAT_KIND_GROUP, CHAT_KIND_SUPERGROUP)
         for control, usable in (
             (self.list_label, has_choice), (self.list_choice, has_choice),
-            (self.invite_btn, info["can_invite"]), (self.log_btn, has_log)
+            (self.invite_btn, info["can_invite"]), (self.log_btn, has_log),
+            (self.permissions_btn, has_permissions)
         ):
             control.Show(usable)
             control.Enable(usable)
@@ -191,6 +200,31 @@ class ChatInfoDialog(wx.Dialog):
             # E.g. a channel where only admins may see the subscribers.
             self.on_ui_thread(self.show_members, on_error=self.members_list.Clear),
             which=self.list_modes[max(self.list_choice.GetSelection(), 0)]
+        )
+
+    def on_member_permissions(self, event):
+        self.telegram_manager.load_member_permissions(
+            self.dialog_id, self.on_ui_thread(self.choose_member_permissions)
+        )
+
+    def choose_member_permissions(self, allowed):
+        with wx.MultiChoiceDialog(
+            self,
+            self.i18n.get_string(MSG_CHOOSE_PERMISSIONS_FORMAT_KEY).format(chat=self.info["title"]),
+            self.i18n.get_string(APP_TITLE_KEY),
+            [self.i18n.get_string(MEMBER_PERMISSION_KEY_PREFIX + name) for name in MEMBER_PERMISSIONS]
+        ) as permissions_dialog:
+            permissions_dialog.SetSelections(
+                [index for index, name in enumerate(MEMBER_PERMISSIONS) if name in allowed]
+            )
+            if permissions_dialog.ShowModal() != wx.ID_OK:
+                return
+            chosen = {MEMBER_PERMISSIONS[index] for index in permissions_dialog.GetSelections()}
+        if chosen == allowed:
+            return
+        self.telegram_manager.save_member_permissions(
+            self.dialog_id, chosen,
+            self.on_ui_thread(lambda result: speak(self.i18n.get_string(MSG_PERMISSIONS_SAVED_KEY)))
         )
 
     def on_admin_log(self, event):

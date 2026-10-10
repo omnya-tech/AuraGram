@@ -27,7 +27,7 @@ from core.constants import (
     CATEGORY_CONTACTS, CATEGORY_NON_CONTACTS, CATEGORY_GROUPS, CATEGORY_BROADCASTS, CATEGORY_BOTS,
     PRIVACY_EVERYONE, PRIVACY_CONTACTS, PRIVACY_NOBODY, ERR_CHAT_NOT_FOUND_KEY,
     MESSAGE_VIEW_PINNED, MESSAGE_VIEW_SCHEDULED, MESSAGE_VIEW_PHOTOS, MESSAGE_VIEW_FILES,
-    MESSAGE_VIEW_VOICE, MESSAGE_VIEW_MUSIC, MESSAGE_VIEW_LINKS, ADMIN_LOG_LIMIT,
+    MESSAGE_VIEW_VOICE, MESSAGE_VIEW_MUSIC, MESSAGE_VIEW_LINKS, ADMIN_LOG_LIMIT, MEMBER_PERMISSIONS,
     EVENT_NEW_MESSAGE, EVENT_MESSAGE_EDITED, EVENT_MESSAGES_DELETED
 )
 
@@ -46,6 +46,14 @@ MESSAGE_VIEW_FILTERS = {
     MESSAGE_VIEW_LINKS: types.InputMessagesFilterUrl,
 }
 ADMIN_LOG_ACTION_PREFIX = "ChannelAdminLogEventAction"
+
+# Every member permission Telethon's edit_permissions sets. The ones the app
+# does not offer are still passed back unchanged when saving.
+ALL_MEMBER_PERMISSIONS = MEMBER_PERMISSIONS + (
+    "view_messages", "send_stickers", "send_gifs", "send_games", "send_inline", "embed_link_previews",
+)
+# Where Telegram's flag is named differently from Telethon's argument.
+BANNED_RIGHT_NAMES = {"embed_link_previews": "embed_links"}
 
 # Privacy settings offered in the app, by the name the UI uses for each.
 PRIVACY_KEYS = {
@@ -187,7 +195,19 @@ class TelegramManager(threading.Thread):
     def load_contacts(self, on_result):
         self._request(on_result, self._load_contacts_async)
 
+    def create_chat(self, title, about, is_channel, on_result):
+        """Creates a channel or a group owned by this account; the result is the new chat."""
+        self._request(on_result, self._create_chat_async, title, about, is_channel)
+
+    def load_member_permissions(self, dialog_id, on_result):
+        """The result is the set of MEMBER_PERMISSIONS names ordinary members currently have."""
+        self._request(on_result, self._load_member_permissions_async, dialog_id)
+
+    def save_member_permissions(self, dialog_id, allowed, on_result):
+        self._request(on_result, self._save_member_permissions_async, dialog_id, allowed)
+
     def forward_message(self, from_dialog_id, message_id, to_dialog_id, on_result):
+        """Forwards a message, or a list of message ids, to another chat."""
         self._request(on_result, self._forward_message_async, from_dialog_id, message_id, to_dialog_id)
 
     def load_sessions(self, on_result):
@@ -226,7 +246,7 @@ class TelegramManager(threading.Thread):
         self._request(on_result, self._edit_message_async, dialog_id, message_id, text)
 
     def delete_message(self, dialog_id, message_id, on_result):
-        """Deletes the message for everyone in the chat."""
+        """Deletes a message, or a list of message ids, for everyone in the chat."""
         self._request(on_result, self._delete_message_async, dialog_id, message_id)
 
     def send_file(self, dialog_id, path, on_result, voice_note=False):
@@ -353,6 +373,36 @@ class TelegramManager(threading.Thread):
             self.entities[chat["id"]] = get_input_peer(user)
             chats.append(chat)
         return sorted(chats, key=lambda chat: chat["title"].casefold())
+
+    async def _create_chat_async(self, title, about, is_channel):
+        result = await self.client(functions.channels.CreateChannelRequest(
+            title=title, about=about, broadcast=is_channel, megagroup=not is_channel
+        ))
+        entity = result.chats[0]
+        chat = self._describe_chat(entity)
+        self.entities[chat["id"]] = get_input_peer(entity)
+        return chat
+
+    async def _default_rights(self, dialog_id):
+        entity = await self.client.get_entity(self.entities[dialog_id])
+        return getattr(entity, "default_banned_rights", None)
+
+    def _allowed_by(self, banned_rights):
+        """Every permission Telethon can set -> whether members have it, read from Telegram's "banned" flags."""
+        return {
+            name: not getattr(banned_rights, BANNED_RIGHT_NAMES.get(name, name), False)
+            for name in ALL_MEMBER_PERMISSIONS
+        }
+
+    async def _load_member_permissions_async(self, dialog_id):
+        allowed = self._allowed_by(await self._default_rights(dialog_id))
+        return {name for name in MEMBER_PERMISSIONS if allowed[name]}
+
+    async def _save_member_permissions_async(self, dialog_id, allowed):
+        # Start from what is set now, so permissions this app does not show stay as they are.
+        permissions = self._allowed_by(await self._default_rights(dialog_id))
+        permissions.update({name: name in allowed for name in MEMBER_PERMISSIONS})
+        await self.client.edit_permissions(self.entities[dialog_id], **permissions)
 
     async def _forward_message_async(self, from_dialog_id, message_id, to_dialog_id):
         await self.client.forward_messages(
@@ -598,7 +648,8 @@ class TelegramManager(threading.Thread):
             pass
 
     async def _delete_message_async(self, dialog_id, message_id):
-        await self.client.delete_messages(self.entities[dialog_id], [message_id])
+        message_ids = message_id if isinstance(message_id, list) else [message_id]
+        await self.client.delete_messages(self.entities[dialog_id], message_ids)
 
     async def _send_file_async(self, dialog_id, path, voice_note):
         await self.client.send_file(self.entities[dialog_id], path, voice_note=voice_note)

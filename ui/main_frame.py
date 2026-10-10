@@ -4,7 +4,7 @@ from core.speech import speak
 from ui.settings_dialog import SettingsDialog
 from core.chat_views import build_views
 from core.constants import (
-    MESSAGE_VIEWS, MENU_CHAT_VIEWS_KEY, MENU_NEW_POLL_KEY, MENU_REACT_KEY, MENU_SCHEDULE_KEY,
+    MENU_MARK_KEY, MENU_UNMARK_ALL_KEY, MENU_NEW_GROUP_KEY, MENU_NEW_CHANNEL_KEY, MESSAGE_VIEWS, MENU_CHAT_VIEWS_KEY, MENU_NEW_POLL_KEY, MENU_REACT_KEY, MENU_SCHEDULE_KEY,
     VIEW_LABEL_KEY, MSG_PRIVACY_SAVED_KEY, MENU_CHATS_KEY, MENU_NEW_CHAT_KEY, MENU_FIND_CHAT_KEY,
     MENU_FORWARD_KEY, MENU_PIN_KEY, MENU_SETTINGS_KEY, MSG_SETTINGS_SAVED_KEY,
     MSG_PROFILE_SAVED_KEY, ERR_FIRST_NAME_REQUIRED_KEY, MENU_RECORD_KEY, MENU_SEARCH_MESSAGES_KEY,
@@ -56,6 +56,8 @@ class MainFrame(
         # (dialog id, message id) -> path, so replaying a voice note does not download it again.
         self.downloaded = {}
         self.messages = []
+        # Ids of the messages marked for a group action (delete, forward, copy).
+        self.marked = set()
         self.has_older = False
         # True while older messages or a media file are being fetched.
         self.is_busy = False
@@ -134,6 +136,8 @@ class MainFrame(
             (MENU_SEND_FILE_KEY, self.on_send_file_menu),
             (MENU_PIN_KEY, self.on_pin_menu),
             (MENU_FORWARD_KEY, self.on_forward_menu),
+            (MENU_MARK_KEY, self.on_mark_menu),
+            (MENU_UNMARK_ALL_KEY, self.on_unmark_all_menu),
             (MENU_REACT_KEY, self.on_react_menu),
             (MENU_SCHEDULE_KEY, self.on_schedule_menu),
             (MENU_NEW_POLL_KEY, self.on_new_poll_menu),
@@ -155,6 +159,8 @@ class MainFrame(
         for label_key, handler in (
             (MENU_NEW_CHAT_KEY, self.on_new_chat_menu),
             (MENU_FIND_CHAT_KEY, self.on_find_chat_menu),
+            (MENU_NEW_GROUP_KEY, lambda event: self.create_chat(is_channel=False)),
+            (MENU_NEW_CHANNEL_KEY, lambda event: self.create_chat(is_channel=True)),
         ):
             item = chats_menu.Append(wx.ID_ANY, self.i18n.get_string(label_key))
             self.Bind(wx.EVT_MENU, handler, item)
@@ -283,6 +289,8 @@ class MainFrame(
         elif self.reply_to or self.editing:
             self.set_compose()
             self.notify(MSG_REPLY_CANCELLED_KEY)
+        elif self.clear_marks():
+            pass
         elif self.message_view is not None:
             self.close_search()
         else:

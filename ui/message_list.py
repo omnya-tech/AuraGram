@@ -4,7 +4,7 @@ import wx
 from core import audio
 from core.settings import SETTING_MARK_READ_ON_OPEN
 from core.constants import (
-    MESSAGE_VIEW_SEARCH, MESSAGE_VIEW_SCHEDULED, MSG_VIEW_RESULTS_FORMAT_KEY, MSG_VIEW_EMPTY_KEY,
+    MARKED_FORMAT_KEY, MESSAGE_VIEW_SEARCH, MESSAGE_VIEW_SCHEDULED, MSG_VIEW_RESULTS_FORMAT_KEY, MSG_VIEW_EMPTY_KEY,
     POLL_FORMAT_KEY, POLL_OPTION_FORMAT_KEY, POLL_CHOSEN_KEY, POLL_VOTERS_FORMAT_KEY,
     POLL_CLOSED_SUFFIX_KEY, CONTEXT_VOTE_KEY, CONTEXT_REACT_KEY, REACTIONS_FORMAT_KEY,
     REACTION_COUNT_FORMAT_KEY, CONTEXT_FORWARD_KEY, CONTEXT_PIN_KEY, CONTEXT_UNPIN_KEY,
@@ -25,6 +25,7 @@ class MessageListMixin:
 
     def load_messages(self, focus_messages=False):
         self.message_view = None
+        self.marked = set()
         self.set_status(MSG_LOADING_KEY)
         dialog_id = self.current_dialog_id
         mark_read = self.settings.get(SETTING_MARK_READ_ON_OPEN)
@@ -83,6 +84,7 @@ class MessageListMixin:
         if self.reply_to is message or self.editing is message:
             self.set_compose()
         del self.messages[index]
+        self.marked.discard(message_id)
         # Re-render rather than delete one row: replies quoting this message change too.
         self.render_messages(min(index, len(self.messages) - 1))
 
@@ -228,6 +230,7 @@ class MessageListMixin:
     def show_message_list(self, view, messages):
         """Replace the conversation in the message area with another list; Escape brings it back."""
         self.message_view = view
+        self.marked = set()
         self.set_compose()
         self.messages = messages
         self.has_older = False
@@ -322,8 +325,12 @@ class MessageListMixin:
                     for emoji, count in message["reactions"]
                 )
             )
-        return self.i18n.get_string(MESSAGE_FORMAT_KEY).format(
+        line = self.i18n.get_string(MESSAGE_FORMAT_KEY).format(
             sender=self.sender_name(message),
             text=text,
             time=local_date.strftime(TIME_FORMAT if is_today else DATE_TIME_FORMAT)
         )
+        if message["id"] in self.marked:
+            # First thing on the row, so it is heard before anything else.
+            line = self.i18n.get_string(MARKED_FORMAT_KEY).format(text=line)
+        return line

@@ -68,6 +68,13 @@ def make_channel(channel_id, title, group=False, creator=False, admin_rights=Non
     )
 
 
+def make_member(user_id, name, participant=None, is_self=False):
+    """A group member as Telethon returns it: a user carrying its membership record."""
+    member = make_user(user_id, name, is_self=is_self)
+    member.participant = participant
+    return member
+
+
 def make_message(message_id, text="", outgoing=False, sender=None, **extra):
     attributes = dict(
         id=message_id, message=text, out=outgoing, sender=sender, date=NOW,
@@ -84,6 +91,8 @@ class FakeTelegramClient:
     history = {}      # peer id -> messages, oldest first
     scheduled = {}    # peer id -> messages
     folders = []
+    members = []      # users with a `participant` attribute, as get_participants returns them
+    banned = []
     calls = []
 
     @classmethod
@@ -92,6 +101,8 @@ class FakeTelegramClient:
         cls.history = history or {}
         cls.scheduled = {}
         cls.folders = []
+        cls.members = []
+        cls.banned = []
         cls.calls = []
 
     def __init__(self, *args, **kwargs):
@@ -172,6 +183,24 @@ class FakeTelegramClient:
     async def delete_dialog(self, entity):
         self.calls.append(("leave", telegram_client.get_peer_id(entity)))
 
+    async def get_entity(self, peer):
+        peer_id = telegram_client.get_peer_id(peer)
+        return next(entity for entity, _, _ in self.chats if telegram_client.get_peer_id(entity) == peer_id)
+
+    async def get_participants(self, entity, limit=None, search="", filter=None):
+        if filter is types.ChannelParticipantsKicked:
+            return list(self.banned)
+        return [member for member in self.members if search.lower() in member.first_name.lower()]
+
+    async def kick_participant(self, entity, user):
+        self.calls.append(("kick", user.user_id))
+
+    async def edit_permissions(self, entity, user=None, **permissions):
+        self.calls.append(("permissions", getattr(user, "user_id", None), permissions))
+
+    async def edit_admin(self, entity, user, **rights):
+        self.calls.append(("admin", user.user_id, rights))
+
     async def __call__(self, request):
         name = type(request).__name__
         self.calls.append((name, request))
@@ -180,6 +209,12 @@ class FakeTelegramClient:
         if name == "DeleteScheduledMessagesRequest":
             peer_id = telegram_client.get_peer_id(request.peer)
             self.scheduled[peer_id] = [m for m in self.scheduled.get(peer_id, []) if m.id not in request.id]
+        if name == "CreateChannelRequest":
+            return Record(chats=[make_channel(500, request.title, group=bool(request.megagroup), creator=True)])
+        if name == "GetFullChannelRequest":
+            return Record(full_chat=Record(about="about text", participants_count=len(self.members), exported_invite=None))
+        if name == "GetFullUserRequest":
+            return Record(users=[make_user(1, "Me")], full_user=Record(about=""))
         return None
 
     def _find(self, entity, message_id):

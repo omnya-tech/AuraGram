@@ -5,7 +5,9 @@ from core.constants import (
     REACTION_CHOICE_FORMAT_KEY, MSG_REACTED_KEY, REACTION_EMOJIS, REACTION_NAME_KEY_PREFIX,
     MSG_FORWARD_TO_KEY, MSG_FORWARDED_FORMAT_KEY, MSG_PINNED_KEY, MSG_UNPINNED_KEY,
     MSG_CANNOT_PIN_KEY, MSG_CONFIRM_DELETE_OTHER_KEY, MSG_COPIED_KEY, MSG_CANNOT_DELETE_KEY,
-    MSG_CONFIRM_DELETE_KEY, MSG_DELETED_KEY, APP_TITLE_KEY, MSG_LOADING_KEY
+    MSG_CONFIRM_DELETE_KEY, MSG_DELETED_KEY, APP_TITLE_KEY, MSG_LOADING_KEY,
+    MSG_MARKED_COUNT_FORMAT_KEY, MSG_MARKS_CLEARED_KEY, MSG_CONFIRM_DELETE_MANY_FORMAT_KEY,
+    MSG_CANNOT_DELETE_SOME_KEY, MSG_DELETED_MANY_FORMAT_KEY
 )
 
 class MessageActionsMixin:
@@ -23,6 +25,10 @@ class MessageActionsMixin:
             return
         if self.message_view == MESSAGE_VIEW_SCHEDULED:
             self.cancel_scheduled(message)
+            return
+        marked = self.marked_messages()
+        if marked:
+            self.delete_marked(marked)
             return
         if not self.can_delete(message):
             self.notify(MSG_CANNOT_DELETE_KEY)
@@ -55,6 +61,57 @@ class MessageActionsMixin:
         if dialog_id == self.current_dialog_id:
             self.remove_message(message_id)
         self.notify(MSG_DELETED_KEY)
+
+    def marked_messages(self):
+        """The marked messages in the order they are listed; empty when nothing is marked."""
+        return [message for message in self.messages if message["id"] in self.marked]
+
+    def on_mark_menu(self, event):
+        message = self.actionable_message()
+        if message is None:
+            return
+        # Toggle: marking a marked message unmarks it.
+        self.marked ^= {message["id"]}
+        self.render_messages(self.messages_list.GetSelection() - self.message_offset())
+        self.announce(self.i18n.get_string(MSG_MARKED_COUNT_FORMAT_KEY).format(count=len(self.marked)))
+
+    def on_unmark_all_menu(self, event):
+        self.clear_marks()
+
+    def clear_marks(self):
+        """Returns True if anything was marked."""
+        if not self.marked:
+            return False
+        self.marked = set()
+        self.render_messages(self.messages_list.GetSelection() - self.message_offset())
+        self.notify(MSG_MARKS_CLEARED_KEY)
+        return True
+
+    def delete_marked(self, marked):
+        if not all(self.can_delete(message) for message in marked):
+            self.notify(MSG_CANNOT_DELETE_SOME_KEY)
+            return
+        answer = wx.MessageBox(
+            self.i18n.get_string(MSG_CONFIRM_DELETE_MANY_FORMAT_KEY).format(count=len(marked)),
+            self.i18n.get_string(APP_TITLE_KEY),
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING, self
+        )
+        if answer != wx.YES:
+            return
+        self.is_busy = True
+        self.set_status(MSG_LOADING_KEY)
+        dialog_id = self.current_dialog_id
+        message_ids = [message["id"] for message in marked]
+        self.telegram_manager.delete_message(
+            dialog_id, message_ids, self.on_ui_thread(self.on_marked_deleted, dialog_id, message_ids)
+        )
+
+    def on_marked_deleted(self, result, dialog_id, message_ids):
+        self.is_busy = False
+        if dialog_id == self.current_dialog_id:
+            for message_id in message_ids:
+                self.remove_message(message_id)
+        self.announce(self.i18n.get_string(MSG_DELETED_MANY_FORMAT_KEY).format(count=len(message_ids)))
 
     def cancel_scheduled(self, message):
         answer = wx.MessageBox(
@@ -101,9 +158,13 @@ class MessageActionsMixin:
 
     def on_copy_message(self, event):
         message = self.selected_message()
-        if message is None or not message["text"] or not wx.TheClipboard.Open():
+        # With messages marked, copy all of their texts, one per line.
+        texts = [marked["text"] for marked in self.marked_messages() if marked["text"]]
+        if not texts and message is not None and message["text"]:
+            texts = [message["text"]]
+        if not texts or not wx.TheClipboard.Open():
             return
-        wx.TheClipboard.SetData(wx.TextDataObject(message["text"]))
+        wx.TheClipboard.SetData(wx.TextDataObject("\n".join(texts)))
         wx.TheClipboard.Close()
         self.notify(MSG_COPIED_KEY)
 
@@ -114,12 +175,19 @@ class MessageActionsMixin:
         target = self.choose_chat(MSG_FORWARD_TO_KEY, self.all_dialogs)
         if target is None:
             return
+        marked = self.marked_messages()
+        # Marked messages go together, in the order they appear in the chat.
+        message_ids = [marked_message["id"] for marked_message in marked] if marked else message["id"]
         self.telegram_manager.forward_message(
-            self.current_dialog_id, message["id"], target["id"],
-            self.on_ui_thread(lambda result: self.announce(
-                self.i18n.get_string(MSG_FORWARDED_FORMAT_KEY).format(title=target["title"])
-            ))
+            self.current_dialog_id, message_ids, target["id"],
+            self.on_ui_thread(self.on_forwarded, target)
         )
+
+    def on_forwarded(self, result, target):
+        if self.marked:
+            self.marked = set()
+            self.render_messages(self.messages_list.GetSelection() - self.message_offset())
+        self.announce(self.i18n.get_string(MSG_FORWARDED_FORMAT_KEY).format(title=target["title"]))
 
     def on_react_menu(self, event):
         message = self.actionable_message()

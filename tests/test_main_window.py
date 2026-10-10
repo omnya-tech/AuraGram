@@ -276,6 +276,102 @@ class MessagesTest(WindowTestCase):
         self.assertNotIn("رداً على", self.messages.GetString(0))
 
 
+class MarkingTest(WindowTestCase):
+    chats = [(ALI, 0, False), (MY_GROUP, 0, False)]
+    history = {1: [
+        make_message(1, "theirs", sender=ALI),
+        make_message(2, "mine one", outgoing=True),
+        make_message(3, "mine two", outgoing=True),
+    ]}
+
+    def setUp(self):
+        super().setUp()
+        self.open_chat(0)
+        self.messages = self.frame.messages_list
+
+    def mark(self, *rows):
+        for row in rows:
+            self.messages.SetSelection(row)
+            self.frame.on_mark_menu(None)
+
+    def test_mark_is_read_first_and_toggles(self):
+        self.mark(1)
+        self.assertTrue(self.messages.GetString(1).startswith("محددة."))
+        self.assertEqual(self.messages.GetSelection(), 1)
+        self.assertIn("1", self.spoken[-1])
+        self.mark(1)
+        self.assertFalse(self.messages.GetString(1).startswith("محددة."))
+
+    def test_escape_clears_marks_before_anything_else(self):
+        self.mark(1, 2)
+        self.assertTrue(self.press(wx.WXK_ESCAPE))
+        self.assertEqual(self.frame.marked, set())
+        self.assertEqual(self.spoken[-1], self.text(c.MSG_MARKS_CLEARED_KEY))
+
+    def test_delete_takes_all_marked_in_one_request(self):
+        self.mark(1, 2)
+        self.frame.on_delete_menu(None)
+        self.assertIn("2", self.boxes[-1])
+        self.assertTrue(pump(lambda: self.messages.GetCount() == 1))
+        self.assertEqual(self.calls("delete"), [("delete", 1, [2, 3])])
+        self.assertEqual(self.frame.marked, set())
+
+    def test_delete_refuses_if_any_marked_message_is_not_deletable(self):
+        self.mark(0, 1)
+        self.frame.on_delete_menu(None)
+        self.assertEqual(self.boxes, [])
+        self.assertEqual(self.calls("delete"), [])
+        self.assertEqual(self.spoken[-1], self.text(c.MSG_CANNOT_DELETE_SOME_KEY))
+
+    def test_forward_sends_marked_messages_in_chat_order(self):
+        self.mark(2, 0)
+        FakeChooser.selection = 1
+        self.frame.on_forward_menu(None)
+        self.assertTrue(pump(lambda: self.calls("forward") == [("forward", GROUP_ID, [1, 3], 1)]))
+        self.assertTrue(pump(lambda: self.frame.marked == set()))
+
+    def test_copy_joins_marked_texts(self):
+        self.mark(0, 2)
+        self.frame.on_copy_message(None)
+        data = wx.TextDataObject()
+        wx.TheClipboard.Open()
+        wx.TheClipboard.GetData(data)
+        wx.TheClipboard.Close()
+        self.assertEqual(data.GetText().splitlines(), ["theirs", "mine two"])
+
+    def test_marks_do_not_survive_switching_chats(self):
+        self.mark(1)
+        self.open_chat(1)
+        self.assertEqual(self.frame.marked, set())
+
+
+class NewChatTest(WindowTestCase):
+    chats = [(ALI, 0, False)]
+
+    def test_creating_a_group_opens_it(self):
+        FakeChooser.values = ["Book Club", "We read"]
+        self.frame.create_chat(is_channel=False)
+        self.assertTrue(pump(lambda: self.calls("CreateChannelRequest")))
+        request = self.calls("CreateChannelRequest")[0][1]
+        self.assertEqual((request.title, request.about, request.megagroup, request.broadcast),
+                         ("Book Club", "We read", True, False))
+        self.assertTrue(pump(lambda: self.frame.current_dialog_id is not None and self.frame.current_dialog_id != 1))
+        self.assertEqual(self.frame.dialogs[self.frame.dialogs_list.GetSelection()]["title"], "Book Club")
+
+    def test_a_channel_is_created_as_broadcast_and_description_may_be_empty(self):
+        FakeChooser.values = ["Announcements", ""]
+        self.frame.create_chat(is_channel=True)
+        self.assertTrue(pump(lambda: self.calls("CreateChannelRequest")))
+        request = self.calls("CreateChannelRequest")[0][1]
+        self.assertEqual((request.about, request.megagroup, request.broadcast), ("", False, True))
+
+    def test_empty_name_creates_nothing(self):
+        FakeChooser.values = ["   "]
+        self.frame.create_chat(is_channel=False)
+        pump(timeout=0.2)
+        self.assertEqual(self.calls("CreateChannelRequest"), [])
+
+
 class LongHistoryTest(WindowTestCase):
     chats = [(ALI, 0, False)]
     history = {1: [make_message(i, "m%d" % i, outgoing=True) for i in range(1, 121)]}

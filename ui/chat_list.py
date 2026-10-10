@@ -10,7 +10,8 @@ from core.constants import (
     MSG_CHAT_SAVED_KEY, CONTEXT_OPEN_KEY, CONTEXT_MARK_READ_KEY, CONTEXT_MUTE_KEY,
     CONTEXT_UNMUTE_KEY, MSG_MARKED_READ_KEY, MSG_MUTED_KEY, MSG_UNMUTED_KEY, DIALOGS_LIMIT,
     MSG_LOAD_MORE_DIALOGS_KEY, MSG_FIND_PROMPT_KEY, MSG_NOT_FOUND_KEY, APP_TITLE_KEY,
-    DIALOG_UNREAD_FORMAT_KEY, MSG_LOADING_KEY, STATUS_READY_KEY, SELECT_DELAY_MS
+    DIALOG_UNREAD_FORMAT_KEY, MSG_LOADING_KEY, STATUS_READY_KEY, SELECT_DELAY_MS,
+    MSG_NEW_CHAT_NAME_PROMPT_KEY, MSG_NEW_CHAT_ABOUT_PROMPT_KEY, MSG_CHAT_CREATED_FORMAT_KEY
 )
 
 class ChatListMixin:
@@ -230,6 +231,30 @@ class ChatListMixin:
         if query:
             self.set_status(MSG_LOADING_KEY)
             self.telegram_manager.find_chat(query, self.on_ui_thread(self.open_chat))
+
+    def ask_text(self, prompt_key):
+        """One line of text from the user; None if they cancel."""
+        with wx.TextEntryDialog(
+            self, self.i18n.get_string(prompt_key), self.i18n.get_string(APP_TITLE_KEY)
+        ) as text_dialog:
+            if text_dialog.ShowModal() != wx.ID_OK:
+                return None
+            return text_dialog.GetValue().strip()
+
+    def create_chat(self, is_channel):
+        title = self.ask_text(MSG_NEW_CHAT_NAME_PROMPT_KEY)
+        if not title:
+            return
+        about = self.ask_text(MSG_NEW_CHAT_ABOUT_PROMPT_KEY)
+        # Cancelling the description cancels the whole thing; leaving it empty does not.
+        if about is None:
+            return
+        self.set_status(MSG_LOADING_KEY)
+        self.telegram_manager.create_chat(title, about, is_channel, self.on_ui_thread(self.on_chat_created))
+
+    def on_chat_created(self, chat):
+        self.open_chat(chat)
+        self.announce(self.i18n.get_string(MSG_CHAT_CREATED_FORMAT_KEY).format(title=chat["title"]))
 
     def on_find_menu(self, event):
         with wx.TextEntryDialog(
