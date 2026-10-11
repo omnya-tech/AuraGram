@@ -367,6 +367,8 @@ class FakeTelegramClient:
             )
         if name == "GetGroupsForDiscussionRequest":
             return Record(chats=list(self.discussion_groups))
+        if name == "ExportChatInviteRequest" and getattr(request, "legacy_revoke_permanent", False):
+            return Record(link="https://t.me/+primary%d" % telegram_client.get_peer_id(request.peer))
         if name == "GetSendAsRequest":
             return Record(
                 chats=[sender for sender in self.send_as if not isinstance(sender, types.User)],

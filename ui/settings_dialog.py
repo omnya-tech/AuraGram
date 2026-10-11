@@ -8,7 +8,7 @@ from core.settings import (
     SETTING_MARK_READ_ON_OPEN, SETTING_START_SOUND, SETTING_ANNOUNCE_INTERRUPT,
     SETTING_BRAILLE_MESSAGES, SETTING_SPEAK_FEEDBACK, SETTING_ANNOUNCE_CONNECTION, SETTING_SIMPLE_TAB,
     SETTING_SHOW_PREVIEW, SETTING_ANNOUNCE_WHEN, SETTING_ANNOUNCE_WHAT, SETTING_ANNOUNCE_TYPING,
-    SETTING_VOICE_SPEED, CHOICES
+    SETTING_VOICE_SPEED, SETTING_MIC_DEVICE, SETTING_MIC_LEVEL, SETTING_NOISE, CHOICES
 )
 from ui.layout import prepare_window
 from core.constants import (
@@ -39,7 +39,10 @@ from core.constants import (
     MSG_TWO_STEP_EMAIL_KEY, MSG_TWO_STEP_EMAIL_CODE_KEY, BTN_CHANGE_PHONE_KEY, MSG_NEW_PHONE_PROMPT_KEY,
     MSG_NEW_PHONE_CODE_KEY, MSG_PHONE_CHANGED_KEY, BTN_DELETE_ACCOUNT_KEY, MSG_CONFIRM_DELETE_ACCOUNT_KEY,
     MSG_DELETE_ACCOUNT_WORD_KEY, DELETE_ACCOUNT_WORD_KEY, MSG_DELETE_ACCOUNT_CANCELLED_KEY,
-    MSG_ACCOUNT_DELETED_KEY, SETTINGS_VOICE_SPEED_LABEL_KEY
+    MSG_ACCOUNT_DELETED_KEY, SETTINGS_VOICE_SPEED_LABEL_KEY, SETTINGS_TAB_MICROPHONE_KEY, MIC_NOTE_KEY,
+    MIC_DEVICE_LABEL_KEY, MIC_DEVICE_DEFAULT_KEY, MIC_LEVEL_LABEL_KEY, MIC_NOISE_LABEL_KEY, BTN_TEST_MIC_KEY,
+    MSG_MIC_TEST_SPEAK_KEY, MSG_MIC_TEST_PLAYING_KEY, MSG_MIC_TEST_SILENT_KEY, MIC_LEVELS, NOISE_LEVELS,
+    MIC_TEST_MS, ERR_AUDIO_KEY, ERR_NO_AUDIO_SUPPORT_KEY
 )
 from core.speech import speak
 
@@ -88,6 +91,7 @@ class SettingsDialog(wx.Dialog):
         self.privacy = None
         self.notify_settings = None
         self.notify_boxes = {}
+        self.mic_tester = audio.Recorder()
         # Set once the account is gone: whoever opened the dialog has to close the app.
         self.account_deleted = False
         self.sessions = []
@@ -103,6 +107,7 @@ class SettingsDialog(wx.Dialog):
         notebook.AddPage(self.create_app_page(notebook), i18n.get_string(SETTINGS_TAB_APP_KEY))
         notebook.AddPage(self.create_accessibility_page(notebook), i18n.get_string(SETTINGS_TAB_ACCESSIBILITY_KEY))
         notebook.AddPage(self.create_sounds_page(notebook), i18n.get_string(SETTINGS_TAB_SOUNDS_KEY))
+        notebook.AddPage(self.create_microphone_page(notebook), i18n.get_string(SETTINGS_TAB_MICROPHONE_KEY))
         notebook.AddPage(self.create_account_page(notebook), i18n.get_string(SETTINGS_TAB_ACCOUNT_KEY))
         notebook.AddPage(self.create_privacy_page(notebook), i18n.get_string(SETTINGS_TAB_PRIVACY_KEY))
         notebook.AddPage(self.create_sessions_page(notebook), i18n.get_string(SETTINGS_TAB_SESSIONS_KEY))
@@ -260,7 +265,67 @@ class SettingsDialog(wx.Dialog):
     def Destroy(self):
         if self.sound_drafts_dir is not None:
             shutil.rmtree(self.sound_drafts_dir, ignore_errors=True)
+        # A microphone test may be half way through.
+        self.mic_tester.cancel()
         return super().Destroy()
+
+    def create_microphone_page(self, notebook):
+        page = wx.Panel(notebook)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        note = wx.StaticText(page, label=self.i18n.get_string(MIC_NOTE_KEY))
+        note.Wrap(460)
+        sizer.Add(note, flag=wx.ALL, border=10)
+        sizer.Add(wx.StaticText(page, label=self.i18n.get_string(MIC_DEVICE_LABEL_KEY)), flag=wx.LEFT|wx.RIGHT, border=10)
+        # The first entry follows whatever Windows uses; the rest name one microphone each.
+        self.mic_names = [""] + (audio.input_devices() if audio.AVAILABLE else [])
+        saved = self.settings.get(SETTING_MIC_DEVICE)
+        self.mic_choice = wx.Choice(
+            page, choices=[self.i18n.get_string(MIC_DEVICE_DEFAULT_KEY)] + self.mic_names[1:]
+        )
+        # One that has been unplugged since falls back to the default.
+        self.mic_choice.SetSelection(self.mic_names.index(saved) if saved in self.mic_names else 0)
+        sizer.Add(self.mic_choice, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
+        self.add_choice(page, sizer, MIC_LEVEL_LABEL_KEY, SETTING_MIC_LEVEL)
+        self.add_choice(page, sizer, MIC_NOISE_LABEL_KEY, SETTING_NOISE)
+        self.mic_test_btn = wx.Button(page, label=self.i18n.get_string(BTN_TEST_MIC_KEY))
+        self.mic_test_btn.Bind(wx.EVT_BUTTON, self.on_test_mic)
+        sizer.Add(self.mic_test_btn, flag=wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
+        page.SetSizer(sizer)
+        return page
+
+    def chosen(self, setting):
+        """What a drop-down of the dialog is set to now, saved or not."""
+        return CHOICES[setting][0][self.choices[setting].GetSelection()]
+
+    def on_test_mic(self, event):
+        """Record a few seconds with the settings as they stand in the dialog, then play them back."""
+        if not audio.AVAILABLE:
+            self.show_message(self.i18n.get_string(ERR_NO_AUDIO_SUPPORT_KEY), wx.ICON_ERROR)
+            return
+        tester = self.mic_tester
+        tester.device = audio.find_input(self.mic_names[self.mic_choice.GetSelection()])
+        tester.level = MIC_LEVELS[self.chosen(SETTING_MIC_LEVEL)]
+        tester.reduction_db = NOISE_LEVELS[self.chosen(SETTING_NOISE)]
+        try:
+            tester.start()
+        except Exception:
+            tester.cancel()
+            self.show_message(self.i18n.get_string(ERR_AUDIO_KEY), wx.ICON_ERROR)
+            return
+        self.mic_test_btn.Disable()
+        speak(self.i18n.get_string(MSG_MIC_TEST_SPEAK_KEY))
+        wx.CallLater(MIC_TEST_MS, self.finish_mic_test)
+
+    def finish_mic_test(self):
+        if not self:
+            return
+        self.mic_test_btn.Enable()
+        samples = self.mic_tester.take()
+        if not len(samples) or not samples.any():
+            self.show_message(self.i18n.get_string(MSG_MIC_TEST_SILENT_KEY), wx.ICON_ERROR)
+            return
+        speak(self.i18n.get_string(MSG_MIC_TEST_PLAYING_KEY))
+        audio.play_samples(samples)
 
     def create_account_page(self, notebook):
         page = wx.Panel(notebook)
@@ -608,6 +673,7 @@ class SettingsDialog(wx.Dialog):
             self.settings.set(setting, checkbox.GetValue())
         for setting, choice in self.choices.items():
             self.settings.set(setting, CHOICES[setting][0][choice.GetSelection()])
+        self.settings.set(SETTING_MIC_DEVICE, self.mic_names[self.mic_choice.GetSelection()])
         self.settings.save()
         for name, draft in self.sound_changes.items():
             if draft is None:

@@ -273,7 +273,7 @@ class CredentialsTest(unittest.TestCase):
         from unittest import mock
         folder = tempfile.mkdtemp()
         self.path = os.path.join(folder, "config.json")
-        self.bundled = os.path.join(folder, "bundled_config.json")
+        self.bundled = os.path.join(folder, "auragram.dat")
         for name, path in (("CONFIG_FILE", self.path), ("BUNDLED_CONFIG_FILE", self.bundled)):
             patch = mock.patch("core.config." + name, path)
             patch.start()
@@ -301,17 +301,51 @@ class CredentialsTest(unittest.TestCase):
             file.write("{not json")
         self.assertEqual(load_credentials(), (0, ""))
 
+    def pack(self, api_id, api_hash):
+        from core.config import seal_credentials
+        with open(self.bundled, "wb") as file:
+            file.write(seal_credentials(api_id, api_hash))
+
     def test_values_packed_into_the_program_mean_it_never_asks(self):
         from core.config import load_credentials
-        self.write(self.bundled, 777, self.HASH)
+        self.pack(777, self.HASH)
         self.assertEqual(load_credentials(), (777, self.HASH))
 
     def test_packed_values_win_over_whatever_a_user_typed_earlier(self):
         # An installed copy must not stay broken because of an old file with a mistyped key.
         from core.config import load_credentials
-        self.write(self.bundled, 777, self.HASH)
+        self.pack(777, self.HASH)
         self.write(self.path, 111, self.OTHER_HASH)
         self.assertEqual(load_credentials(), (777, self.HASH))
+
+    def test_packed_file_shows_neither_value_to_whoever_opens_it(self):
+        from core.config import seal_credentials
+        sealed = seal_credentials(987654321, self.HASH)
+        for visible in (b"987654321", self.HASH.encode(), b"API", bytes.fromhex(self.HASH)):
+            self.assertNotIn(visible, sealed)
+        # Nor does it look the same twice, so two builds cannot be compared to find it.
+        self.assertNotEqual(sealed, seal_credentials(987654321, self.HASH))
+
+    def test_packed_file_that_was_touched_is_treated_as_missing(self):
+        from core.config import load_credentials, read_sealed, seal_credentials
+        sealed = bytearray(seal_credentials(777, self.HASH))
+        for position in (0, 20, len(sealed) - 1):
+            damaged = bytearray(sealed)
+            damaged[position] ^= 1
+            with open(self.bundled, "wb") as file:
+                file.write(damaged)
+            self.assertEqual(read_sealed(self.bundled), (0, ""), position)
+        with open(self.bundled, "wb") as file:
+            file.write(sealed[:10])
+        self.assertEqual(read_sealed(self.bundled), (0, ""))
+        # Then the user's own file is what counts, as when nothing was packed.
+        self.write(self.path, 111, self.OTHER_HASH)
+        self.assertEqual(load_credentials(), (111, self.OTHER_HASH))
+
+    def test_plain_file_put_in_place_of_the_packed_one_is_not_read(self):
+        from core.config import load_credentials
+        self.write(self.bundled, 777, self.HASH)
+        self.assertEqual(load_credentials(), (0, ""))
 
     def test_hash_saved_with_a_stray_quote_still_loads_clean(self):
         from core.config import load_credentials

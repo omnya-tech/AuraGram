@@ -3,7 +3,7 @@ import os
 from core.constants import (
     SETTINGS_FILE, READ_MODE, ENCODING_UTF8, THEMES, THEME_SYSTEM,
     ANNOUNCE_WHEN_OPTIONS, ANNOUNCE_WHEN_ALWAYS, ANNOUNCE_WHAT_OPTIONS, ANNOUNCE_WHAT_FULL,
-    VOICE_SPEEDS, VOICE_SPEED_NORMAL
+    VOICE_SPEEDS, VOICE_SPEED_NORMAL, MIC_LEVELS, MIC_LEVEL_NORMAL, NOISE_LEVELS, NOISE_OFF
 )
 
 SETTING_PLAY_SOUND = "play_sound"
@@ -27,6 +27,10 @@ SETTING_THEME = "theme"
 SETTING_ANNOUNCE_WHEN = "announce_when"
 SETTING_ANNOUNCE_WHAT = "announce_what"
 SETTING_VOICE_SPEED = "voice_speed"
+SETTING_MIC_LEVEL = "mic_level"
+SETTING_NOISE = "noise_reduction"
+# The name of the microphone to record from; empty for the one Windows uses by default.
+SETTING_MIC_DEVICE = "mic_device"
 
 DEFAULTS = {
     SETTING_LARGE_TEXT: False,
@@ -50,7 +54,11 @@ CHOICES = {
     SETTING_ANNOUNCE_WHEN: (ANNOUNCE_WHEN_OPTIONS, ANNOUNCE_WHEN_ALWAYS),
     SETTING_ANNOUNCE_WHAT: (ANNOUNCE_WHAT_OPTIONS, ANNOUNCE_WHAT_FULL),
     SETTING_VOICE_SPEED: (tuple(VOICE_SPEEDS), VOICE_SPEED_NORMAL),
+    SETTING_MIC_LEVEL: (tuple(MIC_LEVELS), MIC_LEVEL_NORMAL),
+    SETTING_NOISE: (tuple(NOISE_LEVELS), NOISE_OFF),
 }
+# Settings that are free text.
+TEXTS = {SETTING_MIC_DEVICE: ""}
 
 class Settings:
     """The app's own preferences, kept in a JSON file on this computer only."""
@@ -59,6 +67,7 @@ class Settings:
         self.values = dict(DEFAULTS)
         for key, (allowed, default) in CHOICES.items():
             self.values[key] = default
+        self.values.update(TEXTS)
         self.load()
 
     def load(self):
@@ -72,6 +81,9 @@ class Settings:
             return
         for key in DEFAULTS:
             if isinstance(stored.get(key), bool):
+                self.values[key] = stored[key]
+        for key in TEXTS:
+            if isinstance(stored.get(key), str):
                 self.values[key] = stored[key]
         for key, (allowed, default) in CHOICES.items():
             if stored.get(key) in allowed:

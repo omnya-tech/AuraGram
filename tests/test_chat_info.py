@@ -9,7 +9,7 @@ import core.telegram_client as telegram_client
 from tests.harness import (
     NOW, FakeChooser, FakeTelegramClient, WindowTestCase, make_channel, make_member, make_user, pump
 )
-from ui.chat_info_dialog import ChatInfoDialog
+from ui.chat_control_dialog import ChatControlDialog
 from ui.invite_links_dialog import InviteLinksDialog
 
 ADMIN_RIGHTS = types.ChatAdminRights(delete_messages=True, ban_users=True)
@@ -32,7 +32,7 @@ class ChatInfoTestCase(WindowTestCase):
         super().setUp()
         FakeTelegramClient.members = list(MEMBERS)
         FakeTelegramClient.banned = [make_member(30, "Spammer")]
-        self.dialog = ChatInfoDialog(self.frame, self.i18n, self.manager, self.frame.all_dialogs[0])
+        self.dialog = ChatControlDialog(self.frame, self.i18n, self.manager, self.frame.all_dialogs[0])
         self.addCleanup(self.dialog.Destroy)
         self.dialog.PopupMenu = self.frame.PopupMenu
         self.assertTrue(pump(lambda: self.dialog.info is not None), "chat info did not load")

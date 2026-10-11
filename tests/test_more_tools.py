@@ -15,7 +15,7 @@ from core import audio
 from tests.harness import (
     FakeChooser, FakeTelegramClient, WindowTestCase, make_channel, make_message, make_user, pump
 )
-from ui.chat_info_dialog import ChatInfoDialog
+from ui.chat_control_dialog import ChatControlDialog
 
 ALI = types.User(id=1, first_name="Ali", phone="201001112223", contact=True, access_hash=1)
 MONA = make_user(2, "Mona")
@@ -43,7 +43,7 @@ class MoreToolsTest(WindowTestCase):
 
     def test_person_shows_their_number_and_the_groups_shared_with_them(self):
         FakeTelegramClient.common_chats = [TEAM]
-        dialog = ChatInfoDialog(self.frame, self.i18n, self.manager, self.frame.all_dialogs[0])
+        dialog = ChatControlDialog(self.frame, self.i18n, self.manager, self.frame.all_dialogs[0])
         self.addCleanup(dialog.Destroy)
         self.assertTrue(pump(lambda: dialog.info is not None))
         summary = dialog.summary.GetValue()

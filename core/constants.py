@@ -64,7 +64,8 @@ EMPTY_STRING = ""
 
 CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
 # The API id and hash that build.py packs into the program, so installed copies do not ask.
-BUNDLED_CONFIG_NAME = "bundled_config.json"
+# Sealed, and under a name that says nothing: see seal_credentials in core/config.py.
+BUNDLED_CONFIG_NAME = "auragram.dat"
 BUNDLED_CONFIG_FILE = os.path.join(RESOURCE_DIR, BUNDLED_CONFIG_NAME)
 LOG_FILE = os.path.join(DATA_DIR, "auragram.log")
 LOG_MAX_BYTES = 512 * 1024
@@ -498,6 +499,54 @@ MSG_VOICE_SPEED_FORMAT_KEY = "MSG_VOICE_SPEED_FORMAT"
 MENU_REPORT_KEY = "MENU_REPORT"
 MSG_REPORT_COMMENT_KEY = "MSG_REPORT_COMMENT"
 MSG_REPORTED_KEY = "MSG_REPORTED"
+
+# How loud a recording is made: each name is also its text; the number multiplies the
+# microphone's signal, and None raises it as far as it goes without clipping.
+MIC_LEVELS = {"MIC_LEVEL_LOW": 0.6, "MIC_LEVEL_NORMAL": 1.0, "MIC_LEVEL_HIGH": 1.8, "MIC_LEVEL_AUTO": None}
+MIC_LEVEL_NORMAL = "MIC_LEVEL_NORMAL"
+# How much the steady noise behind the voice is turned down, in decibels.
+NOISE_LEVELS = {"NOISE_OFF": 0, "NOISE_LIGHT": 6, "NOISE_MEDIUM": 12, "NOISE_STRONG": 20}
+NOISE_OFF = "NOISE_OFF"
+MIC_TEST_MS = 4000
+SETTINGS_TAB_MICROPHONE_KEY = "SETTINGS_TAB_MICROPHONE"
+MIC_NOTE_KEY = "MIC_NOTE"
+MIC_DEVICE_LABEL_KEY = "MIC_DEVICE_LABEL"
+MIC_DEVICE_DEFAULT_KEY = "MIC_DEVICE_DEFAULT"
+MIC_LEVEL_LABEL_KEY = "MIC_LEVEL_LABEL"
+MIC_NOISE_LABEL_KEY = "MIC_NOISE_LABEL"
+BTN_TEST_MIC_KEY = "BTN_TEST_MIC"
+MSG_MIC_TEST_SPEAK_KEY = "MSG_MIC_TEST_SPEAK"
+MSG_MIC_TEST_PLAYING_KEY = "MSG_MIC_TEST_PLAYING"
+MSG_MIC_TEST_SILENT_KEY = "MSG_MIC_TEST_SILENT"
+
+# What a file is, told from the end of its name. Each group's text names the kind for the user.
+FILE_KINDS = (
+    ("FILE_KIND_PDF", (".pdf",)),
+    ("FILE_KIND_DOCUMENT", (".doc", ".docx", ".odt", ".rtf")),
+    ("FILE_KIND_SHEET", (".xls", ".xlsx", ".ods", ".csv")),
+    ("FILE_KIND_SLIDES", (".ppt", ".pptx", ".odp")),
+    ("FILE_KIND_TEXT", (".txt", ".md", ".log")),
+    ("FILE_KIND_ARCHIVE", (".zip", ".rar", ".7z", ".tar", ".gz")),
+    ("FILE_KIND_BOOK", (".epub", ".mobi", ".azw3")),
+    ("FILE_KIND_IMAGE", (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tif", ".tiff", ".svg")),
+    ("FILE_KIND_AUDIO", (".mp3", ".wav", ".ogg", ".oga", ".opus", ".m4a", ".flac", ".aac", ".wma")),
+    ("FILE_KIND_VIDEO", (".mp4", ".mov", ".mkv", ".webm", ".avi", ".wmv")),
+    ("FILE_KIND_ANDROID", (".apk",)),
+    ("FILE_KIND_PROGRAM", (".exe", ".msi", ".bat", ".cmd", ".ps1", ".scr", ".com", ".vbs")),
+    ("FILE_KIND_CODE", (".py", ".js", ".ts", ".html", ".css", ".json", ".xml", ".c", ".cpp", ".java", ".cs", ".php")),
+)
+FILE_KIND_OTHER_FORMAT_KEY = "FILE_KIND_OTHER_FORMAT"
+FILE_LABEL_SEPARATOR_KEY = "FILE_LABEL_SEPARATOR"
+FILE_SIZE_UNITS = ("FILE_SIZE_BYTES", "FILE_SIZE_KB", "FILE_SIZE_MB", "FILE_SIZE_GB")
+FILE_SIZE_FORMAT_KEY = "FILE_SIZE_FORMAT"
+MSG_SENDING_FILES_FORMAT_KEY = "MSG_SENDING_FILES_FORMAT"
+
+# Why Telegram refused to link a discussion group, each with its own clear message.
+ERR_PREHISTORY_HIDDEN_KEY = "ERR_PREHISTORY_HIDDEN"
+ERR_DISCUSSION_LINK_KEY = "ERR_DISCUSSION_LINK"
+MENU_COPY_INVITE_KEY = "MENU_COPY_INVITE"
+CONTEXT_COPY_INVITE_KEY = "CONTEXT_COPY_INVITE"
+ERR_NO_INVITE_LINK_KEY = "ERR_NO_INVITE_LINK"
 # A conversation inside the conversation: the comments under a channel post, or one topic of a forum group.
 MESSAGE_VIEW_COMMENTS = "comments"
 MESSAGE_VIEW_TOPIC = "topic"
@@ -863,6 +912,9 @@ MSG_CONFIRM_DELETE_OTHER_KEY = "MSG_CONFIRM_DELETE_OTHER"
 
 CONTEXT_INFO_KEY = "CONTEXT_INFO"
 INFO_TITLE_FORMAT_KEY = "INFO_TITLE_FORMAT"
+CONTROL_TITLE_FORMAT_KEY = "CONTROL_TITLE_FORMAT"
+BTN_MANAGE_KEY = "BTN_MANAGE"
+INFO_INVITE_LABEL_KEY = "INFO_INVITE_LABEL"
 INFO_SUMMARY_LABEL_KEY = "INFO_SUMMARY_LABEL"
 INFO_KIND_FORMAT_KEY = "INFO_KIND_FORMAT"
 INFO_USERNAME_FORMAT_KEY = "INFO_USERNAME_FORMAT"
@@ -985,6 +1037,7 @@ MENTION_LINK_FORMAT = "[{name}](tg://user?id={id}) "
 
 MIN_VOICE_SECONDS = 0.5
 MEDIA_VOICE = "MEDIA_VOICE"
+MEDIA_FILE = "MEDIA_FILE"
 
 MENU_RECORD_KEY = "MENU_RECORD"
 MENU_SEARCH_MESSAGES_KEY = "MENU_SEARCH_MESSAGES"

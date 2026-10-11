@@ -3,6 +3,7 @@ import os
 import wx
 from core import audio
 from core.settings import SETTING_MARK_READ_ON_OPEN
+from ui.layout import duration_text, file_kind, file_size
 from core.constants import (
     PREVIEW_FORMAT_KEY, CONTEXT_COPY_LINK_KEY, CONTEXT_SAVE_AS_KEY, CONTEXT_SELECT_KEY, CONTEXT_UNSELECT_KEY,
     MSG_CHOOSE_SAVE_FOLDER_KEY, MSG_SAVED_FORMAT_KEY, CONTEXT_READ_MESSAGE_KEY, READ_MESSAGE_TITLE_KEY, READ_MESSAGE_HEADER_FORMAT_KEY, MARKED_FORMAT_KEY, MESSAGE_VIEW_SEARCH, MESSAGE_VIEW_SCHEDULED, MSG_VIEW_RESULTS_FORMAT_KEY, MSG_VIEW_EMPTY_KEY,
@@ -27,7 +28,8 @@ from core.constants import (
     AUDIENCE_VIEWS_FORMAT_KEY, AUDIENCE_FORWARDS_FORMAT_KEY, MESSAGE_VIEW_AROUND, NEW_FROM_HERE_FORMAT_KEY,
     MSG_NEW_MESSAGES_FORMAT_KEY, MSG_JUMPED_KEY, MSG_MESSAGE_NOT_FOUND_KEY, CONTEXT_GO_TO_REPLY_KEY,
     MSG_NOT_A_REPLY_KEY, MSG_DATE_PROMPT_KEY, ERR_BAD_DATE_KEY, MSG_NOTHING_ON_DATE_KEY, DATE_INPUT_FORMATS,
-    MSG_SEARCH_ALL_PROMPT_KEY, MSG_SEARCH_ALL_RESULTS_FORMAT_KEY, SEARCH_ALL_ROW_FORMAT_KEY
+    MSG_SEARCH_ALL_PROMPT_KEY, MSG_SEARCH_ALL_RESULTS_FORMAT_KEY, SEARCH_ALL_ROW_FORMAT_KEY,
+    FILE_LABEL_SEPARATOR_KEY, MEDIA_FILE
 )
 
 class MessageListMixin:
@@ -639,10 +641,27 @@ class MessageListMixin:
             return self.poll_text(message["poll"])
         text = message["text"] or message["detail"]
         if message["media"]:
-            text = self.i18n.get_string(MEDIA_FORMAT_KEY).format(
-                media=self.i18n.get_string(message["media"]), text=text
-            ).strip()
+            text = self.i18n.get_string(MEDIA_FORMAT_KEY).format(media=self.media_label(message), text=text).strip()
         return text or self.i18n.get_string(MSG_NO_TEXT_KEY)
+
+    def media_label(self, message):
+        """Names the attachment as closely as is known: what kind of file, what it is called, how big, how long."""
+        kind = self.i18n.get_string(message["media"])
+        attached = message["file"]
+        if attached is None:
+            return kind
+        if message["media"] == MEDIA_FILE:
+            # "File" says nothing; its name usually says what it really is.
+            kind = file_kind(self.i18n, attached["name"]) or kind
+        parts = [kind]
+        if attached["name"]:
+            parts.append(attached["name"])
+        if attached["duration"]:
+            parts.append(duration_text(attached["duration"]))
+        # A photo's size in bytes is of no use to anyone; a file's tells how long it takes to fetch.
+        if attached["size"] and (attached["name"] or attached["duration"]):
+            parts.append(file_size(self.i18n, attached["size"]))
+        return self.i18n.get_string(FILE_LABEL_SEPARATOR_KEY).join(parts)
 
     def message_snippet(self, message):
         text = " ".join(self.message_text(message).split())

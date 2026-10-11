@@ -15,7 +15,8 @@ from telethon.errors import (
     ApiIdPublishedFloodError, BotResponseTimeoutError, UsernameOccupiedError, UsernameInvalidError,
     UsernameNotModifiedError, PhotoCropSizeSmallError, ImageProcessFailedError, PhotoExtInvalidError,
     PhoneNumberOccupiedError, CodeInvalidError, UserPrivacyRestrictedError, UserNotMutualContactError,
-    UserChannelsTooMuchError
+    UserChannelsTooMuchError, MegagroupPrehistoryHiddenError, LinkNotModifiedError, MegagroupRequiredError,
+    BroadcastRequiredError
 )
 from telethon.tl import functions, types
 from telethon.utils import get_display_name, get_input_peer, get_peer_id, parse_username
@@ -43,7 +44,7 @@ from core.constants import (
     EVENT_MESSAGES_READ, EVENT_USER_STATUS, EVENT_TYPING, USER_STATUS_KEYS, SAVED_MESSAGES_PEER,
     BLOCKED_LIMIT, GLOBAL_SEARCH_LIMIT, ERR_NO_PHONE_KEY, MAP_LINK_FORMAT, TOPICS_LIMIT, AUDIENCE_LIMIT,
     ERR_USERNAME_TAKEN_KEY, ERR_USERNAME_INVALID_KEY, ERR_PHOTO_INVALID_KEY, NOTIFY_USERS, NOTIFY_GROUPS,
-    NOTIFY_CHANNELS, TYPING_SEND_SECONDS, ERR_EMAIL_UNCONFIRMED_KEY, ERR_PHONE_TAKEN_KEY, DELETE_ACCOUNT_REASON, EVENT_DRAFT,
+    NOTIFY_CHANNELS, ERR_PREHISTORY_HIDDEN_KEY, ERR_DISCUSSION_LINK_KEY, ERR_NO_INVITE_LINK_KEY, TYPING_SEND_SECONDS, ERR_EMAIL_UNCONFIRMED_KEY, ERR_PHONE_TAKEN_KEY, DELETE_ACCOUNT_REASON, EVENT_DRAFT,
     DEFAULT_LANG, MEMBER_ACTION_RESTRICT, MEMBER_ACTION_TITLE, MEMBER_ACTION_DELETE_MESSAGES,
     SETTING_USERNAME, SETTING_SIGNATURES, SETTING_HISTORY_HIDDEN, SETTING_PROTECTED, SETTING_JOIN_TO_SEND,
     SETTING_JOIN_REQUEST, SETTING_FORUM, SETTING_SLOW_MODE, SETTING_TTL, SETTING_REACTIONS, REACTIONS_ALL,
@@ -65,6 +66,9 @@ class EmailNotConfirmedError(Exception):
 
 class StatsUnavailableError(Exception):
     """Telegram keeps no statistics for this chat, or does not show them to this account."""
+
+class NoInviteLinkError(Exception):
+    """This chat has no invite link, or this account may not get one."""
 
 # Telegram's server-side filter for each message view that has one.
 MESSAGE_VIEW_FILTERS = {
@@ -476,6 +480,10 @@ class TelegramManager(threading.Thread):
         """Attach a group (from load_discussion_groups) to a channel; None detaches the one it has."""
         self._request(on_result, self._set_discussion_group_async, dialog_id, group_id)
 
+    def load_invite_link(self, dialog_id, on_result):
+        """The chat's own public or main invite link, for copying or sharing. The result is the link."""
+        self._request(on_result, self._load_invite_link_async, dialog_id)
+
     def set_reactions(self, dialog_id, emojis, on_result):
         """Allow exactly these emoji as reactions in the chat."""
         self._request(on_result, self._set_reactions_async, dialog_id, emojis)
@@ -679,6 +687,15 @@ class TelegramManager(threading.Thread):
             on_result(None, ERR_CANNOT_ADD_KEY)
         except StatsUnavailableError:
             on_result(None, ERR_STATS_UNAVAILABLE_KEY)
+        except NoInviteLinkError:
+            on_result(None, ERR_NO_INVITE_LINK_KEY)
+        except MegagroupPrehistoryHiddenError:
+            on_result(None, ERR_PREHISTORY_HIDDEN_KEY)
+        except LinkNotModifiedError:
+            # Already linked to that group (or already unlinked): nothing to do, not a failure.
+            on_result(None, None)
+        except (MegagroupRequiredError, BroadcastRequiredError):
+            on_result(None, ERR_DISCUSSION_LINK_KEY)
         except PhoneNumberInvalidError:
             on_result(None, ERR_PHONE_INVALID_KEY)
         except (PhoneCodeInvalidError, PhoneCodeExpiredError):
@@ -1017,6 +1034,31 @@ class TelegramManager(threading.Thread):
         result = await self.client(functions.channels.GetGroupsForDiscussionRequest())
         # Small basic groups are listed too, but have to be upgraded before they can be attached.
         return [self._remember_chat(chat) for chat in result.chats if isinstance(chat, types.Channel)]
+
+    async def _load_invite_link_async(self, dialog_id):
+        entity = await self.client.get_entity(self.entities[dialog_id])
+        username = getattr(entity, "username", None)
+        if username:
+            # A public chat's address is its link, the one anyone can share.
+            return "https://t.me/" + username
+        if isinstance(entity, types.User):
+            # A person with no username has no link to share; a private chat is not invited into.
+            raise NoInviteLinkError()
+        try:
+            if isinstance(entity, types.Channel):
+                full = (await self.client(functions.channels.GetFullChannelRequest(entity))).full_chat
+            else:
+                full = (await self.client(functions.messages.GetFullChatRequest(entity.id))).full_chat
+            invite = getattr(full, "exported_invite", None)
+            if invite is not None and getattr(invite, "link", None):
+                return invite.link
+            # None yet: make the main one. legacy_revoke_permanent keeps it the chat's primary link.
+            result = await self.client(functions.messages.ExportChatInviteRequest(
+                peer=self.entities[dialog_id], legacy_revoke_permanent=True
+            ))
+            return result.link
+        except (ChatAdminRequiredError, ValueError) as error:
+            raise NoInviteLinkError() from error
 
     async def _set_discussion_group_async(self, dialog_id, group_id):
         group = self.entities[group_id] if group_id is not None else types.InputChannelEmpty()
@@ -1723,6 +1765,8 @@ class TelegramManager(threading.Thread):
             "text": message.message or EMPTY_STRING,
             # Words for an attachment that has no text of its own: a sticker's emoji, a contact's name and number.
             "detail": self._describe_detail(message),
+            # What an attached file is: {"name", "size", "duration"}; None for a message without one.
+            "file": self._describe_file(message),
             "media": self._describe_media(message),
             "date": message.date,
             "outgoing": message.out,
@@ -1756,6 +1800,17 @@ class TelegramManager(threading.Thread):
     def _count_comments(self, message):
         replies = getattr(message, "replies", None)
         return replies.replies if replies is not None and getattr(replies, "comments", False) else None
+
+    def _describe_file(self, message):
+        attached = getattr(message, "file", None)
+        if attached is None or getattr(message, "sticker", None):
+            return None
+        return {
+            "name": getattr(attached, "name", None) or EMPTY_STRING,
+            "size": getattr(attached, "size", None) or 0,
+            # Seconds, for sound and video.
+            "duration": getattr(attached, "duration", None) or 0,
+        }
 
     def _describe_detail(self, message):
         contact = getattr(message, "contact", None)

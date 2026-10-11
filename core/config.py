@@ -1,8 +1,13 @@
+import hashlib
+import hmac
 import json
 import os
 import re
 import unicodedata
-from core.constants import BUNDLED_CONFIG_FILE, CONFIG_FILE, READ_MODE, ENCODING_UTF8, EMPTY_STRING
+from core.constants import BUNDLED_CONFIG_FILE, CONFIG_FILE, READ_MODE, ENCODING_UTF8, EMPTY_STRING, APP_NAME
+
+SEAL_SALT_BYTES = 16
+SEAL_CHECK_BYTES = 12
 
 API_HASH_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 # What tends to come along when the hash is copied out of a file or a web page.
@@ -38,6 +43,54 @@ def read_credentials(path):
         return 0, EMPTY_STRING
     return api_id, api_hash
 
+def _seal_key(salt):
+    # Made at run time from pieces, so that neither the key nor the values it guards
+    # sit anywhere in the program as text for a search to find. This keeps the pair
+    # out of sight; it cannot keep it from someone who takes the program apart,
+    # because the program itself has to be able to read it.
+    material = (APP_NAME[::-1] + "%d" % (len(APP_NAME) * 7919)).encode(ENCODING_UTF8)
+    return hashlib.sha256(salt + hashlib.sha256(material).digest() + salt[::-1]).digest()
+
+def _seal_stream(key, length):
+    blocks, counter = b"", 0
+    while len(blocks) < length:
+        blocks += hashlib.sha256(key + counter.to_bytes(4, "big")).digest()
+        counter += 1
+    return blocks[:length]
+
+def seal_credentials(api_id, api_hash):
+    """The API id and hash as unreadable bytes for packing into the program; different every time it is made."""
+    plain = json.dumps([api_id, api_hash]).encode(ENCODING_UTF8)
+    salt = os.urandom(SEAL_SALT_BYTES)
+    key = _seal_key(salt)
+    sealed = bytes(a ^ b for a, b in zip(plain, _seal_stream(key, len(plain))))
+    check = hmac.new(key, sealed, hashlib.sha256).digest()[:SEAL_CHECK_BYTES]
+    return salt + check + sealed
+
+def read_sealed(path):
+    """The API id and hash from a file made by seal_credentials; (0, "") if it is missing or not intact."""
+    try:
+        with open(path, "rb") as sealed_file:
+            data = sealed_file.read()
+    except OSError:
+        return 0, EMPTY_STRING
+    salt, check = data[:SEAL_SALT_BYTES], data[SEAL_SALT_BYTES:SEAL_SALT_BYTES + SEAL_CHECK_BYTES]
+    sealed = data[SEAL_SALT_BYTES + SEAL_CHECK_BYTES:]
+    key = _seal_key(salt)
+    if len(salt) < SEAL_SALT_BYTES or not hmac.compare_digest(
+        check, hmac.new(key, sealed, hashlib.sha256).digest()[:SEAL_CHECK_BYTES]
+    ):
+        # Damaged, cut short, or some other file under this name.
+        return 0, EMPTY_STRING
+    try:
+        api_id, api_hash = json.loads(bytes(a ^ b for a, b in zip(sealed, _seal_stream(key, len(sealed)))))
+    except (ValueError, TypeError):
+        return 0, EMPTY_STRING
+    api_hash = clean_api_hash(api_hash)
+    if not isinstance(api_id, int) or api_id <= 0 or not api_hash:
+        return 0, EMPTY_STRING
+    return api_id, api_hash
+
 def load_credentials():
     """The Telegram API id and hash to sign in with; (0, "") if the app has to ask for them.
 
@@ -45,11 +98,10 @@ def load_credentials():
     never asks. Without one (running from source, or a build made without a
     config file) the user's own file is used.
     """
-    for path in (BUNDLED_CONFIG_FILE, CONFIG_FILE):
-        api_id, api_hash = read_credentials(path)
-        if api_id:
-            return api_id, api_hash
-    return 0, EMPTY_STRING
+    api_id, api_hash = read_sealed(BUNDLED_CONFIG_FILE)
+    if api_id:
+        return api_id, api_hash
+    return read_credentials(CONFIG_FILE)
 
 def save_credentials(api_id, api_hash):
     with open(CONFIG_FILE, "w", encoding=ENCODING_UTF8) as config_file:

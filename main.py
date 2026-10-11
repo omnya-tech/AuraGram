@@ -2,7 +2,7 @@ import logging
 import logging.handlers
 import sys
 import wx
-from core.config import load_credentials, read_credentials, save_credentials
+from core.config import load_credentials, read_sealed, save_credentials
 from core.constants import (
     APP_NAME, DEFAULT_LANG, APP_TITLE_KEY, STEP_DONE, BACKGROUND_FLAG, CHECK_FLAG, QUIT_FLAG,
     QUIT_WAIT_SECONDS, CONNECT_CHECK_SECONDS, BUNDLED_CONFIG_FILE, LOG_FILE, LOG_MAX_BYTES, APP_VERSION, IS_FROZEN,
@@ -164,7 +164,7 @@ def self_check():
         problems += 2
     if not speech.is_available():
         problems += 4
-    if not read_credentials(BUNDLED_CONFIG_FILE)[0]:
+    if not read_sealed(BUNDLED_CONFIG_FILE)[0]:
         problems += 8
     elif not can_reach_telegram():
         problems += 16

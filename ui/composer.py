@@ -6,6 +6,7 @@ from core import sounds
 from core.speech import speak
 from core.settings import SETTING_SENT_SOUND
 from core.schedule import parse_send_time
+from ui.layout import file_kind, file_size
 from core.constants import (
     SOUND_SENT,
     MSG_POLL_QUESTION_PROMPT_KEY, MSG_POLL_OPTIONS_PROMPT_KEY, MSG_POLL_SENT_KEY,
@@ -20,7 +21,7 @@ from core.constants import (
     MSG_LOCATION_PROMPT_KEY, ERR_BAD_LOCATION_KEY, MSG_LOCATION_SENT_KEY, MSG_CHOOSE_MEMBER_KEY,
     MSG_MENTION_GROUPS_ONLY_KEY, MENTION_USERNAME_FORMAT, MENTION_LINK_FORMAT, CATEGORY_GROUPS,
     MSG_UPLOAD_PROGRESS_FORMAT_KEY, MSG_STORY_CAPTION_PROMPT_KEY, MSG_STORY_AUDIENCE_KEY, STORY_AUDIENCES,
-    MSG_STORY_POSTED_KEY, MSG_CHOOSE_PHOTO_KEY, PHOTO_FILES_KEY, PHOTO_FILE_PATTERNS, MSG_CHOOSE_SEND_AS_KEY, MSG_SEND_AS_SAVED_FORMAT_KEY, MSG_NO_SEND_AS_KEY
+    MSG_STORY_POSTED_KEY, MSG_SENDING_FILES_FORMAT_KEY, FILE_LABEL_SEPARATOR_KEY, MSG_CHOOSE_PHOTO_KEY, PHOTO_FILES_KEY, PHOTO_FILE_PATTERNS, MSG_CHOOSE_SEND_AS_KEY, MSG_SEND_AS_SAVED_FORMAT_KEY, MSG_NO_SEND_AS_KEY
 )
 
 class ComposerMixin:
@@ -136,9 +137,14 @@ class ComposerMixin:
 
     def send_paths(self, paths):
         """Send files as one message, after asking what goes with them; cancelling either question sends nothing."""
-        caption = self.ask_text(MSG_CAPTION_PROMPT_KEY)
-        if caption is None:
-            return
+        # Said before anything is sent: what each file is and how big, so a wrong pick is caught here.
+        with wx.TextEntryDialog(
+            self, self.describe_paths(paths) + "\n\n" + self.i18n.get_string(MSG_CAPTION_PROMPT_KEY),
+            self.i18n.get_string(APP_TITLE_KEY)
+        ) as caption_dialog:
+            if caption_dialog.ShowModal() != wx.ID_OK:
+                return
+            caption = caption_dialog.GetValue().strip()
         as_documents = False
         if any(os.path.splitext(path)[1].lower() in PHOTO_VIDEO_EXTENSIONS for path in paths):
             with wx.SingleChoiceDialog(
@@ -156,6 +162,18 @@ class ComposerMixin:
             self.on_ui_thread(self.on_files_sent, dialog_id, len(paths)), reply_to=self.take_reply(),
             on_progress=self.progress_reporter(MSG_UPLOAD_PROGRESS_FORMAT_KEY)
         )
+
+    def describe_paths(self, paths):
+        """One line per file about to be sent: its name, what it is, its size."""
+        separator = self.i18n.get_string(FILE_LABEL_SEPARATOR_KEY)
+        lines = []
+        for path in paths:
+            name = os.path.basename(path)
+            parts = [name, file_kind(self.i18n, name)]
+            if os.path.isfile(path):
+                parts.append(file_size(self.i18n, os.path.getsize(path)))
+            lines.append(separator.join(part for part in parts if part))
+        return self.i18n.get_string(MSG_SENDING_FILES_FORMAT_KEY).format(files="\n".join(lines))
 
     def take_reply(self):
         """Id of the message being replied to, if any; the reply is used up by whatever is sent with it."""

@@ -41,7 +41,7 @@ from core.constants import (
     PROGRESS_LABEL_KEY, MSG_CHAT_CLOSED_KEY, MENU_SEND_AS_KEY, MENU_POST_STORY_KEY, MESSAGE_VIEW_TOPIC,
     GENERAL_TOPIC_ID, BTN_SEARCH_KEY, TOOLTIP_SEARCH_CHATS_KEY, TOOLTIP_SEARCH_MESSAGES_KEY, BTN_BACK_KEY,
     TOOLTIP_BACK_KEY, MENU_GO_TO_REPLY_KEY, MENU_GO_TO_DATE_KEY, MENU_SEARCH_ALL_KEY, MENU_SEND_SILENT_KEY,
-    MENU_FOLDERS_KEY, MENU_MARK_ALL_READ_KEY, MENU_VOICE_SPEED_KEY, MENU_REPORT_KEY
+    MENU_FOLDERS_KEY, MENU_MARK_ALL_READ_KEY, MENU_VOICE_SPEED_KEY, MENU_REPORT_KEY, MENU_COPY_INVITE_KEY
 )
 from ui.chat_list import ChatListMixin
 from ui.message_list import MessageListMixin
@@ -425,6 +425,7 @@ class MainFrame(
                 (MENU_MARK_ALL_READ_KEY, self.on_mark_all_read_menu),
                 None,
                 (MENU_CHAT_INFO_KEY, lambda event: on_chat(self.show_chat_info)),
+                (MENU_COPY_INVITE_KEY, lambda event: on_chat(self.copy_invite_link)),
                 (MENU_CHAT_READ_KEY, lambda event: on_chat(self.toggle_dialog_read)),
                 (MENU_CHAT_PIN_KEY, lambda event: on_chat(lambda chat: self.set_chat_pinned(chat, not chat["pinned"]))),
                 (MENU_CHAT_MUTE_KEY, lambda event: on_chat(self.toggle_dialog_muted)),

@@ -16,7 +16,7 @@ import shutil
 import subprocess
 import sys
 
-from core.config import read_credentials
+from core.config import read_credentials, seal_credentials
 from core.constants import (
     APP_COPYRIGHT, APP_NAME, APP_PUBLISHER, APP_VERSION, BASE_DIR, BUNDLED_CONFIG_NAME, CHECK_FLAG,
     CONFIG_FILE
@@ -103,9 +103,10 @@ def write_bundled_config():
         print("      every user for an API id and hash on first run.")
         return False
     os.makedirs(WORK_DIR, exist_ok=True)
-    with open(BUNDLED_CONFIG_BUILD_FILE, "w", encoding="utf-8") as config_file:
-        json.dump({"API_ID": api_id, "API_HASH": api_hash}, config_file)
-    print("Packing this project's API id and hash into the program.")
+    # Sealed: a search through the installed files finds neither value.
+    with open(BUNDLED_CONFIG_BUILD_FILE, "wb") as config_file:
+        config_file.write(seal_credentials(api_id, api_hash))
+    print("Packing this project's API id and hash into the program, sealed.")
     return True
 
 

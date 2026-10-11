@@ -1,9 +1,9 @@
 import os
 import wx
 from core import audio
-from core.settings import SETTING_VOICE_SPEED
+from core.settings import SETTING_VOICE_SPEED, SETTING_MIC_DEVICE, SETTING_MIC_LEVEL, SETTING_NOISE
 from core.constants import (
-    MSG_UPLOAD_PROGRESS_FORMAT_KEY, VOICE_SPEEDS, MSG_VOICE_SPEED_FORMAT_KEY,
+    MSG_UPLOAD_PROGRESS_FORMAT_KEY, VOICE_SPEEDS, MSG_VOICE_SPEED_FORMAT_KEY, MIC_LEVELS, NOISE_LEVELS,
     BTN_RECORD_KEY, BTN_STOP_AND_SEND_KEY, VOICE_NOTE_FILE, MIN_VOICE_SECONDS, MSG_RECORDING_KEY, MSG_RECORDING_CANCELLED_KEY,
     MSG_RECORDING_TOO_SHORT_KEY, MSG_SENDING_VOICE_KEY, MSG_VOICE_SENT_KEY, MSG_PLAYING_KEY,
     MSG_PLAYBACK_STOPPED_KEY, ERR_AUDIO_KEY, ERR_NO_AUDIO_SUPPORT_KEY, STATUS_READY_KEY
@@ -32,6 +32,10 @@ class VoiceMixin:
 
     def start_recording(self):
         self.stop_playback()
+        # As set now: a change in the settings applies from the next recording.
+        self.recorder.device = audio.find_input(self.settings.get(SETTING_MIC_DEVICE))
+        self.recorder.level = MIC_LEVELS[self.settings.get(SETTING_MIC_LEVEL)]
+        self.recorder.reduction_db = NOISE_LEVELS[self.settings.get(SETTING_NOISE)]
         try:
             self.recorder.start()
         except Exception:

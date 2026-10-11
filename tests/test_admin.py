@@ -10,7 +10,7 @@ from tests.harness import (
     NOW, FakeChooser, FakeTelegramClient, Record, WindowTestCase, make_channel, make_member, make_message, pump
 )
 from ui.chat_admin_dialog import ChatAdminDialog
-from ui.chat_info_dialog import ChatInfoDialog
+from ui.chat_control_dialog import ChatControlDialog
 
 MY_GROUP = make_channel(4, "MyGroup", group=True, creator=True)
 MY_CHANNEL = make_channel(5, "MyNews", creator=True)
@@ -166,7 +166,7 @@ class ChatSettingsTest(AdminTestCase):
 class MemberAdminTest(AdminTestCase):
     def setUp(self):
         super().setUp()
-        self.dialog = ChatInfoDialog(self.frame, self.i18n, self.manager, self.frame.all_dialogs[0])
+        self.dialog = ChatControlDialog(self.frame, self.i18n, self.manager, self.frame.all_dialogs[0])
         self.addCleanup(self.dialog.Destroy)
         self.dialog.PopupMenu = self.frame.PopupMenu
         self.assertTrue(pump(lambda: len(self.dialog.members) == len(MEMBERS)), "members did not load")

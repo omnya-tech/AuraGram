@@ -1,6 +1,10 @@
 import wx
 from ui.themes import apply_theme
-from core.constants import ICON_FILE, TEXT_DIRECTION_KEY, TEXT_DIRECTION_RTL, LARGE_TEXT_SCALE
+import os
+from core.constants import (
+    ICON_FILE, TEXT_DIRECTION_KEY, TEXT_DIRECTION_RTL, LARGE_TEXT_SCALE, FILE_KINDS, FILE_KIND_OTHER_FORMAT_KEY,
+    FILE_SIZE_UNITS, FILE_SIZE_FORMAT_KEY
+)
 
 def prepare_window(window, i18n):
     """Give a window the app's icon and the reading direction of the interface language.
@@ -13,6 +17,31 @@ def prepare_window(window, i18n):
     window.SetIcon(wx.Icon(ICON_FILE))
     # The colours go on once the constructor has made the controls there are to colour.
     wx.CallAfter(apply_theme, window)
+
+def file_kind(i18n, name):
+    """What a file is, going by its name: "PDF document", "compressed file"; empty if the name tells nothing."""
+    extension = os.path.splitext(name)[1].lower()
+    for kind_key, extensions in FILE_KINDS:
+        if extension in extensions:
+            return i18n.get_string(kind_key)
+    if not extension:
+        return ""
+    return i18n.get_string(FILE_KIND_OTHER_FORMAT_KEY).format(extension=extension[1:].upper())
+
+
+def file_size(i18n, size):
+    """A number of bytes as people say it: "2.3 megabytes"."""
+    number, unit = float(size), 0
+    while number >= 1024 and unit < len(FILE_SIZE_UNITS) - 1:
+        number, unit = number / 1024, unit + 1
+    shown = "%d" % number if unit == 0 or number >= 100 else ("%.1f" % number).rstrip("0").rstrip(".")
+    return i18n.get_string(FILE_SIZE_FORMAT_KEY).format(number=shown, unit=i18n.get_string(FILE_SIZE_UNITS[unit]))
+
+
+def duration_text(seconds):
+    """Seconds as minutes and seconds: 0:42, 3:05."""
+    return "%d:%02d" % divmod(int(round(seconds)), 60)
+
 
 def reading_font(large):
     """The font for text that is read at length: chat rows, messages, the message being written."""

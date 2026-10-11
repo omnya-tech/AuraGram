@@ -11,7 +11,7 @@ from core.constants import (
     MSG_LOAD_MORE_DIALOGS_KEY, MSG_FIND_PROMPT_KEY, MSG_NOT_FOUND_KEY, APP_TITLE_KEY,
     MSG_LOADING_KEY, STATUS_READY_KEY, SENDER_YOU_KEY, MUTE_DURATIONS,
     CONTEXT_MARK_UNREAD_KEY, CONTEXT_PIN_CHAT_KEY, CONTEXT_UNPIN_CHAT_KEY, CONTEXT_ARCHIVE_KEY,
-    CONTEXT_UNARCHIVE_KEY, CONTEXT_CLEAR_HISTORY_KEY, MSG_MARKED_UNREAD_KEY, MSG_CHAT_PINNED_KEY,
+    CONTEXT_UNARCHIVE_KEY, CONTEXT_CLEAR_HISTORY_KEY, CONTEXT_COPY_INVITE_KEY, MSG_MARKED_UNREAD_KEY, MSG_CHAT_PINNED_KEY,
     MSG_CHAT_UNPINNED_KEY, MSG_ARCHIVED_KEY, MSG_UNARCHIVED_KEY, MSG_CONFIRM_CLEAR_HISTORY_KEY,
     MSG_HISTORY_CLEARED_KEY, DIALOG_FORMAT_KEY, DIALOG_PINNED_KEY, DIALOG_MARKED_UNREAD_KEY,
     DIALOG_UNREAD_COUNT_FORMAT_KEY, PREVIEW_SENDER_FORMAT_KEY,
@@ -28,7 +28,7 @@ from core.constants import (
     MSG_FOLDER_NAME_PROMPT_KEY, MSG_FOLDER_RULES_PROMPT_KEY, FOLDER_RULE_KEY_PREFIX, FOLDER_EXCLUSIONS,
     MSG_FOLDER_CHATS_PROMPT_KEY, ERR_FOLDER_EMPTY_KEY, MSG_CONFIRM_DELETE_FOLDER_FORMAT_KEY,
     MSG_FOLDERS_SAVED_KEY, FIRST_FOLDER_ID, FOLDER_CATEGORIES, MSG_CONFIRM_MARK_ALL_READ_FORMAT_KEY,
-    MSG_ALL_READ_KEY, MSG_NOTHING_UNREAD_KEY
+    MSG_ALL_READ_KEY, MSG_NOTHING_UNREAD_KEY, MSG_INVITE_COPIED_KEY
 )
 
 class ChatListMixin:
@@ -603,6 +603,8 @@ class ChatListMixin:
         archive_key = CONTEXT_UNARCHIVE_KEY if dialog["archived"] else CONTEXT_ARCHIVE_KEY
         entries.append((archive_key, lambda event: self.set_chat_archived(dialog, not dialog["archived"])))
         entries.append((CONTEXT_INFO_KEY, lambda event: self.show_chat_info(dialog)))
+        if not self.is_private_chat(dialog):
+            entries.append((CONTEXT_COPY_INVITE_KEY, lambda event: self.copy_invite_link(dialog)))
         if not dialog["joined"]:
             entries.append((CONTEXT_JOIN_KEY, lambda event: self.join_dialog(dialog)))
         if self.is_person(dialog):
@@ -617,6 +619,18 @@ class ChatListMixin:
         leave_key = CONTEXT_DELETE_CHAT_KEY if is_private else CONTEXT_LEAVE_KEY
         entries.append((leave_key, lambda event: self.leave_chat(dialog, is_private)))
         self.show_context_menu(entries)
+
+    def copy_invite_link(self, dialog):
+        """Put the chat's public or main invite link on the clipboard, to paste or share anywhere."""
+        self.set_status(MSG_LOADING_KEY)
+        self.telegram_manager.load_invite_link(dialog["id"], self.on_ui_thread(self.on_invite_link))
+
+    def on_invite_link(self, link):
+        self.set_status(STATUS_READY_KEY)
+        if wx.TheClipboard.Open():
+            wx.TheClipboard.SetData(wx.TextDataObject(link))
+            wx.TheClipboard.Close()
+            self.announce(self.i18n.get_string(MSG_INVITE_COPIED_KEY))
 
     def is_private_chat(self, dialog):
         return dialog["category"] not in (CATEGORY_GROUPS, CATEGORY_BROADCASTS)
@@ -664,14 +678,16 @@ class ChatListMixin:
 
     def show_chat_info(self, dialog):
         with ChatInfoDialog(self, self.i18n, self.telegram_manager, dialog) as info_dialog:
-            result = info_dialog.ShowModal()
-            if info_dialog.deleted:
-                self.on_chat_left(None, dialog)
-            if result != wx.ID_OK:
-                return
-            new_title = info_dialog.saved_title
+            info_dialog.ShowModal()
+            deleted, new_title = info_dialog.deleted, info_dialog.saved_title
+        if deleted:
+            self.on_chat_left(None, dialog)
+            return
+        # Nothing to do unless management (opened from the info window) actually renamed the chat.
+        if not new_title:
+            return
         index = self.find_dialog_index(dialog["id"])
-        if new_title and index != wx.NOT_FOUND:
+        if index != wx.NOT_FOUND:
             dialog["title"] = new_title
             self.dialogs_list.SetString(index, self.format_dialog(dialog))
             if dialog["id"] == self.current_dialog_id:
