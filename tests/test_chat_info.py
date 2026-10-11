@@ -69,10 +69,12 @@ class OwnedGroupTest(ChatInfoTestCase):
         actions = self.dialog.member_actions
         self.assertEqual(actions(self.member("Me")), [])
         self.assertEqual(actions(self.member("Zed")),
-                         [c.MEMBER_ACTION_MUTE, c.MEMBER_ACTION_KICK, c.MEMBER_ACTION_BAN, c.MEMBER_ACTION_PROMOTE])
+                         [c.MEMBER_ACTION_MUTE, c.MEMBER_ACTION_RESTRICT, c.MEMBER_ACTION_DELETE_MESSAGES,
+                          c.MEMBER_ACTION_KICK, c.MEMBER_ACTION_BAN, c.MEMBER_ACTION_PROMOTE])
         self.assertEqual(actions(self.member("Quiet"))[0], c.MEMBER_ACTION_UNMUTE)
         self.assertEqual(actions(self.member("Mona")),
-                         [c.MEMBER_ACTION_KICK, c.MEMBER_ACTION_BAN, c.MEMBER_ACTION_PROMOTE, c.MEMBER_ACTION_DEMOTE])
+                         [c.MEMBER_ACTION_KICK, c.MEMBER_ACTION_BAN, c.MEMBER_ACTION_PROMOTE, c.MEMBER_ACTION_TITLE,
+                          c.MEMBER_ACTION_DEMOTE])
 
     def test_nothing_happens_without_confirmation(self):
         self.box_answer = wx.NO
@@ -99,15 +101,20 @@ class OwnedGroupTest(ChatInfoTestCase):
         offered = [name for name in c.ADMIN_RIGHTS if name not in c.CHANNEL_ONLY_RIGHTS]
         FakeChooser.selections = [offered.index("pin_messages")]
         self.dialog.manage_member(mona, c.MEMBER_ACTION_PROMOTE)
-        self.assertTrue(pump(lambda: self.calls("admin")))
+        self.assertTrue(pump(lambda: self.calls("EditAdminRequest")))
         self.assertEqual(len(FakeChooser.last_choices), len(offered))
-        self.assertEqual(self.calls("admin")[0], ("admin", 11, {name: name == "pin_messages" for name in c.ADMIN_RIGHTS}))
+        request = self.calls("EditAdminRequest")[0][1]
+        self.assertEqual(telegram_client.get_peer_id(request.user_id), 11)
+        self.assertEqual(
+            {name: bool(getattr(request.admin_rights, name)) for name in c.ADMIN_RIGHTS},
+            {name: name == "pin_messages" for name in c.ADMIN_RIGHTS}
+        )
 
     def test_promoting_with_no_rights_chosen_sends_nothing(self):
         FakeChooser.selections = []
         self.dialog.manage_member(self.member("Zed"), c.MEMBER_ACTION_PROMOTE)
         pump(timeout=0.2)
-        self.assertEqual(self.calls("admin"), [])
+        self.assertEqual(self.calls("EditAdminRequest"), [])
         self.assertEqual(self.boxes, [self.text(c.MSG_NO_RIGHTS_CHOSEN_KEY)])
 
     def test_banned_list_offers_only_unban(self):
@@ -205,7 +212,7 @@ class RestrictedGroupPermissionsTest(ChatInfoTestCase):
     """A group that already limits things this app does not show: saving must not undo them."""
 
     restricted = make_channel(4, "Strict", group=True, creator=True)
-    restricted.default_banned_rights = types.ChatBannedRights(until_date=None, send_stickers=True, embed_links=True)
+    restricted.default_banned_rights = types.ChatBannedRights(until_date=None, send_games=True, send_inline=True)
     chats = [(restricted, 0, False)]
 
     def test_hidden_restrictions_survive_a_save(self):
@@ -213,8 +220,8 @@ class RestrictedGroupPermissionsTest(ChatInfoTestCase):
         self.dialog.on_member_permissions(None)
         self.assertTrue(pump(lambda: self.calls("permissions")))
         permissions = self.calls("permissions")[0][2]
-        self.assertFalse(permissions["send_stickers"])
-        self.assertFalse(permissions["embed_link_previews"])
+        self.assertFalse(permissions["send_games"])
+        self.assertFalse(permissions["send_inline"])
         self.assertFalse(permissions["invite_users"])
         self.assertTrue(permissions["send_messages"])
 

@@ -4,7 +4,9 @@ import wx
 import wx.adv
 from core.constants import (
     BACKGROUND_WINDOW_TITLE, SHOW_HOTKEY_ID, ICON_FILE,
-    TRAY_OPEN_KEY, TRAY_EXIT_KEY, TRAY_TOOLTIP_KEY
+    TRAY_OPEN_KEY, TRAY_EXIT_KEY, TRAY_TOOLTIP_KEY, TRAY_STATUS_FORMAT_KEY,
+    CONNECTION_CONNECTING, CONNECTION_STATE_KEYS, CONNECTION_OFFLINE,
+    MSG_CONNECTION_LOST_KEY, MSG_CONNECTION_BACK_KEY
 )
 
 WM_HOTKEY = 0x0312
@@ -46,17 +48,39 @@ def ask_running_copy_to_quit(wait_seconds):
     return False
 
 
+def connection_news_key(previous, state):
+    """The text worth saying aloud for a change of connection state, or None.
+
+    Being online is the normal case and says nothing by itself: the news is
+    the line going down, and its coming back after that.
+    """
+    if state == CONNECTION_OFFLINE:
+        return MSG_CONNECTION_LOST_KEY
+    return MSG_CONNECTION_BACK_KEY if previous == CONNECTION_OFFLINE else None
+
+
 class TrayIcon(wx.adv.TaskBarIcon):
     def __init__(self, i18n, on_show, on_quit):
         super().__init__()
         self.i18n = i18n
         self.on_show = on_show
         self.on_quit = on_quit
-        self.SetIcon(wx.Icon(ICON_FILE), i18n.get_string(TRAY_TOOLTIP_KEY))
+        self.icon = wx.Icon(ICON_FILE)
+        self.set_connection_state(CONNECTION_CONNECTING)
         self.Bind(wx.adv.EVT_TASKBAR_LEFT_UP, lambda event: self.on_show())
+
+    def set_connection_state(self, state):
+        """Say on the icon whether Telegram is reachable: its tooltip is what a screen reader reads."""
+        self.status_text = self.i18n.get_string(TRAY_STATUS_FORMAT_KEY).format(
+            app=self.i18n.get_string(TRAY_TOOLTIP_KEY), status=self.i18n.get_string(CONNECTION_STATE_KEYS[state])
+        )
+        self.SetIcon(self.icon, self.status_text)
 
     def CreatePopupMenu(self):
         menu = wx.Menu()
+        # Not a command, only the state, for whoever opens the menu without hearing the tooltip.
+        menu.Append(wx.ID_ANY, self.status_text).Enable(False)
+        menu.AppendSeparator()
         open_item = menu.Append(wx.ID_ANY, self.i18n.get_string(TRAY_OPEN_KEY))
         exit_item = menu.Append(wx.ID_ANY, self.i18n.get_string(TRAY_EXIT_KEY))
         menu.Bind(wx.EVT_MENU, lambda event: self.on_show(), open_item)

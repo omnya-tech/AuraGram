@@ -1,19 +1,45 @@
+import os
+import shutil
+import tempfile
 import wx
+from core import audio, sounds
 from core.settings import (
     SETTING_THEME, SETTING_LARGE_TEXT, SETTING_KEEP_IN_BACKGROUND, SETTING_SENT_SOUND, SETTING_PLAY_SOUND, SETTING_ANNOUNCE_MESSAGES,
-    SETTING_OPEN_ON_SELECT, SETTING_MARK_READ_ON_OPEN
+    SETTING_MARK_READ_ON_OPEN, SETTING_START_SOUND, SETTING_ANNOUNCE_INTERRUPT,
+    SETTING_BRAILLE_MESSAGES, SETTING_SPEAK_FEEDBACK, SETTING_ANNOUNCE_CONNECTION, SETTING_SIMPLE_TAB,
+    SETTING_SHOW_PREVIEW, SETTING_ANNOUNCE_WHEN, SETTING_ANNOUNCE_WHAT, SETTING_ANNOUNCE_TYPING,
+    SETTING_VOICE_SPEED, CHOICES
 )
 from ui.layout import prepare_window
 from core.constants import (
-    THEMES, SETTINGS_THEME_LABEL_KEY, SETTINGS_LARGE_TEXT_KEY, SETTINGS_KEEP_IN_BACKGROUND_KEY, SETTINGS_SENT_SOUND_KEY, SETTINGS_TITLE_KEY, SETTINGS_TAB_APP_KEY, SETTINGS_TAB_ACCOUNT_KEY,
+    SOUNDS_DIR, SETTINGS_THEME_LABEL_KEY, SETTINGS_LARGE_TEXT_KEY, SETTINGS_KEEP_IN_BACKGROUND_KEY, SETTINGS_SENT_SOUND_KEY, SETTINGS_TITLE_KEY, SETTINGS_TAB_APP_KEY, SETTINGS_TAB_ACCOUNT_KEY,
     SETTINGS_APP_NOTE_KEY, SETTINGS_ACCOUNT_NOTE_KEY, SETTINGS_PLAY_SOUND_KEY,
-    SETTINGS_ANNOUNCE_KEY, SETTINGS_OPEN_ON_SELECT_KEY, SETTINGS_MARK_READ_KEY,
+    SETTINGS_ANNOUNCE_KEY, SETTINGS_MARK_READ_KEY,
     PROFILE_FIRST_NAME_KEY, PROFILE_LAST_NAME_KEY, PROFILE_ABOUT_KEY,
     MSG_LOADING_KEY, ERR_PROFILE_LOAD_KEY, APP_TITLE_KEY, DATE_TIME_FORMAT,
     PRIVACY_LEVELS, PRIVACY_CUSTOM_KEY, PRIVACY_LABEL_KEY_PREFIX, SETTINGS_TAB_PRIVACY_KEY,
     SETTINGS_TAB_SESSIONS_KEY, SETTINGS_PRIVACY_NOTE_KEY, SESSIONS_LABEL_KEY, SESSION_FORMAT_KEY,
     SESSION_CURRENT_FORMAT_KEY, BTN_END_SESSION_KEY, MSG_CONFIRM_END_SESSION_KEY,
-    MSG_SESSION_ENDED_KEY, MSG_CANNOT_END_CURRENT_KEY
+    MSG_SESSION_ENDED_KEY, MSG_CANNOT_END_CURRENT_KEY,
+    SOUND_NAMES, SOUND_FILE_PATTERNS, WAV_FILE_PATTERN, SETTINGS_TAB_SOUNDS_KEY, SOUNDS_NOTE_KEY,
+    SOUNDS_WAV_NOTE_KEY, SOUNDS_LABEL_KEY, SOUND_LABEL_KEY_PREFIX, SOUND_ROW_FORMAT_KEY,
+    SOUND_SOURCE_DEFAULT_KEY, SOUND_SOURCE_CUSTOM_KEY, BTN_CHOOSE_SOUND_KEY, BTN_TEST_SOUND_KEY,
+    BTN_DEFAULT_SOUND_KEY, MSG_CHOOSE_SOUND_FILE_KEY, SOUND_FILES_KEY, MSG_SOUND_CHOSEN_FORMAT_KEY,
+    MSG_SOUND_DEFAULT_KEY, ERR_SOUND_FILE_KEY, SETTINGS_START_SOUND_KEY, SETTINGS_TAB_ACCESSIBILITY_KEY,
+    ACCESS_GROUP_READER_KEY, ACCESS_GROUP_KEYBOARD_KEY, ACCESS_GROUP_VISION_KEY,
+    SETTINGS_ANNOUNCE_WHEN_LABEL_KEY, SETTINGS_ANNOUNCE_WHAT_LABEL_KEY, SETTINGS_ANNOUNCE_INTERRUPT_KEY,
+    SETTINGS_BRAILLE_KEY, SETTINGS_SPEAK_FEEDBACK_KEY, SETTINGS_ANNOUNCE_CONNECTION_KEY,
+    SETTINGS_SIMPLE_TAB_KEY, SETTINGS_SHOW_PREVIEW_KEY, SETTINGS_ANNOUNCE_TYPING_KEY,
+    PROFILE_USERNAME_KEY, BTN_SET_PHOTO_KEY, BTN_DELETE_PHOTO_KEY, MSG_CHOOSE_PHOTO_KEY, PHOTO_FILES_KEY,
+    PHOTO_FILE_PATTERNS, MSG_PHOTO_SET_KEY, MSG_PHOTO_DELETED_KEY, MSG_NO_PHOTO_KEY, MSG_CONFIRM_DELETE_PHOTO_KEY,
+    BTN_TWO_STEP_KEY, MSG_TWO_STEP_OFF_KEY, MSG_TWO_STEP_ON_KEY, TWO_STEP_CHANGE_KEY, TWO_STEP_DISABLE_KEY,
+    MSG_TWO_STEP_CURRENT_KEY, MSG_TWO_STEP_NEW_KEY, MSG_TWO_STEP_REPEAT_KEY, MSG_TWO_STEP_HINT_KEY,
+    ERR_TWO_STEP_MISMATCH_KEY, MSG_CONFIRM_TWO_STEP_DISABLE_KEY, MSG_TWO_STEP_SAVED_KEY,
+    MSG_TWO_STEP_DISABLED_KEY, NOTIFY_SCOPES, NOTIFY_LABEL_KEY_PREFIX, NOTIFY_GROUP_KEY,
+    MSG_TWO_STEP_EMAIL_KEY, MSG_TWO_STEP_EMAIL_CODE_KEY, BTN_CHANGE_PHONE_KEY, MSG_NEW_PHONE_PROMPT_KEY,
+    MSG_NEW_PHONE_CODE_KEY, MSG_PHONE_CHANGED_KEY, BTN_DELETE_ACCOUNT_KEY, MSG_CONFIRM_DELETE_ACCOUNT_KEY,
+    MSG_DELETE_ACCOUNT_WORD_KEY, DELETE_ACCOUNT_WORD_KEY, MSG_DELETE_ACCOUNT_CANCELLED_KEY,
+    MSG_ACCOUNT_DELETED_KEY, SETTINGS_VOICE_SPEED_LABEL_KEY
 )
 from core.speech import speak
 
@@ -22,17 +48,30 @@ PRIVACY_NAMES = ("last_seen", "phone", "photo", "invites", "calls", "forwards")
 
 APP_OPTIONS = (
     (SETTING_KEEP_IN_BACKGROUND, SETTINGS_KEEP_IN_BACKGROUND_KEY),
+    (SETTING_MARK_READ_ON_OPEN, SETTINGS_MARK_READ_KEY),
+)
+# What the screen reader is told, beyond what it reads by itself as the user moves around.
+READER_OPTIONS = (
+    (SETTING_ANNOUNCE_INTERRUPT, SETTINGS_ANNOUNCE_INTERRUPT_KEY),
+    (SETTING_BRAILLE_MESSAGES, SETTINGS_BRAILLE_KEY),
+    (SETTING_ANNOUNCE_TYPING, SETTINGS_ANNOUNCE_TYPING_KEY),
+    (SETTING_SPEAK_FEEDBACK, SETTINGS_SPEAK_FEEDBACK_KEY),
+    (SETTING_ANNOUNCE_CONNECTION, SETTINGS_ANNOUNCE_CONNECTION_KEY),
+)
+VISION_OPTIONS = (
     (SETTING_LARGE_TEXT, SETTINGS_LARGE_TEXT_KEY),
+    (SETTING_SHOW_PREVIEW, SETTINGS_SHOW_PREVIEW_KEY),
+)
+SOUND_OPTIONS = (
     (SETTING_PLAY_SOUND, SETTINGS_PLAY_SOUND_KEY),
     (SETTING_SENT_SOUND, SETTINGS_SENT_SOUND_KEY),
-    (SETTING_ANNOUNCE_MESSAGES, SETTINGS_ANNOUNCE_KEY),
-    (SETTING_OPEN_ON_SELECT, SETTINGS_OPEN_ON_SELECT_KEY),
-    (SETTING_MARK_READ_ON_OPEN, SETTINGS_MARK_READ_KEY),
+    (SETTING_START_SOUND, SETTINGS_START_SOUND_KEY),
 )
 PROFILE_FIELDS = (
     ("first_name", PROFILE_FIRST_NAME_KEY),
     ("last_name", PROFILE_LAST_NAME_KEY),
     ("about", PROFILE_ABOUT_KEY),
+    ("username", PROFILE_USERNAME_KEY),
 )
 
 class SettingsDialog(wx.Dialog):
@@ -40,20 +79,30 @@ class SettingsDialog(wx.Dialog):
     account settings change the Telegram account everywhere."""
 
     def __init__(self, parent, i18n, settings, telegram_manager):
-        super().__init__(parent, title=i18n.get_string(SETTINGS_TITLE_KEY), size=(560, 560))
+        super().__init__(parent, title=i18n.get_string(SETTINGS_TITLE_KEY), size=(600, 710))
         prepare_window(self, i18n)
         self.i18n = i18n
         self.settings = settings
         self.telegram_manager = telegram_manager
         self.profile = None
         self.privacy = None
+        self.notify_settings = None
+        self.notify_boxes = {}
+        # Set once the account is gone: whoever opened the dialog has to close the app.
+        self.account_deleted = False
         self.sessions = []
         self.checkboxes = {}
+        self.choices = {}
         self.profile_inputs = {}
         self.privacy_choices = {}
+        # Tones changed in this dialog, not yet saved: the converted file to use, or None for the bundled tone.
+        self.sound_changes = {}
+        self.sound_drafts_dir = None
 
         notebook = wx.Notebook(self)
         notebook.AddPage(self.create_app_page(notebook), i18n.get_string(SETTINGS_TAB_APP_KEY))
+        notebook.AddPage(self.create_accessibility_page(notebook), i18n.get_string(SETTINGS_TAB_ACCESSIBILITY_KEY))
+        notebook.AddPage(self.create_sounds_page(notebook), i18n.get_string(SETTINGS_TAB_SOUNDS_KEY))
         notebook.AddPage(self.create_account_page(notebook), i18n.get_string(SETTINGS_TAB_ACCOUNT_KEY))
         notebook.AddPage(self.create_privacy_page(notebook), i18n.get_string(SETTINGS_TAB_PRIVACY_KEY))
         notebook.AddPage(self.create_sessions_page(notebook), i18n.get_string(SETTINGS_TAB_SESSIONS_KEY))
@@ -70,23 +119,148 @@ class SettingsDialog(wx.Dialog):
         telegram_manager.load_privacy(
             lambda privacy, error_key: wx.CallAfter(self.on_privacy_loaded, privacy, error_key)
         )
+        telegram_manager.load_notify(
+            lambda enabled, error_key: wx.CallAfter(self.on_notify_loaded, enabled, error_key)
+        )
         self.load_sessions()
 
     def create_app_page(self, notebook):
         page = wx.Panel(notebook)
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(wx.StaticText(page, label=self.i18n.get_string(SETTINGS_APP_NOTE_KEY)), flag=wx.ALL, border=10)
-        for setting, label_key in APP_OPTIONS:
-            checkbox = wx.CheckBox(page, label=self.i18n.get_string(label_key))
+        self.add_checkboxes(page, sizer, APP_OPTIONS)
+        page.SetSizer(sizer)
+        return page
+
+    def add_checkboxes(self, parent, sizer, options):
+        for setting, label_key in options:
+            checkbox = wx.CheckBox(parent, label=self.i18n.get_string(label_key))
             checkbox.SetValue(self.settings.get(setting))
             sizer.Add(checkbox, flag=wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
             self.checkboxes[setting] = checkbox
-        sizer.Add(wx.StaticText(page, label=self.i18n.get_string(SETTINGS_THEME_LABEL_KEY)), flag=wx.LEFT|wx.RIGHT, border=10)
-        self.theme_choice = wx.Choice(page, choices=[self.i18n.get_string(theme) for theme in THEMES])
-        self.theme_choice.SetSelection(THEMES.index(self.settings.get(SETTING_THEME)))
-        sizer.Add(self.theme_choice, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
+
+    def add_choice(self, parent, sizer, label_key, setting):
+        """A labelled drop-down for one of the CHOICES settings."""
+        options = CHOICES[setting][0]
+        sizer.Add(wx.StaticText(parent, label=self.i18n.get_string(label_key)), flag=wx.LEFT|wx.RIGHT, border=10)
+        choice = wx.Choice(parent, choices=[self.i18n.get_string(option) for option in options])
+        choice.SetSelection(options.index(self.settings.get(setting)))
+        sizer.Add(choice, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
+        self.choices[setting] = choice
+        return choice
+
+    def add_group(self, page, sizer, label_key):
+        """A titled box: a screen reader names it when focus enters one of its controls."""
+        group = wx.StaticBoxSizer(wx.VERTICAL, page, self.i18n.get_string(label_key))
+        sizer.Add(group, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
+        group.AddSpacer(5)
+        return group.GetStaticBox(), group
+
+    def create_accessibility_page(self, notebook):
+        page = wx.Panel(notebook)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(wx.StaticText(page, label=self.i18n.get_string(SETTINGS_APP_NOTE_KEY)), flag=wx.ALL, border=10)
+
+        box, group = self.add_group(page, sizer, ACCESS_GROUP_READER_KEY)
+        self.add_checkboxes(box, group, ((SETTING_ANNOUNCE_MESSAGES, SETTINGS_ANNOUNCE_KEY),))
+        self.add_choice(box, group, SETTINGS_ANNOUNCE_WHEN_LABEL_KEY, SETTING_ANNOUNCE_WHEN)
+        self.add_choice(box, group, SETTINGS_ANNOUNCE_WHAT_LABEL_KEY, SETTING_ANNOUNCE_WHAT)
+        self.add_checkboxes(box, group, READER_OPTIONS)
+
+        box, group = self.add_group(page, sizer, ACCESS_GROUP_KEYBOARD_KEY)
+        self.add_checkboxes(box, group, ((SETTING_SIMPLE_TAB, SETTINGS_SIMPLE_TAB_KEY),))
+
+        box, group = self.add_group(page, sizer, ACCESS_GROUP_VISION_KEY)
+        self.add_checkboxes(box, group, VISION_OPTIONS)
+        self.theme_choice = self.add_choice(box, group, SETTINGS_THEME_LABEL_KEY, SETTING_THEME)
         page.SetSizer(sizer)
         return page
+
+    def create_sounds_page(self, notebook):
+        page = wx.Panel(notebook)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        note = wx.StaticText(page, label=self.i18n.get_string(SOUNDS_NOTE_KEY if audio.AVAILABLE else SOUNDS_WAV_NOTE_KEY))
+        note.Wrap(460)
+        self.add_checkboxes(page, sizer, SOUND_OPTIONS)
+        self.add_choice(page, sizer, SETTINGS_VOICE_SPEED_LABEL_KEY, SETTING_VOICE_SPEED)
+        sizer.Add(note, flag=wx.ALL, border=10)
+        sizer.Add(wx.StaticText(page, label=self.i18n.get_string(SOUNDS_LABEL_KEY)), flag=wx.LEFT|wx.RIGHT, border=10)
+        self.sounds_list = wx.ListBox(page, style=wx.LB_SINGLE)
+        sizer.Add(self.sounds_list, proportion=1, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
+        for label_key, handler in (
+            (BTN_CHOOSE_SOUND_KEY, self.on_choose_sound),
+            (BTN_TEST_SOUND_KEY, self.on_test_sound),
+            (BTN_DEFAULT_SOUND_KEY, self.on_default_sound),
+        ):
+            button = wx.Button(page, label=self.i18n.get_string(label_key))
+            button.Bind(wx.EVT_BUTTON, handler)
+            sizer.Add(button, flag=wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
+        page.SetSizer(sizer)
+        self.show_sounds(0)
+        return page
+
+    def show_sounds(self, selection):
+        rows = []
+        for name in SOUND_NAMES:
+            is_custom = self.sound_changes[name] is not None if name in self.sound_changes else sounds.has_custom(name)
+            rows.append(self.i18n.get_string(SOUND_ROW_FORMAT_KEY).format(
+                sound=self.i18n.get_string(SOUND_LABEL_KEY_PREFIX + name),
+                source=self.i18n.get_string(SOUND_SOURCE_CUSTOM_KEY if is_custom else SOUND_SOURCE_DEFAULT_KEY)
+            ))
+        self.sounds_list.Set(rows)
+        self.sounds_list.SetSelection(selection)
+
+    def selected_sound(self):
+        return SOUND_NAMES[max(self.sounds_list.GetSelection(), 0)]
+
+    def on_choose_sound(self, event):
+        patterns = SOUND_FILE_PATTERNS if audio.AVAILABLE else WAV_FILE_PATTERN
+        with wx.FileDialog(
+            self, self.i18n.get_string(MSG_CHOOSE_SOUND_FILE_KEY),
+            wildcard="%s (%s)|%s" % (self.i18n.get_string(SOUND_FILES_KEY), patterns, patterns),
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST
+        ) as file_dialog:
+            if file_dialog.ShowModal() != wx.ID_OK:
+                return
+            path = file_dialog.GetPath()
+        self.use_sound_file(self.selected_sound(), path)
+
+    def use_sound_file(self, name, path):
+        """Take the user's file for a tone; it replaces the old one only when the settings are saved."""
+        if self.sound_drafts_dir is None:
+            self.sound_drafts_dir = tempfile.mkdtemp()
+        draft = os.path.join(self.sound_drafts_dir, name + ".wav")
+        if not sounds.convert(path, draft):
+            wx.MessageBox(
+                self.i18n.get_string(ERR_SOUND_FILE_KEY), self.i18n.get_string(APP_TITLE_KEY),
+                wx.OK | wx.ICON_ERROR, self
+            )
+            return
+        self.sound_changes[name] = draft
+        self.show_sounds(SOUND_NAMES.index(name))
+        speak(self.i18n.get_string(MSG_SOUND_CHOSEN_FORMAT_KEY).format(file=os.path.basename(path)))
+        sounds.play_file(draft)
+
+    def on_test_sound(self, event):
+        name = self.selected_sound()
+        if self.sound_changes.get(name) is not None:
+            sounds.play_file(self.sound_changes[name])
+        elif name in self.sound_changes:
+            # Going back to the bundled tone, though the user's file is still in place until saving.
+            sounds.play_file(os.path.join(SOUNDS_DIR, name + ".wav"))
+        else:
+            sounds.play(name)
+
+    def on_default_sound(self, event):
+        name = self.selected_sound()
+        self.sound_changes[name] = None
+        self.show_sounds(SOUND_NAMES.index(name))
+        speak(self.i18n.get_string(MSG_SOUND_DEFAULT_KEY))
+
+    def Destroy(self):
+        if self.sound_drafts_dir is not None:
+            shutil.rmtree(self.sound_drafts_dir, ignore_errors=True)
+        return super().Destroy()
 
     def create_account_page(self, notebook):
         page = wx.Panel(notebook)
@@ -100,8 +274,204 @@ class SettingsDialog(wx.Dialog):
             text_input.Disable()
             sizer.Add(text_input, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
             self.profile_inputs[field] = text_input
+        # These act at once, each after its own question: they are not part of what OK saves.
+        buttons = wx.BoxSizer(wx.HORIZONTAL)
+        for label_key, handler in (
+            (BTN_SET_PHOTO_KEY, self.on_set_photo),
+            (BTN_DELETE_PHOTO_KEY, self.on_delete_photo),
+            (BTN_TWO_STEP_KEY, self.on_two_step),
+        ):
+            button = wx.Button(page, label=self.i18n.get_string(label_key))
+            button.Bind(wx.EVT_BUTTON, handler)
+            buttons.Add(button, flag=wx.RIGHT, border=10)
+        sizer.Add(buttons, flag=wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
+        buttons = wx.BoxSizer(wx.HORIZONTAL)
+        for label_key, handler in (
+            (BTN_CHANGE_PHONE_KEY, self.on_change_phone),
+            (BTN_DELETE_ACCOUNT_KEY, self.on_delete_account),
+        ):
+            button = wx.Button(page, label=self.i18n.get_string(label_key))
+            button.Bind(wx.EVT_BUTTON, handler)
+            buttons.Add(button, flag=wx.RIGHT, border=10)
+        sizer.Add(buttons, flag=wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
+        box, group = self.add_group(page, sizer, NOTIFY_GROUP_KEY)
+        for kind in NOTIFY_SCOPES:
+            checkbox = wx.CheckBox(box, label=self.i18n.get_string(NOTIFY_LABEL_KEY_PREFIX + kind))
+            # Unknown until Telegram answers.
+            checkbox.Disable()
+            group.Add(checkbox, flag=wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
+            self.notify_boxes[kind] = checkbox
         page.SetSizer(sizer)
         return page
+
+    def on_notify_loaded(self, enabled, error_key):
+        if not self or error_key:
+            return
+        self.notify_settings = enabled
+        for kind, checkbox in self.notify_boxes.items():
+            checkbox.SetValue(enabled[kind])
+            checkbox.Enable()
+
+    def changed_notify(self):
+        """Only the notification defaults the user actually changed, as {kind: enabled}."""
+        if self.notify_settings is None:
+            return {}
+        return {
+            kind: checkbox.GetValue() for kind, checkbox in self.notify_boxes.items()
+            if checkbox.GetValue() != self.notify_settings[kind]
+        }
+
+    def on_account_result(self, handler):
+        """Wrap a handler for an answer from Telegram: errors are shown here, the rest goes to the handler."""
+        def deliver(result, error_key):
+            wx.CallAfter(self.handle_account_result, handler, result, error_key)
+        return deliver
+
+    def handle_account_result(self, handler, result, error_key):
+        if not self:
+            return
+        if error_key:
+            self.show_message(self.i18n.get_string(error_key), wx.ICON_ERROR)
+        else:
+            handler(result)
+
+    def show_message(self, text, icon=wx.ICON_INFORMATION):
+        return wx.MessageBox(text, self.i18n.get_string(APP_TITLE_KEY), wx.OK | icon, self)
+
+    def confirm(self, key):
+        answer = wx.MessageBox(
+            self.i18n.get_string(key), self.i18n.get_string(APP_TITLE_KEY),
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION, self
+        )
+        return answer == wx.YES
+
+    def on_set_photo(self, event):
+        with wx.FileDialog(
+            self, self.i18n.get_string(MSG_CHOOSE_PHOTO_KEY),
+            wildcard="%s (%s)|%s" % (self.i18n.get_string(PHOTO_FILES_KEY), PHOTO_FILE_PATTERNS, PHOTO_FILE_PATTERNS),
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST
+        ) as file_dialog:
+            if file_dialog.ShowModal() != wx.ID_OK:
+                return
+            path = file_dialog.GetPath()
+        self.set_photo(path)
+
+    def set_photo(self, path):
+        self.telegram_manager.set_profile_photo(
+            path, self.on_account_result(lambda result: speak(self.i18n.get_string(MSG_PHOTO_SET_KEY)))
+        )
+
+    def on_delete_photo(self, event):
+        if self.confirm(MSG_CONFIRM_DELETE_PHOTO_KEY):
+            self.telegram_manager.delete_profile_photo(self.on_account_result(
+                lambda deleted: speak(self.i18n.get_string(MSG_PHOTO_DELETED_KEY if deleted else MSG_NO_PHOTO_KEY))
+            ))
+
+    def on_two_step(self, event):
+        self.telegram_manager.load_two_step_state(self.on_account_result(self.ask_two_step))
+
+    def ask_password(self, prompt_key):
+        """A password typed unseen; None if the user backs out or leaves it empty."""
+        with wx.PasswordEntryDialog(
+            self, self.i18n.get_string(prompt_key), self.i18n.get_string(APP_TITLE_KEY)
+        ) as password_dialog:
+            if password_dialog.ShowModal() != wx.ID_OK:
+                return None
+            return password_dialog.GetValue() or None
+
+    def ask_two_step(self, is_on):
+        current = None
+        if is_on:
+            with wx.SingleChoiceDialog(
+                self, self.i18n.get_string(MSG_TWO_STEP_ON_KEY), self.i18n.get_string(APP_TITLE_KEY),
+                [self.i18n.get_string(TWO_STEP_CHANGE_KEY), self.i18n.get_string(TWO_STEP_DISABLE_KEY)]
+            ) as action_dialog:
+                if action_dialog.ShowModal() != wx.ID_OK:
+                    return
+                disabling = action_dialog.GetSelection() == 1
+            current = self.ask_password(MSG_TWO_STEP_CURRENT_KEY)
+            if current is None:
+                return
+            if disabling:
+                if self.confirm(MSG_CONFIRM_TWO_STEP_DISABLE_KEY):
+                    self.telegram_manager.change_two_step(current, None, "", self.on_account_result(
+                        lambda result: self.show_message(self.i18n.get_string(MSG_TWO_STEP_DISABLED_KEY))
+                    ))
+                return
+        elif not self.confirm(MSG_TWO_STEP_OFF_KEY):
+            return
+        new = self.ask_password(MSG_TWO_STEP_NEW_KEY)
+        if new is None:
+            return
+        # Typed blind, so typed twice: a slip here would lock the user out of their own account.
+        if self.ask_password(MSG_TWO_STEP_REPEAT_KEY) != new:
+            self.show_message(self.i18n.get_string(ERR_TWO_STEP_MISMATCH_KEY), wx.ICON_ERROR)
+            return
+        with wx.TextEntryDialog(
+            self, self.i18n.get_string(MSG_TWO_STEP_HINT_KEY), self.i18n.get_string(APP_TITLE_KEY)
+        ) as hint_dialog:
+            if hint_dialog.ShowModal() != wx.ID_OK:
+                return
+            hint = hint_dialog.GetValue().strip()
+        email = self.ask_line(MSG_TWO_STEP_EMAIL_KEY)
+        if email is None:
+            return
+        self.telegram_manager.change_two_step(
+            current, new, hint,
+            self.on_account_result(lambda result: self.show_message(self.i18n.get_string(MSG_TWO_STEP_SAVED_KEY))),
+            email=email, ask_code=lambda reply: wx.CallAfter(self.ask_email_code, reply)
+        )
+
+    def ask_line(self, prompt_key):
+        """One line of text; None if the user backs out, "" if they leave it empty."""
+        with wx.TextEntryDialog(
+            self, self.i18n.get_string(prompt_key), self.i18n.get_string(APP_TITLE_KEY)
+        ) as line_dialog:
+            if line_dialog.ShowModal() != wx.ID_OK:
+                return None
+            return line_dialog.GetValue().strip()
+
+    def ask_email_code(self, reply):
+        # Answered either way: Telegram's side of this is waiting on it.
+        reply(self.ask_line(MSG_TWO_STEP_EMAIL_CODE_KEY) if self else None)
+
+    def on_change_phone(self, event):
+        phone = self.ask_line(MSG_NEW_PHONE_PROMPT_KEY)
+        if phone:
+            self.telegram_manager.request_phone_change(phone, self.on_account_result(self.ask_phone_code))
+
+    def ask_phone_code(self, result):
+        code = self.ask_line(MSG_NEW_PHONE_CODE_KEY)
+        if code:
+            self.telegram_manager.confirm_phone_change(code, self.on_account_result(
+                lambda result: self.show_message(self.i18n.get_string(MSG_PHONE_CHANGED_KEY))
+            ))
+
+    def on_delete_account(self, event):
+        # Three steps on purpose: a question, a word to type, and the password where there is one.
+        answer = wx.MessageBox(
+            self.i18n.get_string(MSG_CONFIRM_DELETE_ACCOUNT_KEY), self.i18n.get_string(APP_TITLE_KEY),
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING, self
+        )
+        if answer != wx.YES or self.ask_line(MSG_DELETE_ACCOUNT_WORD_KEY) != self.i18n.get_string(DELETE_ACCOUNT_WORD_KEY):
+            speak(self.i18n.get_string(MSG_DELETE_ACCOUNT_CANCELLED_KEY))
+            return
+        self.telegram_manager.load_two_step_state(self.on_account_result(self.delete_account))
+
+    def delete_account(self, has_password):
+        password = None
+        if has_password:
+            password = self.ask_password(MSG_TWO_STEP_CURRENT_KEY)
+            if password is None:
+                speak(self.i18n.get_string(MSG_DELETE_ACCOUNT_CANCELLED_KEY))
+                return
+        self.telegram_manager.delete_account(password, self.on_account_result(self.on_account_deleted))
+
+    def on_account_deleted(self, result):
+        self.account_deleted = True
+        self.show_message(self.i18n.get_string(MSG_ACCOUNT_DELETED_KEY))
+        if self.IsModal():
+            self.EndModal(wx.ID_CANCEL)
 
     def on_profile_loaded(self, profile, error_key):
         # The dialog may have been closed before Telegram answered.
@@ -236,8 +606,14 @@ class SettingsDialog(wx.Dialog):
     def apply_app_settings(self):
         for setting, checkbox in self.checkboxes.items():
             self.settings.set(setting, checkbox.GetValue())
-        self.settings.set(SETTING_THEME, THEMES[self.theme_choice.GetSelection()])
+        for setting, choice in self.choices.items():
+            self.settings.set(setting, CHOICES[setting][0][choice.GetSelection()])
         self.settings.save()
+        for name, draft in self.sound_changes.items():
+            if draft is None:
+                sounds.clear_custom(name)
+            else:
+                sounds.set_custom(name, draft)
 
     def changed_profile(self):
         """The edited profile, or None if it was not loaded or nothing was changed."""

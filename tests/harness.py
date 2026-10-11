@@ -95,6 +95,29 @@ class FakeTelegramClient:
     members = []      # users with a `participant` attribute, as get_participants returns them
     banned = []
     invites = []      # ChatInviteExported objects
+    public = {}       # username -> entity, for what can be found without being in the chat list
+    blocked_users = []
+    contacts = None   # users GetContactsRequest returns, where a test sets them
+    sticker_sets = []  # (title, [emoji, ...])
+    threads = {}      # (peer id, post or topic id) -> messages, oldest first
+    topics = []
+    muted_kinds = set()  # names of the InputNotify* kinds silenced by default on the account
+    drafts = {}       # peer id -> text left unsent from another device
+    progress_steps = (100, 101, 200)  # bytes done, out of 200, that a transfer reports on its way
+    transfer_gate = None  # an asyncio.Event a test sets to let a held upload finish
+    discussion_groups = []
+    common_chats = []  # chats GetCommonChatsRequest says are shared with a person
+    discussions = {}  # (channel peer id, post id) -> (discussion group, id of the post's twin there)
+    send_as = []      # who GetSendAsRequest says this account may write as
+    full_chat = {}    # extra attributes of what GetFullChannelRequest answers
+    stats = None      # what the statistics requests answer; None for a chat that has none
+    stories = None    # what GetAllStoriesRequest answers, where a test sets it
+    two_step_password = None  # the account's two-step verification password, if it has one
+    profile_photos = []
+    audience = None   # (reactions result, read participants), where a test sets it
+    recent_stickers = []
+    invitation = None  # (title, entity) behind any invitation link, where a test sets it
+    read_outbox = None  # id of the newest sent message the other side has read, where a test sets it
     calls = []
 
     @classmethod
@@ -106,6 +129,28 @@ class FakeTelegramClient:
         cls.members = []
         cls.banned = []
         cls.invites = []
+        cls.read_outbox = None
+        cls.public = {}
+        cls.blocked_users = []
+        cls.contacts = None
+        cls.sticker_sets = []
+        cls.threads = {}
+        cls.topics = []
+        cls.audience = None
+        cls.two_step_password = None
+        cls.stories = None
+        cls.full_chat = {}
+        cls.discussion_groups = []
+        cls.common_chats = []
+        cls.discussions = {}
+        cls.send_as = []
+        cls.stats = None
+        cls.transfer_gate = None
+        cls.muted_kinds = set()
+        cls.drafts = {}
+        cls.profile_photos = []
+        cls.recent_stickers = []
+        cls.invitation = None
         cls.calls = []
 
     def __init__(self, *args, **kwargs):
@@ -133,6 +178,7 @@ class FakeTelegramClient:
                 id=telegram_client.get_peer_id(entity), entity=entity, unread_count=unread,
                 pinned=False, archived=archived, input_entity=telegram_client.get_input_peer(entity),
                 dialog=Record(notify_settings=Record(mute_until=None), unread_mark=False),
+                draft=Record(text=self.drafts.get(telegram_client.get_peer_id(entity))),
                 # The chat list previews the newest message of each chat.
                 message=(self.history.get(telegram_client.get_peer_id(entity)) or [None])[-1]
             )
@@ -142,42 +188,101 @@ class FakeTelegramClient:
     async def edit_folder(self, entity, folder):
         self.calls.append(("folder", telegram_client.get_peer_id(entity), folder))
 
-    async def download_media(self, message, file):
-        self.calls.append(("download", message.id, file))
+    async def download_media(self, message, file, progress_callback=None):
+        self.calls.append(("download", getattr(message, "id", None), file))
+        for done in self.progress_steps if progress_callback else ():
+            progress_callback(done, 200)
         return file + "saved.bin"
 
-    async def get_messages(self, entity, limit=None, max_id=0, ids=None, search=None, filter=None, scheduled=False):
+    async def get_messages(self, entity, limit=None, max_id=0, ids=None, search=None, filter=None, scheduled=False,
+                           reply_to=None, offset_id=0, add_offset=0, offset_date=None, reverse=False):
+        if entity is None:
+            # A search through every chat: each hit says which chat it is from.
+            hits = []
+            for chat, _, _ in self.chats:
+                for message in self.history.get(telegram_client.get_peer_id(chat), []):
+                    if search in message.message:
+                        message.chat = chat
+                        hits.append(message)
+            return hits[:limit]
         peer_id = telegram_client.get_peer_id(entity)
         messages = (self.scheduled if scheduled else self.history).get(peer_id, [])
+        if reply_to is not None:
+            messages = self.threads.get((peer_id, reply_to), [])
         if ids is not None:
-            return next(message for message in messages if message.id == ids)
+            # A message may be known only as part of a topic or of a post's comments.
+            in_threads = [m for (peer, _), thread in self.threads.items() if peer == peer_id for m in thread]
+            return next(message for message in list(messages) + in_threads if message.id == ids)
         if search:
             messages = [message for message in messages if search in message.message]
         if filter is types.InputMessagesFilterPinned:
             messages = [message for message in messages if message.pinned]
         if max_id:
             messages = [message for message in messages if message.id < max_id]
+        if reverse:
+            # From a day onwards, oldest first.
+            return [message for message in messages if message.date >= offset_date][:limit]
+        if offset_id:
+            # A page with that message in the middle, as far as there are messages on both sides.
+            ids_in_order = [message.id for message in messages]
+            if offset_id not in ids_in_order:
+                return []
+            start = max(ids_in_order.index(offset_id) + add_offset + 1, 0)
+            return list(reversed(messages[start:start + limit]))
         newest_first = list(reversed(messages))
         return newest_first[:limit] if limit else newest_first
 
     async def send_read_acknowledge(self, entity):
         self.calls.append(("read", telegram_client.get_peer_id(entity)))
 
-    async def send_message(self, entity, text=None, reply_to=None, schedule=None, file=None):
+    async def send_message(self, entity, text=None, reply_to=None, schedule=None, file=None, silent=None):
         peer_id = telegram_client.get_peer_id(entity)
+        if silent:
+            self.calls.append(("silent", peer_id, text))
+        thread = self.threads.get((peer_id, reply_to))
+        if thread is not None and schedule is None:
+            thread.append(make_message(1000 + len(thread), text, outgoing=True, reply_to_msg_id=reply_to))
         self.calls.append(("send", peer_id, text, reply_to, schedule))
         if schedule is None and text is not None:
             messages = self.history.setdefault(peer_id, [])
             next_id = max((message.id for message in messages), default=0) + 1
             messages.append(make_message(next_id, text, outgoing=True, reply_to_msg_id=reply_to))
 
+    async def send_file(self, entity, file, caption=None, force_document=False, voice_note=False, reply_to=None,
+                        progress_callback=None):
+        for done in self.progress_steps if progress_callback else ():
+            progress_callback(done, 200)
+            if self.transfer_gate is not None:
+                # Held here so a test can look at the window in the middle of the transfer.
+                await self.transfer_gate.wait()
+        self.calls.append(("send_file", telegram_client.get_peer_id(entity), file, caption, force_document, reply_to))
+
+    async def upload_file(self, path, progress_callback=None):
+        return "uploaded:" + path
+
+    async def get_profile_photos(self, entity, limit=None):
+        return list(self.profile_photos)
+
+    async def edit_2fa(self, current_password=None, new_password=None, hint="", email=None, email_code_callback=None):
+        if current_password != self.two_step_password:
+            raise telegram_client.PasswordHashInvalidError(None)
+        self.calls.append(("2fa", bool(new_password), hint))
+        type(self).two_step_password = new_password
+        if email:
+            # As Telegram does: the password is in place before the email is confirmed.
+            if await email_code_callback(6) != "123456":
+                raise telegram_client.CodeInvalidError(None)
+            self.calls.append(("2fa_email", email))
+
     async def edit_message(self, entity, message_id, text):
         self.calls.append(("edit", message_id, text))
         self._find(entity, message_id).message = text
 
-    async def delete_messages(self, entity, message_ids):
+    async def delete_messages(self, entity, message_ids, revoke=True):
         peer_id = telegram_client.get_peer_id(entity)
         self.calls.append(("delete", peer_id, list(message_ids)))
+        if not revoke:
+            self.calls.append(("delete_for_me", peer_id, list(message_ids)))
         self.history[peer_id] = [m for m in self.history.get(peer_id, []) if m.id not in message_ids]
 
     async def pin_message(self, entity, message_id, notify=False):
@@ -196,8 +301,17 @@ class FakeTelegramClient:
         self.calls.append(("leave", telegram_client.get_peer_id(entity)))
 
     async def get_entity(self, peer):
+        if isinstance(peer, str):
+            username = telegram_client.parse_username(peer)[0]
+            if username not in self.public:
+                raise ValueError("nobody by that name")
+            return self.public[username]
         peer_id = telegram_client.get_peer_id(peer)
-        return next(entity for entity, _, _ in self.chats if telegram_client.get_peer_id(entity) == peer_id)
+        known = [entity for entity, _, _ in self.chats] + list(self.public.values())
+        for entity in known:
+            if telegram_client.get_peer_id(entity) == peer_id:
+                return entity
+        raise ValueError("never seen")
 
     async def get_participants(self, entity, limit=None, search="", filter=None):
         if filter is types.ChannelParticipantsKicked:
@@ -207,8 +321,10 @@ class FakeTelegramClient:
     async def kick_participant(self, entity, user):
         self.calls.append(("kick", user.user_id))
 
-    async def edit_permissions(self, entity, user=None, **permissions):
+    async def edit_permissions(self, entity, user=None, until_date=None, **permissions):
         self.calls.append(("permissions", getattr(user, "user_id", None), permissions))
+        if until_date is not None:
+            self.calls.append(("until", getattr(user, "user_id", None), until_date))
 
     async def edit_admin(self, entity, user, **rights):
         self.calls.append(("admin", user.user_id, rights))
@@ -216,8 +332,88 @@ class FakeTelegramClient:
     async def __call__(self, request):
         name = type(request).__name__
         self.calls.append((name, request))
+        if name == "GetPeerDialogsRequest" and self.read_outbox is not None:
+            return Record(dialogs=[Record(read_outbox_max_id=self.read_outbox)])
+        if name == "GetContactsRequest" and self.contacts is not None:
+            return Record(users=list(self.contacts))
+        if name == "GetAllStickersRequest":
+            return Record(sets=[
+                Record(id=index, access_hash=1, title=title) for index, (title, emojis) in enumerate(self.sticker_sets)
+            ])
+        if name in ("GetStickerSetRequest", "GetRecentStickersRequest"):
+            emojis = self.recent_stickers if name == "GetRecentStickersRequest" else self.sticker_sets[request.stickerset.id][1]
+            stickers = [
+                Record(attributes=[types.DocumentAttributeSticker(alt=emoji, stickerset=types.InputStickerSetEmpty())])
+                for emoji in emojis
+            ]
+            return Record(stickers=stickers, documents=stickers)
+        if name == "GetNotifySettingsRequest":
+            muted = type(request.peer).__name__ in self.muted_kinds
+            return Record(mute_until=NOW + datetime.timedelta(days=3650) if muted else None)
+        if name == "SendChangePhoneCodeRequest":
+            if request.phone_number == "+taken":
+                raise telegram_client.PhoneNumberOccupiedError(None)
+            return Record(phone_code_hash="change-hash")
+        if name == "TranslateTextRequest":
+            return Record(result=[Record(text="translated #%d" % request.id[0])])
+        if name == "GetAllStoriesRequest" and self.stories is not None:
+            return self.stories
+        if name == "GetPasswordRequest":
+            return Record(has_password=self.two_step_password is not None)
+        if name == "GetDiscussionMessageRequest":
+            group, twin_id = self.discussions[(telegram_client.get_peer_id(request.peer), request.msg_id)]
+            return Record(
+                messages=[Record(id=twin_id, peer_id=types.PeerChannel(group.id))], chats=[group]
+            )
+        if name == "GetGroupsForDiscussionRequest":
+            return Record(chats=list(self.discussion_groups))
+        if name == "GetSendAsRequest":
+            return Record(
+                chats=[sender for sender in self.send_as if not isinstance(sender, types.User)],
+                users=[sender for sender in self.send_as if isinstance(sender, types.User)]
+            )
+        if name == "GetForumTopicsRequest":
+            return Record(topics=list(self.topics))
+        if name == "GetMessageReactionsListRequest" and self.audience is not None:
+            return self.audience[0]
+        if name == "GetMessageReadParticipantsRequest" and self.audience is not None:
+            return self.audience[1]
+        if name == "GetBlockedRequest":
+            return Record(users=list(self.blocked_users))
+        if name == "ImportContactsRequest":
+            return Record(users=[self.public[contact.phone] for contact in request.contacts if contact.phone in self.public])
+        if name == "SearchRequest":
+            found = [entity for username, entity in self.public.items() if request.q in username]
+            return Record(
+                users=[entity for entity in found if isinstance(entity, types.User)],
+                chats=[entity for entity in found if not isinstance(entity, types.User)]
+            )
+        if name == "CheckChatInviteRequest":
+            return Record(title=self.invitation[0])
+        if name == "ImportChatInviteRequest":
+            return Record(chats=[self.invitation[1]])
+        if name == "JoinChannelRequest":
+            for entity in self.public.values():
+                if telegram_client.get_peer_id(entity) == telegram_client.get_peer_id(request.channel):
+                    entity.left = False
         if name == "GetDialogFiltersRequest":
             return Record(filters=self.folders)
+        if name == "UpdateDialogFilterRequest":
+            # As Telegram does: the folder of that number is replaced, or gone if none is given.
+            type(self).folders = [folder for folder in self.folders if folder.id != request.id]
+            if request.filter is not None:
+                self.folders.append(request.filter)
+        if name == "GetCommonChatsRequest":
+            return Record(chats=list(self.common_chats))
+        if name == "ReportRequest":
+            if request.option == b"":
+                return types.ReportResultChooseOption(title="Why?", options=[
+                    types.MessageReportOption(text="Spam", option=b"spam"),
+                    types.MessageReportOption(text="Other", option=b"other"),
+                ])
+            if request.option == b"other" and not request.message:
+                return types.ReportResultAddComment(option=b"other", optional=False)
+            return types.ReportResultReported()
         if name == "DeleteScheduledMessagesRequest":
             peer_id = telegram_client.get_peer_id(request.peer)
             self.scheduled[peer_id] = [m for m in self.scheduled.get(peer_id, []) if m.id not in request.id]
@@ -234,14 +430,21 @@ class FakeTelegramClient:
         if name == "ExportChatInviteRequest":
             self.invites.append(types.ChatInviteExported(
                 link="https://t.me/+new%d" % len(self.invites), admin_id=10, date=NOW,
-                title=request.title, request_needed=request.request_needed
+                title=request.title, request_needed=request.request_needed,
+                expire_date=request.expire_date, usage_limit=request.usage_limit
             ))
         if name == "EditExportedChatInviteRequest":
             self.invites[:] = [invite for invite in self.invites if invite.link != request.link]
         if name == "CreateChannelRequest":
             return Record(chats=[make_channel(500, request.title, group=bool(request.megagroup), creator=True)])
         if name == "GetFullChannelRequest":
-            return Record(full_chat=Record(about="about text", participants_count=len(self.members), exported_invite=None))
+            return Record(full_chat=Record(
+                about="about text", participants_count=len(self.members), exported_invite=None, **self.full_chat
+            ))
+        if name in ("GetBroadcastStatsRequest", "GetMegagroupStatsRequest"):
+            if self.stats is None:
+                raise telegram_client.RPCError(None, "BROADCAST_REQUIRED", 400)
+            return self.stats
         if name == "GetFullUserRequest":
             return Record(users=[make_user(1, "Me")], full_user=Record(about=""))
         return None
@@ -366,10 +569,12 @@ class WindowTestCase(unittest.TestCase):
         expected = len(FakeTelegramClient.history.get(chat_id, []))
         # The status bar turns "ready" last; the send button cannot be the sign,
         # since it stays disabled in a channel this account may not post to.
-        ready = self.text("STATUS_READY")
+        # Or, for a chat entered with unread messages, the count of them that replaces it.
+        unread = self.frame.dialogs[index]["unread"]
+        done = (self.text("STATUS_READY"), self.text("MSG_NEW_MESSAGES_FORMAT").format(count=unread))
         self.assertTrue(pump(
             lambda: self.frame.current_dialog_id == chat_id and len(self.frame.messages) == min(expected, 50)
-            and self.frame.GetStatusBar().GetStatusText() == ready
+            and self.frame.GetStatusBar().GetStatusText() in done
         ), "chat did not open")
 
     def calls(self, name):

@@ -6,14 +6,16 @@ from core.config import load_credentials, read_credentials, save_credentials
 from core.constants import (
     APP_NAME, DEFAULT_LANG, APP_TITLE_KEY, STEP_DONE, BACKGROUND_FLAG, CHECK_FLAG, QUIT_FLAG,
     QUIT_WAIT_SECONDS, CONNECT_CHECK_SECONDS, BUNDLED_CONFIG_FILE, LOG_FILE, LOG_MAX_BYTES, APP_VERSION, IS_FROZEN,
-    SHOW_HOTKEY_TEXT, ERR_HOTKEY_TAKEN_FORMAT_KEY
+    SHOW_HOTKEY_TEXT, ERR_HOTKEY_TAKEN_FORMAT_KEY, SOUND_START
 )
 from core.i18n import I18NManager
-from core.settings import SETTING_THEME, Settings
+from core import sounds
+from core.settings import SETTING_ANNOUNCE_CONNECTION, SETTING_START_SOUND, SETTING_THEME, Settings
+from core.speech import speak
 from ui.themes import set_theme
 from core.telegram_client import TelegramManager
 from ui.api_setup_dialog import ApiSetupDialog
-from ui.background import BackgroundWindow, ask_running_copy_to_quit, ask_running_copy_to_show
+from ui.background import BackgroundWindow, ask_running_copy_to_quit, ask_running_copy_to_show, connection_news_key
 from ui.login_frame import LoginFrame
 from ui.main_frame import MainFrame
 
@@ -23,6 +25,7 @@ class MainApplication(wx.App):
         self.background = None
         self.main_frame = None
         self.login_frame = None
+        self.connection_state = None
         # Two copies would fight over the same Telegram session file.
         self.instance_checker = wx.SingleInstanceChecker(APP_NAME + "-" + wx.GetUserId())
         if self.instance_checker.IsAnotherRunning():
@@ -40,6 +43,7 @@ class MainApplication(wx.App):
         self.start_hidden = BACKGROUND_FLAG in sys.argv
         self.background = BackgroundWindow(self.i18n, self.show_window, self.quit)
         self.telegram_manager = TelegramManager(self.on_telegram_response)
+        self.telegram_manager.set_connection_listener(self.on_connection_change)
         self.show_login()
         # Started only now: its callback needs the app and the frame to exist.
         self.telegram_manager.start()
@@ -82,6 +86,9 @@ class MainApplication(wx.App):
             )
             if not self.start_hidden:
                 self.main_frame.Show()
+                # The app's own chime: only when its window really opens, never on a silent start with Windows.
+                if self.settings.get(SETTING_START_SOUND):
+                    sounds.play(SOUND_START)
             self.login_frame.Destroy()
             if error_key:
                 self.main_frame.show_error(error_key)
@@ -93,6 +100,19 @@ class MainApplication(wx.App):
                 self.login_frame.show_error(error_key)
         # Only the very first window honours the background start.
         self.start_hidden = False
+
+    def on_connection_change(self, state):
+        wx.CallAfter(self._show_connection_state, state)
+
+    def _show_connection_state(self, state):
+        # Gone once the program is on its way out.
+        if not self.background:
+            return
+        self.background.tray.set_connection_state(state)
+        news_key = connection_news_key(self.connection_state, state)
+        self.connection_state = state
+        if news_key and self.settings.get(SETTING_ANNOUNCE_CONNECTION):
+            speak(self.i18n.get_string(news_key))
 
     def show_window(self):
         """Bring the app forward: from the global shortcut, the tray icon, or a second launch."""
@@ -133,9 +153,9 @@ def self_check():
     """
     import os
     from core import audio, speech
-    from core.constants import ICON_FILE, SOUNDS_DIR, SOUND_MESSAGE, SOUND_MESSAGE_IN_CHAT, SOUND_SENT
+    from core.constants import ICON_FILE, SOUNDS_DIR, SOUND_NAMES
     files = [ICON_FILE] + [
-        os.path.join(SOUNDS_DIR, name + ".wav") for name in (SOUND_MESSAGE, SOUND_MESSAGE_IN_CHAT, SOUND_SENT)
+        os.path.join(SOUNDS_DIR, name + ".wav") for name in SOUND_NAMES
     ]
     problems = 0
     if not I18NManager(DEFAULT_LANG).strings or not all(os.path.exists(path) for path in files):

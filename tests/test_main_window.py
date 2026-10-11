@@ -314,7 +314,8 @@ class ChatPreviewAndMenuTest(WindowTestCase):
     def test_menu_follows_the_order_of_telegram_desktop(self):
         self.assertEqual(self.menu(0), [self.text(key) for key in (
             c.CONTEXT_OPEN_KEY, c.CONTEXT_MARK_READ_KEY, c.CONTEXT_PIN_CHAT_KEY, c.CONTEXT_MUTE_KEY,
-            c.CONTEXT_ARCHIVE_KEY, c.CONTEXT_INFO_KEY, c.CONTEXT_CLEAR_HISTORY_KEY, c.CONTEXT_DELETE_CHAT_KEY,
+            c.CONTEXT_ARCHIVE_KEY, c.CONTEXT_INFO_KEY, c.CONTEXT_DELETE_CONTACT_KEY, c.CONTEXT_BLOCK_KEY,
+            c.CONTEXT_CLEAR_HISTORY_KEY, c.CONTEXT_DELETE_CHAT_KEY,
         )])
         self.assertEqual(self.menu(1)[1], self.text(c.CONTEXT_MARK_UNREAD_KEY))
         self.assertEqual(self.menu(1)[-1], self.text(c.CONTEXT_LEAVE_KEY))

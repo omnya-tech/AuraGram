@@ -15,7 +15,19 @@ from core.constants import (
     MSG_LOAD_OLDER_KEY, MSG_DOWNLOADING_KEY, DOWNLOADABLE_MEDIA, SAFE_OPEN_EXTENSIONS,
     SNIPPET_LENGTH, REPLY_PREFIX_FORMAT_KEY, APP_TITLE_KEY, MESSAGE_FORMAT_KEY, SENDER_YOU_KEY,
     MSG_NO_TEXT_KEY, MSG_LOADING_KEY, STATUS_READY_KEY, TIME_FORMAT, DATE_TIME_FORMAT,
-    MEDIA_FORMAT_KEY
+    MEDIA_FORMAT_KEY, MESSAGE_READ_FORMAT_KEY, MESSAGE_UNREAD_FORMAT_KEY, BUTTONS_FORMAT_KEY, CONTEXT_BUTTONS_KEY,
+    CONTEXT_OPEN_LINK_KEY, MESSAGE_VIEW_COMMENTS, MESSAGE_VIEW_TOPIC, COMMENTS_FORMAT_KEY, CONTEXT_COMMENTS_KEY,
+    MSG_NO_COMMENTS_KEY, COMMENTS_TITLE_FORMAT_KEY, MSG_NOT_FORUM_KEY, MSG_CHOOSE_TOPIC_KEY,
+    TOPIC_CHOICE_FORMAT_KEY, TOPIC_TITLE_FORMAT_KEY, MSG_THREAD_OPENED_FORMAT_KEY, THREAD_LABEL_FORMAT_KEY,
+    AUDIENCE_TITLE_KEY, AUDIENCE_READERS_FORMAT_KEY, AUDIENCE_NO_READERS_KEY, AUDIENCE_READERS_UNKNOWN_KEY,
+    AUDIENCE_REACTIONS_KEY, AUDIENCE_REACTION_FORMAT_KEY, AUDIENCE_NO_REACTIONS_KEY,
+    FORWARDED_FORMAT_KEY, FORWARDED_UNKNOWN_FORMAT_KEY, EDITED_FORMAT_KEY, VIEWS_FORMAT_KEY,
+    TRANSLATION_TITLE_KEY, MSG_NOTHING_TO_TRANSLATE_KEY, MSG_NO_STORIES_KEY, MSG_CHOOSE_STORY_PERSON_KEY,
+    STORY_PERSON_FORMAT_KEY, MSG_CHOOSE_STORY_KEY, STORY_FORMAT_KEY, MSG_DOWNLOAD_PROGRESS_FORMAT_KEY,
+    AUDIENCE_VIEWS_FORMAT_KEY, AUDIENCE_FORWARDS_FORMAT_KEY, MESSAGE_VIEW_AROUND, NEW_FROM_HERE_FORMAT_KEY,
+    MSG_NEW_MESSAGES_FORMAT_KEY, MSG_JUMPED_KEY, MSG_MESSAGE_NOT_FOUND_KEY, CONTEXT_GO_TO_REPLY_KEY,
+    MSG_NOT_A_REPLY_KEY, MSG_DATE_PROMPT_KEY, ERR_BAD_DATE_KEY, MSG_NOTHING_ON_DATE_KEY, DATE_INPUT_FORMATS,
+    MSG_SEARCH_ALL_PROMPT_KEY, MSG_SEARCH_ALL_RESULTS_FORMAT_KEY, SEARCH_ALL_ROW_FORMAT_KEY
 )
 
 class MessageListMixin:
@@ -26,6 +38,10 @@ class MessageListMixin:
 
     def load_messages(self, focus_messages=False):
         self.message_view = None
+        if self.thread is not None:
+            # Back from comments or a topic: the list is the chat's own again, and so is its name.
+            self.thread = None
+            self.show_chat_name(self.find_known_dialog(self.current_dialog_id))
         self.marked = set()
         self.set_status(MSG_LOADING_KEY)
         dialog_id = self.current_dialog_id
@@ -42,7 +58,11 @@ class MessageListMixin:
         self.messages = messages
         # A full page means Telegram most likely has more before it.
         self.has_older = len(messages) == MESSAGES_LIMIT
-        self.render_messages(len(messages) - 1)
+        # Entering a chat with unread messages lands on the first of them, not on the last.
+        unread, self.unread_on_open = self.unread_on_open, 0
+        first_unread = max(len(messages) - unread, 0) if unread and messages else None
+        self.first_unread_id = messages[first_unread]["id"] if first_unread is not None else None
+        self.render_messages(len(messages) - 1 if first_unread is None else first_unread)
         chat = self.find_known_dialog(dialog_id)
         if chat is not None and messages:
             # The conversation is fresher than the chat list's preview of it.
@@ -54,6 +74,111 @@ class MessageListMixin:
         self.set_status(STATUS_READY_KEY)
         if focus_messages:
             self.messages_list.SetFocus()
+        if self.pending_jump is not None:
+            target, self.pending_jump = self.pending_jump, None
+            self.jump_to_message(target)
+        elif first_unread is not None:
+            self.announce(self.i18n.get_string(MSG_NEW_MESSAGES_FORMAT_KEY).format(count=unread))
+
+    def jump_to_message(self, message_id):
+        """Put the selection on a message of this chat, fetching its part of the conversation if need be."""
+        for index, message in enumerate(self.messages):
+            if message["id"] == message_id:
+                self.messages_list.SetSelection(index + self.message_offset())
+                self.update_preview()
+                self.messages_list.SetFocus()
+                return
+        # Inside a topic or under a post only what is loaded can be reached.
+        if self.is_busy or self.thread is not None:
+            self.notify(MSG_MESSAGE_NOT_FOUND_KEY)
+            return
+        self.is_busy = True
+        self.set_status(MSG_LOADING_KEY)
+        dialog_id = self.current_dialog_id
+        self.telegram_manager.load_messages_around(
+            dialog_id, message_id, self.on_ui_thread(self.show_part, dialog_id, message_id, MSG_MESSAGE_NOT_FOUND_KEY)
+        )
+
+    def show_part(self, messages, dialog_id, message_id, empty_key):
+        """Show a stretch of the conversation away from its end, on `message_id` (None: on its first message)."""
+        self.is_busy = False
+        self.set_status(STATUS_READY_KEY)
+        if dialog_id != self.current_dialog_id:
+            return
+        found = message_id is None or any(message["id"] == message_id for message in messages)
+        if not messages or not found:
+            self.notify(empty_key)
+            return
+        self.show_message_list(MESSAGE_VIEW_AROUND, messages)
+        target = 0 if message_id is None else next(i for i, m in enumerate(messages) if m["id"] == message_id)
+        self.messages_list.SetSelection(target + self.message_offset())
+        self.update_preview()
+        self.notify(MSG_JUMPED_KEY)
+
+    def on_go_to_reply_menu(self, event):
+        message = self.selected_message()
+        if message is None:
+            return
+        if not message["reply_to"]:
+            self.notify(MSG_NOT_A_REPLY_KEY)
+        else:
+            self.jump_to_message(message["reply_to"])
+
+    def on_go_to_date_menu(self, event):
+        if self.current_dialog_id is None or self.is_busy or self.thread is not None:
+            return
+        typed = self.ask_text(MSG_DATE_PROMPT_KEY)
+        if not typed:
+            return
+        date = None
+        for date_format in DATE_INPUT_FORMATS:
+            try:
+                date = datetime.datetime.strptime(typed, date_format)
+                break
+            except ValueError:
+                pass
+        if date is None:
+            self.show_error(ERR_BAD_DATE_KEY)
+            return
+        self.is_busy = True
+        self.set_status(MSG_LOADING_KEY)
+        dialog_id = self.current_dialog_id
+        # The day as the user's clock has it, from its first minute.
+        self.telegram_manager.load_messages_from(
+            dialog_id, date.astimezone(), self.on_ui_thread(self.show_part, dialog_id, None, MSG_NOTHING_ON_DATE_KEY)
+        )
+
+    def on_search_all_menu(self, event):
+        query = self.ask_text(MSG_SEARCH_ALL_PROMPT_KEY)
+        if query:
+            self.set_status(MSG_LOADING_KEY)
+            self.telegram_manager.search_all(query, self.on_ui_thread(self.choose_search_result))
+
+    def choose_search_result(self, results):
+        self.set_status(STATUS_READY_KEY)
+        if not results:
+            self.notify(MSG_SEARCH_NO_RESULTS_KEY)
+            return
+        with wx.SingleChoiceDialog(
+            self, self.i18n.get_string(MSG_SEARCH_ALL_RESULTS_FORMAT_KEY).format(count=len(results)),
+            self.i18n.get_string(APP_TITLE_KEY), [
+                self.i18n.get_string(SEARCH_ALL_ROW_FORMAT_KEY).format(
+                    chat=result["chat"]["title"], sender=self.sender_name(result["message"]),
+                    text=self.message_snippet(result["message"]),
+                    time=result["message"]["date"].astimezone().strftime(DATE_TIME_FORMAT)
+                )
+                for result in results
+            ]
+        ) as results_dialog:
+            if results_dialog.ShowModal() != wx.ID_OK:
+                return
+            result = results[results_dialog.GetSelection()]
+        if result["chat"]["id"] == self.current_dialog_id:
+            self.jump_to_message(result["message"]["id"])
+        else:
+            # Its chat has to be entered and loaded first; the message is gone to after that.
+            self.pending_jump = result["message"]["id"]
+            self.open_chat(result["chat"])
 
     def render_messages(self, selected_message_index):
         """Refill the list; when older messages exist, its first row is the "load older" action."""
@@ -84,7 +209,8 @@ class MessageListMixin:
 
     def append_message(self, message):
         # Search results are a fixed list; the message shows up once the search is closed.
-        if self.message_view is not None:
+        # An open topic or post grows only by what is written into it.
+        if self.message_view is not None and not self.belongs_to_thread(message):
             return
         if any(shown["id"] == message["id"] for shown in self.messages):
             return
@@ -157,6 +283,10 @@ class MessageListMixin:
             self.on_vote_menu(event)
         elif message["media"] in DOWNLOADABLE_MEDIA:
             self.download_media(message)
+        elif message["buttons"]:
+            self.on_buttons_menu(event)
+        elif message["comments"] is not None:
+            self.on_comments_menu(event)
 
     def on_message_context_menu(self, event):
         self.select_item_under_mouse(self.messages_list, event)
@@ -171,9 +301,11 @@ class MessageListMixin:
             self.show_context_menu(entries)
             return
         # Same order as Telegram's own desktop apps, and only what works on this message.
-        chat = self.current_dialog()
+        chat = self.shown_chat()
         has_media = message["media"] in DOWNLOADABLE_MEDIA
         entries = []
+        if message["buttons"]:
+            entries.append((CONTEXT_BUTTONS_KEY, self.on_buttons_menu))
         if message["poll"] and not message["poll"]["closed"]:
             entries.append((CONTEXT_VOTE_KEY, self.on_vote_menu))
         entries.append((CONTEXT_REACT_KEY, self.on_react_menu))
@@ -188,6 +320,12 @@ class MessageListMixin:
             entries.append((CONTEXT_COPY_KEY, self.on_copy_message))
         if chat["has_links"]:
             entries.append((CONTEXT_COPY_LINK_KEY, self.on_copy_link_menu))
+        if message["reply_to"]:
+            entries.append((CONTEXT_GO_TO_REPLY_KEY, self.on_go_to_reply_menu))
+        if message["links"]:
+            entries.append((CONTEXT_OPEN_LINK_KEY, self.on_open_link_menu))
+        if message["comments"] is not None:
+            entries.append((CONTEXT_COMMENTS_KEY, self.on_comments_menu))
         if has_media:
             entries.append((CONTEXT_OPEN_MEDIA_KEY, self.on_activate_message))
             entries.append((CONTEXT_SAVE_AS_KEY, self.on_save_as_menu))
@@ -209,15 +347,17 @@ class MessageListMixin:
         self.is_busy = True
         self.set_status(MSG_DOWNLOADING_KEY)
         self.telegram_manager.download_media(
-            self.current_dialog_id, message["id"], self.on_ui_thread(self.on_media_saved), folder=folder
+            self.peer(self.current_dialog_id), message["id"], self.on_ui_thread(self.on_media_saved), folder=folder,
+            on_progress=self.progress_reporter(MSG_DOWNLOAD_PROGRESS_FORMAT_KEY)
         )
 
     def on_media_saved(self, path):
         self.is_busy = False
+        self.hide_progress()
         self.announce(self.i18n.get_string(MSG_SAVED_FORMAT_KEY).format(path=path))
 
     def download_media(self, message):
-        cache_key = (self.current_dialog_id, message["id"])
+        cache_key = (self.peer(self.current_dialog_id), message["id"])
         cached = self.downloaded.get(cache_key)
         if cached and os.path.exists(cached):
             self.open_media(cached, cache_key, message["media"])
@@ -225,12 +365,14 @@ class MessageListMixin:
         self.is_busy = True
         self.set_status(MSG_DOWNLOADING_KEY)
         self.telegram_manager.download_media(
-            self.current_dialog_id, message["id"],
-            self.on_ui_thread(self.open_media, cache_key, message["media"])
+            self.peer(self.current_dialog_id), message["id"],
+            self.on_ui_thread(self.open_media, cache_key, message["media"]),
+            on_progress=self.progress_reporter(MSG_DOWNLOAD_PROGRESS_FORMAT_KEY)
         )
 
     def open_media(self, path, cache_key, media):
         self.is_busy = False
+        self.hide_progress()
         self.downloaded[cache_key] = path
         self.set_status(STATUS_READY_KEY)
         if media == MEDIA_VOICE and audio.AVAILABLE:
@@ -311,6 +453,162 @@ class MessageListMixin:
             self.i18n.get_string(MSG_VIEW_RESULTS_FORMAT_KEY).format(view=name, count=len(messages))
         )
 
+    def on_comments_menu(self, event):
+        message = self.actionable_message()
+        if message is None:
+            return
+        if message["comments"] is None:
+            self.notify(MSG_NO_COMMENTS_KEY)
+            return
+        title = self.i18n.get_string(COMMENTS_TITLE_FORMAT_KEY).format(text=self.message_snippet(message))
+        self.open_thread({"view": MESSAGE_VIEW_COMMENTS, "id": message["id"], "title": title})
+
+    def on_topics_menu(self, event):
+        if self.current_dialog_id is None or self.is_busy:
+            return
+        if not self.current_dialog().get("is_forum"):
+            self.notify(MSG_NOT_FORUM_KEY)
+            return
+        self.set_status(MSG_LOADING_KEY)
+        self.telegram_manager.load_topics(
+            self.current_dialog_id, self.on_ui_thread(self.choose_topic, self.current_dialog_id)
+        )
+
+    def choose_topic(self, topics, dialog_id):
+        self.set_status(STATUS_READY_KEY)
+        if dialog_id != self.current_dialog_id:
+            return
+        choices = [
+            self.i18n.get_string(TOPIC_CHOICE_FORMAT_KEY).format(**topic) if topic["unread"] else topic["title"]
+            for topic in topics
+        ]
+        with wx.SingleChoiceDialog(
+            self, self.i18n.get_string(MSG_CHOOSE_TOPIC_KEY), self.i18n.get_string(APP_TITLE_KEY), choices
+        ) as topic_dialog:
+            if topic_dialog.ShowModal() != wx.ID_OK:
+                return
+            topic = topics[topic_dialog.GetSelection()]
+        title = self.i18n.get_string(TOPIC_TITLE_FORMAT_KEY).format(title=topic["title"])
+        self.open_thread({"view": MESSAGE_VIEW_TOPIC, "id": topic["id"], "title": title})
+
+    def open_thread(self, thread, after_sending=False):
+        """Show the comments of a post or the messages of a topic in place of the conversation."""
+        self.is_busy = True
+        self.set_status(MSG_LOADING_KEY)
+        dialog_id = self.current_dialog_id
+        self.telegram_manager.load_thread(
+            dialog_id, thread["id"], thread["view"],
+            self.on_ui_thread(self.show_thread, dialog_id, thread, after_sending)
+        )
+
+    def show_thread(self, loaded, dialog_id, thread, after_sending):
+        self.is_busy = False
+        if dialog_id != self.current_dialog_id:
+            return
+        messages = loaded["messages"]
+        # Where its messages live and what they answer: everything written here goes by these.
+        self.thread = dict(thread, peer=loaded["peer"], root=loaded["root"])
+        self.show_message_list(thread["view"], messages)
+        label = self.i18n.get_string(THREAD_LABEL_FORMAT_KEY).format(title=thread["title"])
+        self.messages_label.SetLabel(label)
+        self.messages_list.SetName(label)
+        # Writing may be allowed here where it is not in the chat itself, and the other way round.
+        self.enable_chat(True)
+        if after_sending:
+            # Still writing: the place and the count were said when the thread was opened.
+            self.set_status(STATUS_READY_KEY)
+            self.message_input.SetFocus()
+        else:
+            self.announce(self.i18n.get_string(MSG_THREAD_OPENED_FORMAT_KEY).format(
+                title=thread["title"], count=len(messages)
+            ))
+
+    def on_translate_menu(self, event):
+        message = self.actionable_message()
+        if message is None or self.is_busy:
+            return
+        if not message["text"]:
+            self.notify(MSG_NOTHING_TO_TRANSLATE_KEY)
+            return
+        self.set_status(MSG_LOADING_KEY)
+        self.telegram_manager.translate(
+            self.peer(self.current_dialog_id), message["id"], self.on_ui_thread(self.show_translation)
+        )
+
+    def show_translation(self, text):
+        self.set_status(STATUS_READY_KEY)
+        self.show_text(TRANSLATION_TITLE_KEY, text)
+
+    def on_stories_menu(self, event):
+        if self.is_busy:
+            return
+        self.set_status(MSG_LOADING_KEY)
+        self.telegram_manager.load_stories(self.on_ui_thread(self.choose_story))
+
+    def choose_story(self, groups):
+        self.set_status(STATUS_READY_KEY)
+        if not groups:
+            self.notify(MSG_NO_STORIES_KEY)
+            return
+        title = self.i18n.get_string(APP_TITLE_KEY)
+        with wx.SingleChoiceDialog(self, self.i18n.get_string(MSG_CHOOSE_STORY_PERSON_KEY), title, [
+            self.i18n.get_string(STORY_PERSON_FORMAT_KEY).format(name=group["name"], count=len(group["stories"]))
+            for group in groups
+        ]) as person_dialog:
+            if person_dialog.ShowModal() != wx.ID_OK:
+                return
+            group = groups[person_dialog.GetSelection()]
+        with wx.SingleChoiceDialog(self, self.i18n.get_string(MSG_CHOOSE_STORY_KEY), title, [
+            self.i18n.get_string(STORY_FORMAT_KEY).format(
+                media=self.i18n.get_string(story["media"]), caption=story["caption"],
+                time=story["date"].astimezone().strftime(DATE_TIME_FORMAT)
+            ).strip()
+            for story in group["stories"]
+        ]) as story_dialog:
+            if story_dialog.ShowModal() != wx.ID_OK:
+                return
+            story = group["stories"][story_dialog.GetSelection()]
+        self.is_busy = True
+        self.set_status(MSG_DOWNLOADING_KEY)
+        cache_key = ("story", group["peer_id"], story["id"])
+        self.telegram_manager.open_story(
+            group["peer_id"], story["id"], self.on_ui_thread(self.open_media, cache_key, story["media"])
+        )
+
+    def on_audience_menu(self, event):
+        message = self.actionable_message()
+        if message is None or self.is_busy:
+            return
+        self.set_status(MSG_LOADING_KEY)
+        self.telegram_manager.load_audience(
+            self.peer(self.current_dialog_id), message["id"], self.on_ui_thread(self.show_audience, message)
+        )
+
+    def show_audience(self, audience, message):
+        self.set_status(STATUS_READY_KEY)
+        lines = []
+        # A channel post is counted, not signed for: how many saw it and passed it on.
+        if message["views"] is not None:
+            lines.append(self.i18n.get_string(AUDIENCE_VIEWS_FORMAT_KEY).format(count=message["views"]))
+        if message["forwards"] is not None:
+            lines.append(self.i18n.get_string(AUDIENCE_FORWARDS_FORMAT_KEY).format(count=message["forwards"]))
+        if audience["readers"]:
+            lines.append(self.i18n.get_string(AUDIENCE_READERS_FORMAT_KEY).format(names="، ".join(audience["readers"])))
+        elif message["views"] is None:
+            lines.append(self.i18n.get_string(
+                AUDIENCE_READERS_UNKNOWN_KEY if audience["readers"] is None else AUDIENCE_NO_READERS_KEY
+            ))
+        lines.append("")
+        if audience["reactions"]:
+            lines.append(self.i18n.get_string(AUDIENCE_REACTIONS_KEY))
+            lines.extend(
+                self.i18n.get_string(AUDIENCE_REACTION_FORMAT_KEY).format(name=name, emoji=emoji)
+                for name, emoji in audience["reactions"]
+            )
+        else:
+            lines.append(self.i18n.get_string(AUDIENCE_NO_REACTIONS_KEY))
+        self.show_text(AUDIENCE_TITLE_KEY, "\n".join(lines))
+
     def sender_name(self, message):
         if message["outgoing"]:
             return self.i18n.get_string(SENDER_YOU_KEY)
@@ -339,7 +637,7 @@ class MessageListMixin:
     def message_text(self, message):
         if message["poll"]:
             return self.poll_text(message["poll"])
-        text = message["text"]
+        text = message["text"] or message["detail"]
         if message["media"]:
             text = self.i18n.get_string(MEDIA_FORMAT_KEY).format(
                 media=self.i18n.get_string(message["media"]), text=text
@@ -373,6 +671,17 @@ class MessageListMixin:
             text = self.i18n.get_string(REPLY_PREFIX_FORMAT_KEY).format(
                 sender=self.sender_name(replied), quote=self.message_snippet(replied), text=text
             )
+        if message["forwarded_from"] is not None:
+            forward_key = FORWARDED_FORMAT_KEY if message["forwarded_from"] else FORWARDED_UNKNOWN_FORMAT_KEY
+            text = self.i18n.get_string(forward_key).format(name=message["forwarded_from"], text=text)
+        if message["edited"]:
+            text = self.i18n.get_string(EDITED_FORMAT_KEY).format(text=text)
+        if message["views"] is not None:
+            text = self.i18n.get_string(VIEWS_FORMAT_KEY).format(text=text, count=message["views"])
+        if message["buttons"]:
+            text = self.i18n.get_string(BUTTONS_FORMAT_KEY).format(text=text, buttons="، ".join(message["buttons"]))
+        if message["comments"] is not None:
+            text = self.i18n.get_string(COMMENTS_FORMAT_KEY).format(text=text, count=message["comments"])
         if message["pinned"]:
             text = self.i18n.get_string(PINNED_FORMAT_KEY).format(text=text)
         if message["reactions"]:
@@ -390,6 +699,13 @@ class MessageListMixin:
             text=" ".join(text.split()),
             time=local_date.strftime(TIME_FORMAT if is_today else DATE_TIME_FORMAT)
         )
+        if message["read"] is not None:
+            # Last on the row, where Telegram's own apps put their check marks.
+            read_key = MESSAGE_READ_FORMAT_KEY if message["read"] else MESSAGE_UNREAD_FORMAT_KEY
+            line = self.i18n.get_string(read_key).format(text=line)
+        if message["id"] == self.first_unread_id:
+            # Where reading stopped last time.
+            line = self.i18n.get_string(NEW_FROM_HERE_FORMAT_KEY).format(text=line)
         if message["id"] in self.marked:
             # First thing on the row, so it is heard before anything else.
             line = self.i18n.get_string(MARKED_FORMAT_KEY).format(text=line)

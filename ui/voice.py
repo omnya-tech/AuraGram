@@ -1,7 +1,9 @@
 import os
 import wx
 from core import audio
+from core.settings import SETTING_VOICE_SPEED
 from core.constants import (
+    MSG_UPLOAD_PROGRESS_FORMAT_KEY, VOICE_SPEEDS, MSG_VOICE_SPEED_FORMAT_KEY,
     BTN_RECORD_KEY, BTN_STOP_AND_SEND_KEY, VOICE_NOTE_FILE, MIN_VOICE_SECONDS, MSG_RECORDING_KEY, MSG_RECORDING_CANCELLED_KEY,
     MSG_RECORDING_TOO_SHORT_KEY, MSG_SENDING_VOICE_KEY, MSG_VOICE_SENT_KEY, MSG_PLAYING_KEY,
     MSG_PLAYBACK_STOPPED_KEY, ERR_AUDIO_KEY, ERR_NO_AUDIO_SUPPORT_KEY, STATUS_READY_KEY
@@ -18,7 +20,7 @@ class VoiceMixin:
             self.show_error(ERR_NO_AUDIO_SUPPORT_KEY)
         elif self.recorder.is_recording():
             self.finish_recording()
-        elif self.current_dialog_id is not None and not self.is_busy and self.current_dialog()["can_send"]:
+        elif self.can_send_now():
             self.start_recording()
 
     def update_record_buttons(self):
@@ -38,6 +40,8 @@ class VoiceMixin:
             return
         # The recording goes to the chat it was started in, even if another is opened meanwhile.
         self.recording_dialog_id = self.current_dialog_id
+        # Where exactly: the topic or the comments it was started in, even if they are left meanwhile.
+        self.recording_target = (self.peer(self.current_dialog_id), self.thread_root())
         self.update_record_buttons()
         self.notify(MSG_RECORDING_KEY)
 
@@ -57,9 +61,11 @@ class VoiceMixin:
         self.is_busy = True
         self.notify(MSG_SENDING_VOICE_KEY)
         dialog_id = self.recording_dialog_id
+        peer, reply_to = self.recording_target
         self.telegram_manager.send_file(
-            dialog_id, VOICE_NOTE_FILE,
-            self.on_ui_thread(self.on_file_sent, dialog_id, MSG_VOICE_SENT_KEY), voice_note=True
+            peer, VOICE_NOTE_FILE,
+            self.on_ui_thread(self.on_file_sent, dialog_id, MSG_VOICE_SENT_KEY), voice_note=True, reply_to=reply_to,
+            on_progress=self.progress_reporter(MSG_UPLOAD_PROGRESS_FORMAT_KEY)
         )
 
     def cancel_recording(self):
@@ -73,8 +79,17 @@ class VoiceMixin:
         # Status bar only: speaking here would talk over the start of the recording.
         self.set_status(MSG_PLAYING_KEY)
         self.player.play(
-            path, lambda completed, error: wx.CallAfter(self.on_playback_finished, completed, error)
+            path, lambda completed, error: wx.CallAfter(self.on_playback_finished, completed, error),
+            speed=VOICE_SPEEDS[self.settings.get(SETTING_VOICE_SPEED)]
         )
+
+    def on_voice_speed_menu(self, event):
+        """Step to the next playback speed, round and round; it applies from the next voice message played."""
+        speeds = list(VOICE_SPEEDS)
+        speed = speeds[(speeds.index(self.settings.get(SETTING_VOICE_SPEED)) + 1) % len(speeds)]
+        self.settings.set(SETTING_VOICE_SPEED, speed)
+        self.settings.save()
+        self.announce(self.i18n.get_string(MSG_VOICE_SPEED_FORMAT_KEY).format(speed=self.i18n.get_string(speed)))
 
     def on_playback_finished(self, completed, error):
         if not self:

@@ -1,9 +1,13 @@
+import os
 import wx
 from core import audio
 from core.speech import speak
-from core.settings import SETTING_KEEP_IN_BACKGROUND, SETTING_LARGE_TEXT, SETTING_THEME
+from core.settings import (
+    SETTING_KEEP_IN_BACKGROUND, SETTING_LARGE_TEXT, SETTING_THEME, SETTING_SPEAK_FEEDBACK,
+    SETTING_SIMPLE_TAB, SETTING_SHOW_PREVIEW
+)
 from ui.themes import apply_theme, set_theme
-from ui.layout import ReadOnlyText, is_on_a_screen, prepare_window, reading_font
+from ui.layout import OptionalButton, OptionalChoice, ReadOnlyText, is_on_a_screen, prepare_window, reading_font
 from ui.settings_dialog import SettingsDialog
 from core.chat_views import build_views
 from ui.text_dialog import TextDialog
@@ -23,7 +27,21 @@ from core.constants import (
     MENU_DELETE_KEY, MENU_SEND_FILE_KEY, MENU_SEARCH_KEY, MENU_FIND_KEY, MENU_FIND_NEXT_KEY,
     APP_TITLE_KEY, MAIN_TITLE_KEY, DIALOGS_LABEL_KEY, MESSAGES_LABEL_KEY, MESSAGE_INPUT_LABEL_KEY,
     BTN_SEND_MESSAGE_KEY, STATUS_READY_KEY, MENU_FILE_KEY, MENU_LOGOUT_KEY, MENU_EXIT_KEY,
-    MSG_CONFIRM_LOGOUT_KEY
+    MSG_CONFIRM_LOGOUT_KEY, MENU_SEND_KEY, MENU_GO_KEY, MENU_GO_CHATS_KEY, MENU_GO_MESSAGES_KEY,
+    MENU_GO_INPUT_KEY, MENU_NEXT_UNREAD_KEY, MENU_NEXT_VIEW_KEY, MENU_PREVIOUS_VIEW_KEY,
+    MENU_CHAT_INFO_KEY, MENU_CHAT_READ_KEY, MENU_CHAT_PIN_KEY, MENU_CHAT_MUTE_KEY, MENU_CHAT_ARCHIVE_KEY,
+    MENU_CHAT_CLEAR_KEY, MENU_CHAT_LEAVE_KEY, MENU_COPY_KEY, MENU_COPY_LINK_KEY, MENU_OPEN_MEDIA_KEY,
+    MENU_SAVE_AS_KEY, MENU_OPEN_DOWNLOADS_KEY, MENU_CONNECTION_KEY, DOWNLOADS_DIR,
+    TRAY_STATUS_FORMAT_KEY, CONNECTION_STATE_KEYS, CONNECTION_CONNECTING, MENU_BUTTONS_KEY, MENU_SAVED_KEY,
+    MESSAGES_OF_LABEL_STATUS_FORMAT_KEY, STATUS_LAST_SEEN_FORMAT_KEY, DATE_TIME_FORMAT,
+    MENU_ADD_CONTACT_KEY, MENU_BLOCKED_KEY, MENU_CHAT_CONTACT_KEY, MENU_CHAT_BLOCK_KEY, MENU_CHAT_JOIN_KEY,
+    MENU_GLOBAL_SEARCH_KEY, MENU_OPEN_LINK_KEY, MENU_SEND_STICKER_KEY, MENU_SEND_CONTACT_KEY,
+    MENU_SEND_LOCATION_KEY, MENU_MENTION_KEY, MENU_COMMENTS_KEY, MENU_TOPICS_KEY, MENU_AUDIENCE_KEY,
+    MESSAGE_VIEW_COMMENTS, MENU_TRANSLATE_KEY, MENU_STORIES_KEY, BTN_ATTACH_KEY, TOOLTIP_ATTACH_KEY,
+    PROGRESS_LABEL_KEY, MSG_CHAT_CLOSED_KEY, MENU_SEND_AS_KEY, MENU_POST_STORY_KEY, MESSAGE_VIEW_TOPIC,
+    GENERAL_TOPIC_ID, BTN_SEARCH_KEY, TOOLTIP_SEARCH_CHATS_KEY, TOOLTIP_SEARCH_MESSAGES_KEY, BTN_BACK_KEY,
+    TOOLTIP_BACK_KEY, MENU_GO_TO_REPLY_KEY, MENU_GO_TO_DATE_KEY, MENU_SEARCH_ALL_KEY, MENU_SEND_SILENT_KEY,
+    MENU_FOLDERS_KEY, MENU_MARK_ALL_READ_KEY, MENU_VOICE_SPEED_KEY, MENU_REPORT_KEY
 )
 from ui.chat_list import ChatListMixin
 from ui.message_list import MessageListMixin
@@ -56,7 +74,14 @@ class MainFrame(
         self.views = build_views(i18n, [])
         self.view_index = 0
         self.current_dialog_id = None
-        self.select_timer = None
+        # Whether the window shows the one chat that was entered, rather than the list of chats.
+        self.in_chat = False
+        # How many unread messages the chat being entered had, and the first of them once loaded.
+        self.unread_on_open = 0
+        self.first_unread_id = None
+        # A message to go to once the chat being opened has loaded.
+        self.pending_jump = None
+        self.typing_timer = None
         self.dialogs_limit = DIALOGS_LIMIT
         self.has_more_dialogs = False
         self.reply_to = None
@@ -68,9 +93,12 @@ class MainFrame(
         self.search_query = None
         # None for the conversation itself, otherwise which MESSAGE_VIEW_* list is showing.
         self.message_view = None
+        # Set while the message area shows comments or a topic: {"view", "id", "title"}.
+        self.thread = None
         self.player = audio.Player()
         self.recorder = audio.Recorder()
         self.recording_dialog_id = None
+        self.recording_target = (None, None)
         # (dialog id, message id) -> path, so replaying a voice note does not download it again.
         self.downloaded = {}
         self.messages = []
@@ -89,27 +117,31 @@ class MainFrame(
 
     def init_ui(self):
         self.panel = wx.Panel(self)
-        hbox = wx.BoxSizer(wx.HORIZONTAL)
+        # Two screens share the window, one at a time: the list of chats, and the chat that was entered.
+        hbox = self.screens = wx.BoxSizer(wx.HORIZONTAL)
 
-        dialogs_box = wx.BoxSizer(wx.VERTICAL)
+        dialogs_box = self.dialogs_box = wx.BoxSizer(wx.VERTICAL)
         view_label = wx.StaticText(self.panel, label=self.i18n.get_string(VIEW_LABEL_KEY))
         dialogs_box.Add(view_label, flag=wx.BOTTOM, border=5)
-        self.view_choice = wx.Choice(self.panel, choices=[view.label for view in self.views])
+        self.view_choice = OptionalChoice(self.panel, choices=[view.label for view in self.views])
         self.view_choice.SetSelection(self.view_index)
         self.view_choice.Bind(wx.EVT_CHOICE, self.on_view_changed)
         dialogs_box.Add(self.view_choice, flag=wx.EXPAND|wx.BOTTOM, border=10)
         dialogs_label = wx.StaticText(self.panel, label=self.i18n.get_string(DIALOGS_LABEL_KEY))
         dialogs_box.Add(dialogs_label, flag=wx.BOTTOM, border=5)
         self.dialogs_list = wx.ListBox(self.panel, style=wx.LB_SINGLE)
-        self.dialogs_list.Bind(wx.EVT_LISTBOX, self.on_select_dialog)
         self.dialogs_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_open_dialog)
         self.dialogs_list.Bind(wx.EVT_CONTEXT_MENU, self.on_dialog_context_menu)
         # Enter never reaches the list as a key event inside a panel, so catch it here.
         self.Bind(wx.EVT_CHAR_HOOK, self.on_char_hook)
         dialogs_box.Add(self.dialogs_list, proportion=1, flag=wx.EXPAND)
+        self.list_search_btn = wx.Button(self.panel, label=self.i18n.get_string(BTN_SEARCH_KEY))
+        self.list_search_btn.Bind(wx.EVT_BUTTON, self.on_search_chats)
+        self.list_search_btn.SetToolTip(self.i18n.get_string(TOOLTIP_SEARCH_CHATS_KEY))
+        dialogs_box.Add(self.list_search_btn, flag=wx.TOP, border=10)
         hbox.Add(dialogs_box, proportion=1, flag=wx.EXPAND|wx.ALL, border=15)
 
-        chat_box = wx.BoxSizer(wx.VERTICAL)
+        chat_box = self.chat_box = wx.BoxSizer(wx.VERTICAL)
         self.messages_label = wx.StaticText(self.panel, label=self.i18n.get_string(MESSAGES_LABEL_KEY))
         chat_box.Add(self.messages_label, flag=wx.BOTTOM, border=5)
         self.messages_list = wx.ListBox(self.panel, style=wx.LB_SINGLE)
@@ -120,8 +152,8 @@ class MainFrame(
 
         # A list row is one line, so a long message is cut off on screen. This shows
         # the selected message whole, with its line breaks, for reading by eye.
-        preview_label = wx.StaticText(self.panel, label=self.i18n.get_string(PREVIEW_LABEL_KEY))
-        chat_box.Add(preview_label, flag=wx.BOTTOM, border=5)
+        self.preview_label = wx.StaticText(self.panel, label=self.i18n.get_string(PREVIEW_LABEL_KEY))
+        chat_box.Add(self.preview_label, flag=wx.BOTTOM, border=5)
         self.preview_text = ReadOnlyText(self.panel, size=(-1, PREVIEW_HEIGHT))
         chat_box.Add(self.preview_text, flag=wx.EXPAND|wx.BOTTOM, border=15)
 
@@ -130,10 +162,15 @@ class MainFrame(
         input_box = wx.BoxSizer(wx.HORIZONTAL)
         self.message_input = wx.TextCtrl(self.panel, style=wx.TE_PROCESS_ENTER)
         self.message_input.Bind(wx.EVT_TEXT_ENTER, self.on_send_message)
+        self.message_input.Bind(wx.EVT_TEXT, self.on_input_changed)
         input_box.Add(self.message_input, proportion=1, flag=wx.EXPAND|wx.RIGHT, border=10)
-        self.send_btn = wx.Button(self.panel, label=self.i18n.get_string(BTN_SEND_MESSAGE_KEY))
+        self.send_btn = OptionalButton(self.panel, label=self.i18n.get_string(BTN_SEND_MESSAGE_KEY))
         self.send_btn.Bind(wx.EVT_BUTTON, self.on_send_message)
         input_box.Add(self.send_btn, flag=wx.RIGHT, border=10)
+        # Everything that can go with a message besides its text, in one menu.
+        self.attach_btn = wx.Button(self.panel, label=self.i18n.get_string(BTN_ATTACH_KEY))
+        self.attach_btn.Bind(wx.EVT_BUTTON, self.on_attach)
+        input_box.Add(self.attach_btn, flag=wx.RIGHT, border=10)
         # One button starts the recording and, renamed while it runs, stops and sends it.
         self.record_btn = wx.Button(self.panel, label=self.i18n.get_string(BTN_RECORD_KEY))
         self.record_btn.Bind(wx.EVT_BUTTON, self.on_record_menu)
@@ -142,17 +179,34 @@ class MainFrame(
         self.cancel_record_btn.Bind(wx.EVT_BUTTON, lambda event: self.cancel_recording())
         self.cancel_record_btn.Hide()
         input_box.Add(self.cancel_record_btn, flag=wx.LEFT, border=10)
+        self.search_btn = wx.Button(self.panel, label=self.i18n.get_string(BTN_SEARCH_KEY))
+        self.search_btn.Bind(wx.EVT_BUTTON, self.on_search_messages_menu)
+        self.search_btn.SetToolTip(self.i18n.get_string(TOOLTIP_SEARCH_MESSAGES_KEY))
+        input_box.Add(self.search_btn, flag=wx.LEFT, border=10)
+        # For the mouse: the keyboard has Escape, so Tab need not stop here.
+        self.back_btn = OptionalButton(self.panel, label=self.i18n.get_string(BTN_BACK_KEY))
+        self.back_btn.Bind(wx.EVT_BUTTON, lambda event: self.close_chat())
+        self.back_btn.SetToolTip(self.i18n.get_string(TOOLTIP_BACK_KEY))
+        input_box.Add(self.back_btn, flag=wx.LEFT, border=10)
         chat_box.Add(input_box, flag=wx.EXPAND)
-        hbox.Add(chat_box, proportion=2, flag=wx.EXPAND|wx.TOP|wx.RIGHT|wx.BOTTOM, border=15)
+        # Seen only while a file goes up or comes down. A real progress bar, so a screen
+        # reader reports it the way it reports any other, with no extra talk from the app.
+        self.progress_gauge = wx.Gauge(self.panel, range=100)
+        self.progress_gauge.SetName(self.i18n.get_string(PROGRESS_LABEL_KEY))
+        self.progress_gauge.Hide()
+        chat_box.Add(self.progress_gauge, flag=wx.EXPAND|wx.TOP, border=10)
+        hbox.Add(chat_box, proportion=1, flag=wx.EXPAND|wx.ALL, border=15)
 
         self.view_choice.SetToolTip(self.i18n.get_string(TOOLTIP_VIEW_KEY))
         self.send_btn.SetToolTip(self.i18n.get_string(TOOLTIP_SEND_KEY))
         self.record_btn.SetToolTip(self.i18n.get_string(TOOLTIP_RECORD_KEY))
+        self.attach_btn.SetToolTip(self.i18n.get_string(TOOLTIP_ATTACH_KEY))
 
         self.panel.SetSizer(hbox)
         self.init_menu()
         self.CreateStatusBar()
         self.enable_chat(False)
+        self.show_chat_screen(False)
         self.apply_text_size()
         self.apply_colours()
         self.restore_placement()
@@ -164,6 +218,47 @@ class MainFrame(
         for control in (self.dialogs_list, self.messages_list, self.preview_text, self.message_input):
             control.SetFont(font)
         self.panel.Layout()
+
+    def apply_simplicity(self):
+        """Keep the window as plain as the settings ask: fewer stops for Tab, and the preview only if wanted."""
+        skipped = self.settings.get(SETTING_SIMPLE_TAB)
+        # Each of these is one key away anyway: the view on the menu bar, sending on Enter.
+        for control in (self.view_choice, self.send_btn, self.back_btn):
+            control.skipped_by_tab = skipped
+        # Part of the chat screen, so never there while the list of chats is.
+        shown = self.in_chat and self.settings.get(SETTING_SHOW_PREVIEW)
+        self.preview_label.Show(shown)
+        self.preview_text.Show(shown)
+        self.panel.Layout()
+
+    def show_chat_screen(self, in_chat):
+        """Put the entered chat on screen in place of the list of chats, or the list back.
+
+        What is not on screen cannot take the focus either, so inside a chat Tab moves
+        between its own controls only, and nothing of another chat is in the way.
+        """
+        self.in_chat = in_chat
+        # A transfer under way is shown on either screen.
+        progress_shown = self.progress_gauge.IsShown()
+        self.screens.Show(self.dialogs_box, not in_chat, recursive=True)
+        self.screens.Show(self.chat_box, in_chat, recursive=True)
+        # Shown or hidden along with the rest just now, though each has its own reason to be there.
+        self.cancel_record_btn.Show(in_chat and self.recorder.is_recording())
+        self.progress_gauge.Show(progress_shown)
+        self.apply_simplicity()
+
+    def back_to_list(self):
+        """Go back to the list of chats if a chat is open; what is done next belongs there."""
+        if self.current_dialog_id is not None:
+            self.close_chat()
+
+    def on_search_chats(self, event):
+        self.show_context_menu([
+            (MENU_FIND_KEY, self.on_find_menu),
+            (MENU_SEARCH_ALL_KEY, self.on_search_all_menu),
+            (MENU_GLOBAL_SEARCH_KEY, self.on_global_search_menu),
+            (MENU_FIND_CHAT_KEY, self.on_find_chat_menu),
+        ])
 
     def apply_colours(self):
         """Switch the whole app to the theme chosen in the settings."""
@@ -204,88 +299,257 @@ class MainFrame(
             label = self.i18n.get_string(MESSAGES_LABEL_KEY)
         else:
             title = self.i18n.get_string(MAIN_TITLE_CHAT_FORMAT_KEY).format(chat=chat["title"])
-            label = self.i18n.get_string(MESSAGES_OF_LABEL_FORMAT_KEY).format(chat=chat["title"])
+            status = self.status_text(chat)
+            if status:
+                label = self.i18n.get_string(MESSAGES_OF_LABEL_STATUS_FORMAT_KEY).format(chat=chat["title"], status=status)
+            else:
+                label = self.i18n.get_string(MESSAGES_OF_LABEL_FORMAT_KEY).format(chat=chat["title"])
         self.SetTitle(title)
         # Also what a screen reader says when the message list takes focus.
         self.messages_label.SetLabel(label)
         self.messages_list.SetName(label)
 
-    def init_menu(self):
-        file_menu = wx.Menu()
-        settings_item = file_menu.Append(wx.ID_PREFERENCES, self.i18n.get_string(MENU_SETTINGS_KEY))
-        self.Bind(wx.EVT_MENU, self.on_settings_menu, settings_item)
-        logout_item = file_menu.Append(wx.ID_ANY, self.i18n.get_string(MENU_LOGOUT_KEY))
-        self.Bind(wx.EVT_MENU, self.on_logout_menu, logout_item)
-        file_menu.AppendSeparator()
-        exit_item = file_menu.Append(wx.ID_EXIT, self.i18n.get_string(MENU_EXIT_KEY))
-        self.Bind(wx.EVT_MENU, self.on_exit_menu, exit_item)
-
-        message_menu = wx.Menu()
-        for label_key, handler in (
-            (MENU_REPLY_KEY, self.on_reply_menu),
-            (MENU_EDIT_KEY, self.on_edit_menu),
-            (MENU_DELETE_KEY, self.on_delete_menu),
+    def on_attach(self, event):
+        self.show_context_menu([
             (MENU_SEND_FILE_KEY, self.on_send_file_menu),
-            (MENU_PIN_KEY, self.on_pin_menu),
-            (MENU_FORWARD_KEY, self.on_forward_menu),
-            (MENU_READ_MESSAGE_KEY, self.on_read_message_menu),
-            (MENU_MARK_KEY, self.on_mark_menu),
-            (MENU_UNMARK_ALL_KEY, self.on_unmark_all_menu),
-            (MENU_REACT_KEY, self.on_react_menu),
-            (MENU_SCHEDULE_KEY, self.on_schedule_menu),
+            (MENU_SEND_STICKER_KEY, self.on_send_sticker_menu),
+            (MENU_SEND_CONTACT_KEY, self.on_send_contact_menu),
+            (MENU_SEND_LOCATION_KEY, self.on_send_location_menu),
             (MENU_NEW_POLL_KEY, self.on_new_poll_menu),
-            (MENU_RECORD_KEY, self.on_record_menu),
-        ):
-            item = message_menu.Append(wx.ID_ANY, self.i18n.get_string(label_key))
-            self.Bind(wx.EVT_MENU, handler, item)
+        ])
 
-        search_menu = wx.Menu()
-        for label_key, handler in (
-            (MENU_FIND_KEY, self.on_find_menu),
-            (MENU_FIND_NEXT_KEY, self.on_find_next_menu),
-            (MENU_SEARCH_MESSAGES_KEY, self.on_search_messages_menu),
-        ):
-            item = search_menu.Append(wx.ID_ANY, self.i18n.get_string(label_key))
-            self.Bind(wx.EVT_MENU, handler, item)
+    def progress_reporter(self, format_key):
+        """What to hand a transfer so that its progress shows here; called from the Telegram thread."""
+        return lambda percent: wx.CallAfter(self.show_progress, format_key, percent)
 
-        chats_menu = wx.Menu()
-        for label_key, handler in (
-            (MENU_NEW_CHAT_KEY, self.on_new_chat_menu),
-            (MENU_FIND_CHAT_KEY, self.on_find_chat_menu),
-            (MENU_NEW_GROUP_KEY, lambda event: self.create_chat(is_channel=False)),
-            (MENU_NEW_CHANNEL_KEY, lambda event: self.create_chat(is_channel=True)),
-        ):
-            item = chats_menu.Append(wx.ID_ANY, self.i18n.get_string(label_key))
-            self.Bind(wx.EVT_MENU, handler, item)
+    def show_progress(self, format_key, percent):
+        # A late report must not bring the bar back after the transfer has ended.
+        if not self or not self.is_busy:
+            return
+        if not self.progress_gauge.IsShown():
+            self.progress_gauge.Show()
+            self.panel.Layout()
+        self.progress_gauge.SetValue(percent)
+        self.SetStatusText(self.i18n.get_string(format_key).format(percent=percent))
 
-        views_menu = wx.Menu()
-        for view in MESSAGE_VIEWS:
-            item = views_menu.Append(wx.ID_ANY, self.i18n.get_string(view))
-            self.Bind(wx.EVT_MENU, lambda event, view=view: self.open_message_view(view), item)
+    def hide_progress(self):
+        if self.progress_gauge.IsShown():
+            self.progress_gauge.Hide()
+            self.progress_gauge.SetValue(0)
+            self.panel.Layout()
 
+    def in_comments(self):
+        return self.thread is not None and self.thread["view"] == MESSAGE_VIEW_COMMENTS
+
+    def peer(self, dialog_id):
+        """The chat the messages on screen live in. That is the open chat itself, except
+        under a channel post: its comments belong to the channel's discussion group."""
+        if self.thread is not None and dialog_id == self.current_dialog_id:
+            return self.thread.get("peer", dialog_id)
+        return dialog_id
+
+    def thread_root(self):
+        """What a new message must answer to land in the open topic or under the open post; None outside them."""
+        if self.thread is None:
+            return None
+        if self.thread["view"] == MESSAGE_VIEW_TOPIC and self.thread["id"] == GENERAL_TOPIC_ID:
+            # The first topic of a forum group takes messages that answer nothing.
+            return None
+        return self.thread.get("root", self.thread["id"])
+
+    def belongs_to_thread(self, message):
+        return self.thread is not None and message["thread_id"] == self.thread_root()
+
+    def shown_chat(self):
+        """The open chat as far as rights over the shown messages go. In a discussion group
+        entered through a post, this account is a guest: it writes, and manages only its own."""
+        if self.in_comments():
+            return {"can_send": True, "can_pin": False, "has_links": True, "can_delete_others": False, "is_channel": True}
+        return self.current_dialog()
+
+    def forget_open_chat(self):
+        """Empty the message area: no chat is open any more."""
+        self.current_dialog_id = None
+        self.thread = None
+        self.message_view = None
+        self.show_chat_name(None)
+        self.preview_text.ChangeValue("")
+        self.set_compose()
+        self.message_input.ChangeValue("")
+        self.messages = []
+        self.has_older = False
+        self.marked = set()
+        self.messages_list.Clear()
+        self.enable_chat(False)
+        self.show_chat_screen(False)
+
+    def close_chat(self):
+        """Leave the open chat for the chat list, as Escape does in Telegram's own apps."""
+        # What was being written stays with the chat.
+        self.keep_draft()
+        self.forget_open_chat()
+        self.dialogs_list.SetFocus()
+        self.notify(MSG_CHAT_CLOSED_KEY)
+
+    def status_text(self, chat):
+        """"Online", "last seen ..." for a person's chat; empty for groups, channels, bots and hidden statuses."""
+        if not chat["status"]:
+            return ""
+        key, time = chat["status"]
+        text = self.i18n.get_string(key)
+        if key == STATUS_LAST_SEEN_FORMAT_KEY:
+            text = text.format(time=time.astimezone().strftime(DATE_TIME_FORMAT))
+        return text
+
+    def init_menu(self):
+        """The menu bar holds every command the app has, so nothing depends on finding a button or a context menu."""
+        on_chat = self.on_chat_menu
         menu_bar = wx.MenuBar()
-        menu_bar.Append(file_menu, self.i18n.get_string(MENU_FILE_KEY))
-        menu_bar.Append(chats_menu, self.i18n.get_string(MENU_CHATS_KEY))
-        menu_bar.Append(views_menu, self.i18n.get_string(MENU_CHAT_VIEWS_KEY))
-        menu_bar.Append(message_menu, self.i18n.get_string(MENU_MESSAGE_KEY))
-        menu_bar.Append(search_menu, self.i18n.get_string(MENU_SEARCH_KEY))
-        help_menu = wx.Menu()
-        shortcuts_item = help_menu.Append(wx.ID_HELP, self.i18n.get_string(MENU_SHORTCUTS_KEY))
-        self.Bind(wx.EVT_MENU, self.on_shortcuts_menu, shortcuts_item)
-        about_item = help_menu.Append(wx.ID_ABOUT, self.i18n.get_string(MENU_ABOUT_KEY))
-        self.Bind(wx.EVT_MENU, self.on_about_menu, about_item)
-        menu_bar.Append(help_menu, self.i18n.get_string(MENU_HELP_KEY))
+        for title_key, entries in (
+            (MENU_FILE_KEY, (
+                (MENU_SETTINGS_KEY, self.on_settings_menu, wx.ID_PREFERENCES),
+                (MENU_OPEN_DOWNLOADS_KEY, self.on_open_downloads_menu),
+                (MENU_LOGOUT_KEY, self.on_logout_menu),
+                None,
+                (MENU_EXIT_KEY, self.on_exit_menu, wx.ID_EXIT),
+            )),
+            (MENU_CHATS_KEY, (
+                (MENU_NEW_CHAT_KEY, self.on_new_chat_menu),
+                (MENU_FIND_CHAT_KEY, self.on_find_chat_menu),
+                (MENU_SAVED_KEY, self.on_saved_messages_menu),
+                (MENU_NEW_GROUP_KEY, lambda event: self.create_chat(is_channel=False)),
+                (MENU_NEW_CHANNEL_KEY, lambda event: self.create_chat(is_channel=True)),
+                (MENU_ADD_CONTACT_KEY, self.on_add_contact_menu),
+                (MENU_BLOCKED_KEY, self.on_blocked_menu),
+                (MENU_FOLDERS_KEY, self.on_folders_menu),
+                (MENU_MARK_ALL_READ_KEY, self.on_mark_all_read_menu),
+                None,
+                (MENU_CHAT_INFO_KEY, lambda event: on_chat(self.show_chat_info)),
+                (MENU_CHAT_READ_KEY, lambda event: on_chat(self.toggle_dialog_read)),
+                (MENU_CHAT_PIN_KEY, lambda event: on_chat(lambda chat: self.set_chat_pinned(chat, not chat["pinned"]))),
+                (MENU_CHAT_MUTE_KEY, lambda event: on_chat(self.toggle_dialog_muted)),
+                (MENU_CHAT_ARCHIVE_KEY, lambda event: on_chat(lambda chat: self.set_chat_archived(chat, not chat["archived"]))),
+                (MENU_CHAT_JOIN_KEY, lambda event: on_chat(self.join_dialog)),
+                (MENU_CHAT_CONTACT_KEY, lambda event: on_chat(self.toggle_contact)),
+                (MENU_CHAT_BLOCK_KEY, lambda event: on_chat(self.toggle_blocked)),
+                None,
+                # Last, away from the everyday entries: these cannot be undone.
+                (MENU_CHAT_CLEAR_KEY, lambda event: on_chat(self.clear_history)),
+                (MENU_CHAT_LEAVE_KEY, lambda event: on_chat(lambda chat: self.leave_chat(chat, self.is_private_chat(chat)))),
+            )),
+            (MENU_CHAT_VIEWS_KEY, (
+                (MENU_NEXT_VIEW_KEY, lambda event: self.cycle_view(1)),
+                (MENU_PREVIOUS_VIEW_KEY, lambda event: self.cycle_view(-1)),
+                None,
+                (MENU_TOPICS_KEY, self.on_topics_menu),
+                (MENU_STORIES_KEY, self.on_stories_menu),
+                (MENU_POST_STORY_KEY, self.on_post_story_menu),
+            ) + tuple(
+                (view, lambda event, view=view: self.open_message_view(view)) for view in MESSAGE_VIEWS
+            )),
+            (MENU_GO_KEY, (
+                (MENU_GO_CHATS_KEY, lambda event: self.close_chat() if self.in_chat else self.dialogs_list.SetFocus()),
+                (MENU_GO_MESSAGES_KEY, lambda event: self.messages_list.SetFocus()),
+                (MENU_GO_INPUT_KEY, lambda event: self.message_input.SetFocus()),
+                None,
+                (MENU_NEXT_UNREAD_KEY, self.on_next_unread_menu),
+                None,
+                (MENU_GO_TO_DATE_KEY, self.on_go_to_date_menu),
+                (MENU_GO_TO_REPLY_KEY, self.on_go_to_reply_menu),
+            )),
+            (MENU_MESSAGE_KEY, (
+                (MENU_REPLY_KEY, self.on_reply_menu),
+                (MENU_EDIT_KEY, self.on_edit_menu),
+                (MENU_FORWARD_KEY, self.on_forward_menu),
+                (MENU_REACT_KEY, self.on_react_menu),
+                (MENU_PIN_KEY, self.on_pin_menu),
+                (MENU_DELETE_KEY, self.on_delete_menu),
+                None,
+                (MENU_READ_MESSAGE_KEY, self.on_read_message_menu),
+                (MENU_TRANSLATE_KEY, self.on_translate_menu),
+                (MENU_COPY_KEY, self.on_copy_message),
+                (MENU_COPY_LINK_KEY, self.on_copy_link_menu),
+                (MENU_OPEN_MEDIA_KEY, self.on_activate_message),
+                (MENU_SAVE_AS_KEY, self.on_save_as_menu),
+                (MENU_BUTTONS_KEY, self.on_buttons_menu),
+                (MENU_OPEN_LINK_KEY, self.on_open_link_menu),
+                (MENU_COMMENTS_KEY, self.on_comments_menu),
+                (MENU_AUDIENCE_KEY, self.on_audience_menu),
+                (MENU_VOICE_SPEED_KEY, self.on_voice_speed_menu),
+                (MENU_REPORT_KEY, self.on_report_menu),
+                None,
+                (MENU_MARK_KEY, self.on_mark_menu),
+                (MENU_UNMARK_ALL_KEY, self.on_unmark_all_menu),
+            )),
+            (MENU_SEND_KEY, (
+                (MENU_SEND_FILE_KEY, self.on_send_file_menu),
+                (MENU_RECORD_KEY, self.on_record_menu),
+                (MENU_SEND_STICKER_KEY, self.on_send_sticker_menu),
+                (MENU_SEND_CONTACT_KEY, self.on_send_contact_menu),
+                (MENU_SEND_LOCATION_KEY, self.on_send_location_menu),
+                (MENU_NEW_POLL_KEY, self.on_new_poll_menu),
+                (MENU_SEND_SILENT_KEY, lambda event: self.on_send_message(event, silent=True)),
+                (MENU_SCHEDULE_KEY, self.on_schedule_menu),
+                None,
+                (MENU_MENTION_KEY, self.on_mention_menu),
+                (MENU_SEND_AS_KEY, self.on_send_as_menu),
+            )),
+            (MENU_SEARCH_KEY, (
+                (MENU_FIND_KEY, self.on_find_menu),
+                (MENU_FIND_NEXT_KEY, self.on_find_next_menu),
+                (MENU_SEARCH_MESSAGES_KEY, self.on_search_messages_menu),
+                (MENU_SEARCH_ALL_KEY, self.on_search_all_menu),
+                (MENU_GLOBAL_SEARCH_KEY, self.on_global_search_menu),
+            )),
+            (MENU_HELP_KEY, (
+                (MENU_SHORTCUTS_KEY, self.on_shortcuts_menu, wx.ID_HELP),
+                (MENU_CONNECTION_KEY, self.on_connection_menu),
+                (MENU_ABOUT_KEY, self.on_about_menu, wx.ID_ABOUT),
+            )),
+        ):
+            menu = wx.Menu()
+            for entry in entries:
+                if entry is None:
+                    menu.AppendSeparator()
+                    continue
+                label_key, handler, *item_id = entry
+                item = menu.Append(item_id[0] if item_id else wx.ID_ANY, self.i18n.get_string(label_key))
+                self.Bind(wx.EVT_MENU, handler, item)
+            menu_bar.Append(menu, self.i18n.get_string(title_key))
         self.SetMenuBar(menu_bar)
+
+    def on_open_downloads_menu(self, event):
+        # Nothing has been downloaded yet on a fresh install.
+        os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+        os.startfile(DOWNLOADS_DIR)
+
+    def on_connection_menu(self, event):
+        state = self.telegram_manager.connection_state or CONNECTION_CONNECTING
+        text = self.i18n.get_string(TRAY_STATUS_FORMAT_KEY).format(
+            app=APP_NAME, status=self.i18n.get_string(CONNECTION_STATE_KEYS[state])
+        )
+        self.SetStatusText(text)
+        # Asked for by name, so it is spoken whatever the setting for passing remarks says.
+        speak(text)
 
     def on_settings_menu(self, event):
         with SettingsDialog(self, self.i18n, self.settings, self.telegram_manager) as settings_dialog:
-            if settings_dialog.ShowModal() != wx.ID_OK:
+            if settings_dialog.ShowModal() != wx.ID_OK and not settings_dialog.account_deleted:
+                return
+            if settings_dialog.account_deleted:
+                # Nothing is left to show or to sign out of. After this dialog is gone, not from inside it.
+                wx.CallAfter(self.on_exit_menu, None)
                 return
             settings_dialog.apply_app_settings()
+            self.apply_simplicity()
             self.apply_text_size()
             self.apply_colours()
             profile = settings_dialog.changed_profile()
             privacy = settings_dialog.changed_privacy()
+            notify = settings_dialog.changed_notify()
+        if notify:
+            # Reloaded after: which chats are silent may have just changed for a whole kind of them.
+            self.telegram_manager.save_notify(notify, self.on_ui_thread(lambda result: self.load_dialogs()))
         if privacy:
             self.telegram_manager.save_privacy(
                 privacy, self.on_ui_thread(lambda result: self.notify(MSG_PRIVACY_SAVED_KEY))
@@ -350,7 +614,8 @@ class MainFrame(
 
     def announce(self, text):
         self.SetStatusText(text)
-        speak(text)
+        if self.settings.get(SETTING_SPEAK_FEEDBACK):
+            speak(text)
 
     def on_close(self, event):
         # Closing the window only hides it, so messages keep arriving; a real
@@ -399,10 +664,12 @@ class MainFrame(
 
     def enable_chat(self, enabled):
         """Unlock the writing controls, as far as the open chat lets this account write."""
-        can_send = self.current_dialog().get("can_send", True)
+        # Under a post, subscribers may write even where only admins may post.
+        can_send = self.current_dialog().get("can_send", True) or self.in_comments()
         usable = enabled and can_send
         self.message_input.Enable(usable)
         self.send_btn.Enable(usable)
+        self.attach_btn.Enable(usable)
         self.record_btn.Enable(usable and audio.AVAILABLE)
         if not self.reply_to and not self.editing:
             # In a channel that only its admins post to, say why the field is locked.
@@ -417,6 +684,7 @@ class MainFrame(
     def show_error(self, error_key):
         self.set_status(STATUS_READY_KEY)
         self.is_busy = False
+        self.hide_progress()
         self.enable_chat(self.current_dialog_id is not None)
         wx.MessageBox(
             self.i18n.get_string(error_key), self.i18n.get_string(APP_TITLE_KEY),
@@ -440,10 +708,19 @@ class MainFrame(
     def on_char_hook(self, event):
         is_enter = event.GetKeyCode() in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER)
         focused = wx.Window.FindFocus()
-        if is_enter and focused is self.dialogs_list:
+        sideways = event.GetKeyCode() in (wx.WXK_LEFT, wx.WXK_RIGHT, wx.WXK_NUMPAD_LEFT, wx.WXK_NUMPAD_RIGHT)
+        if sideways and focused in (self.dialogs_list, self.messages_list) and not event.HasAnyModifiers():
+            # In the lists only up and down move. Windows would make left and right do the
+            # same; they are kept free here for what they may be given to do later.
+            pass
+        elif is_enter and focused is self.dialogs_list:
             self.on_open_dialog(event)
         elif is_enter and focused is self.messages_list:
             self.on_activate_message(event)
+        elif event.ControlDown() and event.GetKeyCode() == ord("V") and focused is self.message_input \
+                and self.paste_files():
+            # The clipboard held files or a picture, and they are on their way.
+            pass
         elif event.GetKeyCode() != wx.WXK_ESCAPE or not self.on_escape():
             event.Skip()
 
@@ -460,6 +737,8 @@ class MainFrame(
             pass
         elif self.message_view is not None:
             self.close_search()
+        elif self.current_dialog_id is not None:
+            self.close_chat()
         else:
             return False
         return True

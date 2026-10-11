@@ -13,13 +13,14 @@ import numpy
 from PIL import Image, ImageDraw
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from core.constants import BASE_DIR, SOUND_MESSAGE, SOUND_MESSAGE_IN_CHAT, SOUND_SENT
+from core.constants import BASE_DIR, SOUND_MESSAGE, SOUND_MESSAGE_IN_CHAT, SOUND_SENT, SOUND_START
 
 SAMPLE_RATE = 44100
 ASSETS = os.path.join(BASE_DIR, "assets")
 
 # Note frequencies in Hz.
 C5, E5, G5, A5, C6, E6 = 523.25, 659.25, 783.99, 880.00, 1046.50, 1318.51
+D4, D5, D6, F6_SHARP = 293.66, 587.33, 1174.66, 1479.98
 
 
 def note(frequency, seconds, decay):
@@ -67,8 +68,17 @@ def make_sounds():
     ), volume=0.55)
     # A message in the chat being read: one short, quiet, high note, easy to ignore.
     save(SOUND_MESSAGE_IN_CHAT, mix(0.45, (0.00, note(C6, 0.45, 9.0))), volume=0.30)
-    # Own message sent: two quick notes going up, like a small "done".
-    save(SOUND_SENT, mix(0.45, (0.00, note(G5, 0.3, 12.0)), (0.07, note(C6, 0.38, 10.0))), volume=0.32)
+    # Own message sent: three quick notes going up, like a small "done". Loud enough
+    # to be heard over the screen reader, which starts talking right after a send.
+    save(SOUND_SENT, mix(
+        0.6, (0.00, note(G5, 0.3, 11.0)), (0.07, note(C6, 0.35, 10.0)), (0.14, note(E6, 0.46, 8.0))
+    ), volume=0.50)
+    # The app opening: its signature. An open chord climbing two octaves over a low note
+    # that keeps ringing underneath, so it sounds like a glow spreading rather than a bell.
+    save(SOUND_START, mix(
+        1.9, (0.00, note(D4, 1.8, 2.2) * 0.6), (0.00, note(D5, 1.5, 3.0)), (0.13, note(A5, 1.5, 3.0)),
+        (0.26, note(D6, 1.5, 2.8)), (0.39, note(F6_SHARP, 1.45, 2.6) * 0.8)
+    ), volume=0.50)
 
 
 def make_icon():

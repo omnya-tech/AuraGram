@@ -7,7 +7,9 @@ from core.constants import (
     INVITE_LINK_MAIN_KEY, INVITE_LINK_UNNAMED_KEY, INVITE_LINK_APPROVAL_SUFFIX_KEY,
     INVITE_LINKS_EMPTY_KEY, BTN_COPY_LINK_KEY, BTN_NEW_LINK_KEY, BTN_REVOKE_LINK_KEY,
     MSG_NEW_LINK_NAME_PROMPT_KEY, MSG_NEW_LINK_APPROVAL_KEY, MSG_LINK_CREATED_KEY,
-    MSG_CONFIRM_REVOKE_LINK_KEY, MSG_LINK_REVOKED_KEY
+    MSG_CONFIRM_REVOKE_LINK_KEY, MSG_LINK_REVOKED_KEY, MSG_NEW_LINK_EXPIRY_KEY, LINK_EXPIRY_CHOICES,
+    MSG_NEW_LINK_LIMIT_KEY, ERR_LINK_LIMIT_KEY, INVITE_LINK_EXPIRES_FORMAT_KEY, INVITE_LINK_LIMIT_FORMAT_KEY,
+    DATE_TIME_FORMAT
 )
 
 class InviteLinksDialog(wx.Dialog):
@@ -77,6 +79,13 @@ class InviteLinksDialog(wx.Dialog):
         else:
             name = link["title"] or self.i18n.get_string(INVITE_LINK_UNNAMED_KEY)
         approval = self.i18n.get_string(INVITE_LINK_APPROVAL_SUFFIX_KEY) if link["needs_approval"] else ""
+        # The limits of a link read right after its name, with the other things that set it apart.
+        if link["expires"]:
+            approval += self.i18n.get_string(INVITE_LINK_EXPIRES_FORMAT_KEY).format(
+                date=link["expires"].astimezone().strftime(DATE_TIME_FORMAT)
+            )
+        if link["limit"]:
+            approval += self.i18n.get_string(INVITE_LINK_LIMIT_FORMAT_KEY).format(limit=link["limit"])
         return self.i18n.get_string(INVITE_LINK_FORMAT_KEY).format(
             name=name, approval=approval, uses=link["uses"], link=link["link"]
         )
@@ -107,8 +116,29 @@ class InviteLinksDialog(wx.Dialog):
         )
         if answer == wx.CANCEL:
             return
+        with wx.SingleChoiceDialog(
+            self, self.i18n.get_string(MSG_NEW_LINK_EXPIRY_KEY), title,
+            [self.i18n.get_string(label_key) for seconds, label_key in LINK_EXPIRY_CHOICES]
+        ) as expiry_dialog:
+            if expiry_dialog.ShowModal() != wx.ID_OK:
+                return
+            expire_seconds = LINK_EXPIRY_CHOICES[expiry_dialog.GetSelection()][0]
+        usage_limit = None
+        # Telegram does not count joiners on a link whose joiners wait for approval.
+        if answer != wx.YES:
+            with wx.TextEntryDialog(self, self.i18n.get_string(MSG_NEW_LINK_LIMIT_KEY), title) as limit_dialog:
+                if limit_dialog.ShowModal() != wx.ID_OK:
+                    return
+                typed = limit_dialog.GetValue().strip()
+            if typed:
+                if not typed.isdigit() or int(typed) < 1:
+                    wx.MessageBox(self.i18n.get_string(ERR_LINK_LIMIT_KEY), title, wx.OK | wx.ICON_ERROR, self)
+                    return
+                usage_limit = int(typed)
         self.telegram_manager.create_invite_link(
-            self.dialog_id, name, answer == wx.YES, self.on_ui_thread(lambda result: self.on_changed(MSG_LINK_CREATED_KEY))
+            self.dialog_id, name, answer == wx.YES,
+            self.on_ui_thread(lambda result: self.on_changed(MSG_LINK_CREATED_KEY)),
+            expire_seconds=expire_seconds, usage_limit=usage_limit
         )
 
     def on_revoke(self, event):

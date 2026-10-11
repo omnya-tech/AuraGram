@@ -399,7 +399,8 @@ class LocaleTest(unittest.TestCase):
         expected += [key for _, key in constants.MEDIA_KINDS]
         expected += list(constants.MESSAGE_VIEWS) + list(constants.PRIVACY_LEVELS)
         expected += [key for _, key in constants.MEMBER_LISTS]
-        expected += [key for keys in constants.MEMBER_ACTION_TEXTS.values() for key in keys]
+        # An action that asks its own questions has no yes-or-no confirmation text.
+        expected += [key for keys in constants.MEMBER_ACTION_TEXTS.values() for key in keys if key]
         expected += list(constants.CODE_DELIVERY_KEYS.values()) + list(constants.NEXT_CODE_DELIVERY_KEYS.values())
         expected += [constants.MEMBER_PERMISSION_KEY_PREFIX + name for name in constants.MEMBER_PERMISSIONS]
         self.assertEqual([key for key in expected if key not in strings], [])

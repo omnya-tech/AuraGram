@@ -1,6 +1,5 @@
 import wx
 from core.speech import speak
-from core.settings import SETTING_OPEN_ON_SELECT
 from ui.chat_info_dialog import ChatInfoDialog
 from core.chat_views import build_views
 from core.constants import (
@@ -10,13 +9,26 @@ from core.constants import (
     MSG_CHAT_SAVED_KEY, CONTEXT_OPEN_KEY, CONTEXT_MARK_READ_KEY, CONTEXT_MUTE_KEY,
     CONTEXT_UNMUTE_KEY, MSG_MARKED_READ_KEY, MSG_MUTED_KEY, MSG_UNMUTED_KEY, DIALOGS_LIMIT,
     MSG_LOAD_MORE_DIALOGS_KEY, MSG_FIND_PROMPT_KEY, MSG_NOT_FOUND_KEY, APP_TITLE_KEY,
-    MSG_LOADING_KEY, STATUS_READY_KEY, SELECT_DELAY_MS, SENDER_YOU_KEY, MUTE_DURATIONS,
+    MSG_LOADING_KEY, STATUS_READY_KEY, SENDER_YOU_KEY, MUTE_DURATIONS,
     CONTEXT_MARK_UNREAD_KEY, CONTEXT_PIN_CHAT_KEY, CONTEXT_UNPIN_CHAT_KEY, CONTEXT_ARCHIVE_KEY,
     CONTEXT_UNARCHIVE_KEY, CONTEXT_CLEAR_HISTORY_KEY, MSG_MARKED_UNREAD_KEY, MSG_CHAT_PINNED_KEY,
     MSG_CHAT_UNPINNED_KEY, MSG_ARCHIVED_KEY, MSG_UNARCHIVED_KEY, MSG_CONFIRM_CLEAR_HISTORY_KEY,
     MSG_HISTORY_CLEARED_KEY, DIALOG_FORMAT_KEY, DIALOG_PINNED_KEY, DIALOG_MARKED_UNREAD_KEY,
     DIALOG_UNREAD_COUNT_FORMAT_KEY, PREVIEW_SENDER_FORMAT_KEY,
-    MSG_NEW_CHAT_NAME_PROMPT_KEY, MSG_NEW_CHAT_ABOUT_PROMPT_KEY, MSG_CHAT_CREATED_FORMAT_KEY
+    MSG_NEW_CHAT_NAME_PROMPT_KEY, MSG_NEW_CHAT_ABOUT_PROMPT_KEY, MSG_CHAT_CREATED_FORMAT_KEY,
+    MSG_NO_CHAT_SELECTED_KEY, MSG_NO_UNREAD_KEY, MSG_CHOOSE_MUTE_KEY,
+    CATEGORY_CONTACTS, CATEGORY_NON_CONTACTS, CONTEXT_ADD_CONTACT_KEY, CONTEXT_DELETE_CONTACT_KEY,
+    CONTEXT_BLOCK_KEY, CONTEXT_JOIN_KEY, MSG_CONTACT_PHONE_PROMPT_KEY, MSG_CONTACT_NAME_PROMPT_KEY,
+    MSG_CONTACT_ADDED_FORMAT_KEY, MSG_CONTACT_DELETED_FORMAT_KEY, MSG_CONFIRM_DELETE_CONTACT_FORMAT_KEY,
+    MSG_CONFIRM_BLOCK_FORMAT_KEY, MSG_CONFIRM_UNBLOCK_FORMAT_KEY, MSG_BLOCKED_FORMAT_KEY,
+    MSG_UNBLOCKED_FORMAT_KEY, MSG_NO_BLOCKED_KEY, MSG_CHOOSE_BLOCKED_KEY, MSG_NOT_A_PERSON_KEY,
+    MSG_GLOBAL_SEARCH_PROMPT_KEY, MSG_GLOBAL_SEARCH_RESULTS_KEY, MSG_GLOBAL_SEARCH_EMPTY_KEY,
+    MSG_CONFIRM_JOIN_FORMAT_KEY, MSG_JOINED_FORMAT_KEY, MSG_ALREADY_JOINED_KEY, MSG_MANAGE_FOLDERS_KEY,
+    FOLDER_NEW_KEY, MSG_FOLDER_ACTION_FORMAT_KEY, FOLDER_EDIT_KEY, FOLDER_DELETE_KEY,
+    MSG_FOLDER_NAME_PROMPT_KEY, MSG_FOLDER_RULES_PROMPT_KEY, FOLDER_RULE_KEY_PREFIX, FOLDER_EXCLUSIONS,
+    MSG_FOLDER_CHATS_PROMPT_KEY, ERR_FOLDER_EMPTY_KEY, MSG_CONFIRM_DELETE_FOLDER_FORMAT_KEY,
+    MSG_FOLDERS_SAVED_KEY, FIRST_FOLDER_ID, FOLDER_CATEGORIES, MSG_CONFIRM_MARK_ALL_READ_FORMAT_KEY,
+    MSG_ALL_READ_KEY, MSG_NOTHING_UNREAD_KEY
 )
 
 class ChatListMixin:
@@ -31,6 +43,10 @@ class ChatListMixin:
 
     def show_dialogs(self, dialogs):
         self.all_dialogs = dialogs
+        for dialog in dialogs:
+            # Written on another device, or here before the app was last closed.
+            if dialog["draft"]:
+                self.drafts.setdefault(dialog["id"], dialog["draft"])
         # A full page means Telegram most likely has more chats after it.
         self.has_more_dialogs = len(dialogs) == self.dialogs_limit
         self.render_dialogs()
@@ -60,6 +76,8 @@ class ChatListMixin:
 
     def show_folders(self, folders):
         self.views = build_views(self.i18n, folders)
+        # A folder may have been deleted from under the view that was showing it.
+        self.view_index = min(self.view_index, len(self.views) - 1)
         self.view_choice.Set([view.label for view in self.views])
         self.view_choice.SetSelection(self.view_index)
 
@@ -178,17 +196,7 @@ class ChatListMixin:
         if selected_id is not None:
             self.dialogs_list.SetSelection(self.find_dialog_index(selected_id))
 
-    def on_select_dialog(self, event):
-        # Wait for the selection to settle so arrowing through the list
-        # does not send a request per chat.
-        if self.select_timer:
-            self.select_timer.Stop()
-        if self.settings.get(SETTING_OPEN_ON_SELECT):
-            self.select_timer = wx.CallLater(SELECT_DELAY_MS, self.open_selected_dialog, False)
-
     def on_open_dialog(self, event):
-        if self.select_timer:
-            self.select_timer.Stop()
         self.open_selected_dialog(True)
 
     def open_selected_dialog(self, focus_messages):
@@ -206,7 +214,10 @@ class ChatListMixin:
                 self.messages_list.SetFocus()
             return
         self.keep_draft()
+        self.unread_on_open = self.dialogs[index]["unread"]
         self.current_dialog_id = dialog_id
+        # From here on the window is this chat and nothing else, until it is left.
+        self.show_chat_screen(True)
         self.show_chat_name(self.dialogs[index])
         self.set_compose()
         self.message_input.SetValue(self.drafts.get(dialog_id, ""))
@@ -223,10 +234,14 @@ class ChatListMixin:
         if self.current_dialog_id is None or self.editing is not None:
             return
         text = self.message_input.GetValue()
+        before = self.drafts.get(self.current_dialog_id, "")
         if text.strip():
             self.drafts[self.current_dialog_id] = text
         else:
+            text = ""
             self.drafts.pop(self.current_dialog_id, None)
+        if text != before:
+            self.telegram_manager.save_draft(self.current_dialog_id, text)
 
     def open_chat(self, chat):
         """Show and open a chat that may not be in the list yet (a contact, a looked-up username)."""
@@ -273,6 +288,10 @@ class ChatListMixin:
                 return None
             return chats[choice_dialog.GetSelection()]
 
+    def on_saved_messages_menu(self, event):
+        self.set_status(MSG_LOADING_KEY)
+        self.telegram_manager.open_saved_messages(self.on_ui_thread(self.open_chat))
+
     def on_find_chat_menu(self, event):
         with wx.TextEntryDialog(
             self, self.i18n.get_string(MSG_FIND_CHAT_PROMPT_KEY), self.i18n.get_string(APP_TITLE_KEY)
@@ -281,13 +300,231 @@ class ChatListMixin:
                 return
             query = find_dialog.GetValue().strip()
         if query:
-            self.set_status(MSG_LOADING_KEY)
-            self.telegram_manager.find_chat(query, self.on_ui_thread(self.open_chat))
+            self.open_link(query)
 
-    def ask_text(self, prompt_key):
-        """One line of text from the user; None if they cancel."""
+    def open_link(self, text):
+        """Open what a username, phone number, t.me address or invitation link leads to."""
+        self.set_status(MSG_LOADING_KEY)
+        self.telegram_manager.resolve_link(text, self.on_ui_thread(self.on_link_resolved))
+
+    def on_link_resolved(self, result):
+        self.set_status(STATUS_READY_KEY)
+        if result["chat"] is not None:
+            self.open_chat(result["chat"])
+            return
+        # An invitation: opening it means joining, so ask first.
+        invite_hash, title = result["invite"]
+        if self.confirm(self.i18n.get_string(MSG_CONFIRM_JOIN_FORMAT_KEY).format(title=title)):
+            self.telegram_manager.join_invite(invite_hash, self.on_ui_thread(self.on_joined))
+
+    def on_joined(self, chat, dialog=None):
+        if dialog is not None:
+            # Already in the list: keep its row, with what joining has changed.
+            dialog.update(joined=chat["joined"], can_send=chat["can_send"])
+            if dialog["id"] == self.current_dialog_id:
+                self.enable_chat(True)
+        else:
+            self.open_chat(chat)
+        self.announce(self.i18n.get_string(MSG_JOINED_FORMAT_KEY).format(title=chat["title"]))
+
+    def join_dialog(self, dialog):
+        if dialog["joined"]:
+            self.notify(MSG_ALREADY_JOINED_KEY)
+        else:
+            self.telegram_manager.join_chat(dialog["id"], self.on_ui_thread(self.on_joined, dialog))
+
+    def pick(self, prompt, choices):
+        """Index picked from a list; None if the user backs out."""
+        with wx.SingleChoiceDialog(self, prompt, self.i18n.get_string(APP_TITLE_KEY), choices) as choice_dialog:
+            if choice_dialog.ShowModal() != wx.ID_OK:
+                return None
+            return choice_dialog.GetSelection()
+
+    def pick_many(self, prompt, choices, selected):
+        """Indexes ticked in a list that starts with `selected` ticked; None if the user backs out."""
+        with wx.MultiChoiceDialog(self, prompt, self.i18n.get_string(APP_TITLE_KEY), choices) as choice_dialog:
+            choice_dialog.SetSelections(selected)
+            if choice_dialog.ShowModal() != wx.ID_OK:
+                return None
+            return list(choice_dialog.GetSelections())
+
+    def on_folders_menu(self, event):
+        self.set_status(MSG_LOADING_KEY)
+        self.telegram_manager.load_folders(self.on_ui_thread(self.manage_folders))
+
+    def manage_folders(self, folders):
+        self.set_status(STATUS_READY_KEY)
+        text = self.i18n.get_string
+        index = self.pick(text(MSG_MANAGE_FOLDERS_KEY), [text(FOLDER_NEW_KEY)] + [folder["title"] for folder in folders])
+        if index is None:
+            return
+        if index == 0:
+            # Numbered after the last one there is.
+            new_id = max([folder["id"] for folder in folders] + [FIRST_FOLDER_ID - 1]) + 1
+            self.edit_folder({
+                "id": new_id, "title": "", "categories": set(), "include_ids": set(),
+                **{flag: False for flag in FOLDER_EXCLUSIONS},
+            })
+            return
+        folder = folders[index - 1]
+        action = self.pick(
+            text(MSG_FOLDER_ACTION_FORMAT_KEY).format(title=folder["title"]), [text(FOLDER_EDIT_KEY), text(FOLDER_DELETE_KEY)]
+        )
+        if action == 0:
+            self.edit_folder(folder)
+        elif action == 1 and self.confirm(text(MSG_CONFIRM_DELETE_FOLDER_FORMAT_KEY).format(title=folder["title"])):
+            self.telegram_manager.delete_folder(folder["id"], self.on_ui_thread(self.on_folders_changed))
+
+    def edit_folder(self, folder):
+        """Ask for a folder's name, its rules and its hand-picked chats, then save it."""
+        text = self.i18n.get_string
+        title = self.ask_text(MSG_FOLDER_NAME_PROMPT_KEY, folder["title"])
+        if title is None:
+            return
+        rules = list(FOLDER_CATEGORIES) + list(FOLDER_EXCLUSIONS)
+        ticked = self.pick_many(
+            text(MSG_FOLDER_RULES_PROMPT_KEY), [text(FOLDER_RULE_KEY_PREFIX + rule) for rule in rules],
+            [i for i, rule in enumerate(rules) if rule in folder["categories"] or folder.get(rule)]
+        )
+        if ticked is None:
+            return
+        chosen_rules = {rules[index] for index in ticked}
+        chats = self.all_dialogs
+        included = self.pick_many(
+            text(MSG_FOLDER_CHATS_PROMPT_KEY), [chat["title"] for chat in chats],
+            [i for i, chat in enumerate(chats) if chat["id"] in folder["include_ids"]]
+        )
+        if included is None:
+            return
+        categories = chosen_rules & set(FOLDER_CATEGORIES)
+        if not title or not (categories or included):
+            # Telegram refuses a folder nothing can ever be in.
+            self.show_error(ERR_FOLDER_EMPTY_KEY)
+            return
+        self.telegram_manager.save_folder(
+            {
+                "id": folder["id"], "title": title, "categories": categories,
+                "include_ids": {chats[index]["id"] for index in included},
+                **{flag: flag in chosen_rules for flag in FOLDER_EXCLUSIONS},
+            },
+            {chat["id"] for chat in chats}, self.on_ui_thread(self.on_folders_changed)
+        )
+
+    def on_folders_changed(self, result):
+        self.notify(MSG_FOLDERS_SAVED_KEY)
+        # The views are made from the folders: read them back as Telegram now has them.
+        self.telegram_manager.load_folders(self.on_ui_thread(self.show_folders))
+
+    def on_mark_all_read_menu(self, event):
+        unread = [dialog for dialog in self.all_dialogs if dialog["unread"] or dialog["marked_unread"]]
+        if not unread:
+            self.notify(MSG_NOTHING_UNREAD_KEY)
+            return
+        if not self.confirm(self.i18n.get_string(MSG_CONFIRM_MARK_ALL_READ_FORMAT_KEY).format(count=len(unread))):
+            return
+        self.telegram_manager.mark_all_read([dialog["id"] for dialog in unread])
+        for dialog in unread:
+            if dialog["marked_unread"]:
+                # The hand-set flag is separate from the messages and has to be cleared too.
+                self.telegram_manager.set_marked_unread(dialog["id"], False, lambda result, error_key: None)
+            dialog["unread"], dialog["marked_unread"] = 0, False
+        # Some views hold only unread chats: the list itself may be shorter now.
+        self.render_dialogs()
+        self.notify(MSG_ALL_READ_KEY)
+
+    def on_global_search_menu(self, event):
+        query = self.ask_text(MSG_GLOBAL_SEARCH_PROMPT_KEY)
+        if query:
+            self.set_status(MSG_LOADING_KEY)
+            self.telegram_manager.search_public(query, self.on_ui_thread(self.show_global_results))
+
+    def show_global_results(self, chats):
+        self.set_status(STATUS_READY_KEY)
+        if not chats:
+            self.notify(MSG_GLOBAL_SEARCH_EMPTY_KEY)
+            return
+        chat = self.choose_chat(MSG_GLOBAL_SEARCH_RESULTS_KEY, chats)
+        if chat is not None:
+            self.open_chat(chat)
+
+    def confirm(self, question):
+        answer = wx.MessageBox(
+            question, self.i18n.get_string(APP_TITLE_KEY), wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION, self
+        )
+        return answer == wx.YES
+
+    def is_person(self, dialog):
+        return dialog["category"] in (CATEGORY_CONTACTS, CATEGORY_NON_CONTACTS)
+
+    def on_add_contact_menu(self, event):
+        phone = self.ask_text(MSG_CONTACT_PHONE_PROMPT_KEY)
+        name = self.ask_text(MSG_CONTACT_NAME_PROMPT_KEY) if phone else None
+        if name:
+            self.set_status(MSG_LOADING_KEY)
+            self.telegram_manager.add_contact_by_phone(phone, name, self.on_ui_thread(self.on_contact_imported))
+
+    def on_contact_imported(self, chat):
+        self.set_status(STATUS_READY_KEY)
+        self.open_chat(chat)
+        self.announce(self.i18n.get_string(MSG_CONTACT_ADDED_FORMAT_KEY).format(name=chat["title"]))
+
+    def toggle_contact(self, dialog):
+        if not self.is_person(dialog):
+            self.notify(MSG_NOT_A_PERSON_KEY)
+        elif dialog["category"] == CATEGORY_CONTACTS:
+            if self.confirm(self.i18n.get_string(MSG_CONFIRM_DELETE_CONTACT_FORMAT_KEY).format(name=dialog["title"])):
+                self.telegram_manager.delete_contact(dialog["id"], self.on_ui_thread(
+                    self.on_contact_changed, dialog, CATEGORY_NON_CONTACTS, MSG_CONTACT_DELETED_FORMAT_KEY
+                ))
+        else:
+            # Offered as Telegram shows them; the user may prefer their own name for the person.
+            name = self.ask_text(MSG_CONTACT_NAME_PROMPT_KEY, dialog["title"])
+            if name:
+                self.telegram_manager.add_contact(dialog["id"], name, self.on_ui_thread(
+                    self.on_contact_changed, dialog, CATEGORY_CONTACTS, MSG_CONTACT_ADDED_FORMAT_KEY
+                ))
+
+    def on_contact_changed(self, result, dialog, category, message_key):
+        dialog["category"] = category
+        self.announce(self.i18n.get_string(message_key).format(name=dialog["title"]))
+
+    def toggle_blocked(self, dialog):
+        if not self.is_private_chat(dialog):
+            self.notify(MSG_NOT_A_PERSON_KEY)
+            return
+        # The chat list does not know who is blocked, so ask before offering the opposite.
+        self.set_status(MSG_LOADING_KEY)
+        self.telegram_manager.load_blocked_state(dialog["id"], self.on_ui_thread(self.on_blocked_state, dialog))
+
+    def on_blocked_state(self, blocked, dialog):
+        self.set_status(STATUS_READY_KEY)
+        key = MSG_CONFIRM_UNBLOCK_FORMAT_KEY if blocked else MSG_CONFIRM_BLOCK_FORMAT_KEY
+        if self.confirm(self.i18n.get_string(key).format(name=dialog["title"])):
+            self.set_blocked(dialog, not blocked)
+
+    def set_blocked(self, chat, blocked):
+        message_key = MSG_BLOCKED_FORMAT_KEY if blocked else MSG_UNBLOCKED_FORMAT_KEY
+        self.telegram_manager.set_blocked(chat["id"], blocked, self.on_ui_thread(
+            lambda result: self.announce(self.i18n.get_string(message_key).format(name=chat["title"]))
+        ))
+
+    def on_blocked_menu(self, event):
+        self.set_status(MSG_LOADING_KEY)
+        self.telegram_manager.load_blocked(self.on_ui_thread(self.show_blocked))
+
+    def show_blocked(self, chats):
+        self.set_status(STATUS_READY_KEY)
+        if not chats:
+            self.notify(MSG_NO_BLOCKED_KEY)
+            return
+        chat = self.choose_chat(MSG_CHOOSE_BLOCKED_KEY, chats)
+        if chat is not None:
+            self.set_blocked(chat, False)
+
+    def ask_text(self, prompt_key, value=""):
+        """One line of text from the user, starting from `value`; None if they cancel."""
         with wx.TextEntryDialog(
-            self, self.i18n.get_string(prompt_key), self.i18n.get_string(APP_TITLE_KEY)
+            self, self.i18n.get_string(prompt_key), self.i18n.get_string(APP_TITLE_KEY), value=value
         ) as text_dialog:
             if text_dialog.ShowModal() != wx.ID_OK:
                 return None
@@ -309,6 +546,8 @@ class ChatListMixin:
         self.announce(self.i18n.get_string(MSG_CHAT_CREATED_FORMAT_KEY).format(title=chat["title"]))
 
     def on_find_menu(self, event):
+        # Looking for a chat is done in the list of chats.
+        self.back_to_list()
         with wx.TextEntryDialog(
             self, self.i18n.get_string(MSG_FIND_PROMPT_KEY),
             self.i18n.get_string(APP_TITLE_KEY), self.find_text
@@ -323,6 +562,7 @@ class ChatListMixin:
         if not self.find_text:
             self.on_find_menu(event)
         else:
+            self.back_to_list()
             self.find_dialog(self.dialogs_list.GetSelection() + 1)
 
     def find_dialog(self, start):
@@ -363,16 +603,71 @@ class ChatListMixin:
         archive_key = CONTEXT_UNARCHIVE_KEY if dialog["archived"] else CONTEXT_ARCHIVE_KEY
         entries.append((archive_key, lambda event: self.set_chat_archived(dialog, not dialog["archived"])))
         entries.append((CONTEXT_INFO_KEY, lambda event: self.show_chat_info(dialog)))
+        if not dialog["joined"]:
+            entries.append((CONTEXT_JOIN_KEY, lambda event: self.join_dialog(dialog)))
+        if self.is_person(dialog):
+            is_contact = dialog["category"] == CATEGORY_CONTACTS
+            contact_key = CONTEXT_DELETE_CONTACT_KEY if is_contact else CONTEXT_ADD_CONTACT_KEY
+            entries.append((contact_key, lambda event: self.toggle_contact(dialog)))
+        if self.is_private_chat(dialog):
+            entries.append((CONTEXT_BLOCK_KEY, lambda event: self.toggle_blocked(dialog)))
         entries.append((CONTEXT_CLEAR_HISTORY_KEY, lambda event: self.clear_history(dialog)))
         # Last, away from the everyday entries: it cannot be undone.
-        is_private = dialog["category"] not in (CATEGORY_GROUPS, CATEGORY_BROADCASTS)
+        is_private = self.is_private_chat(dialog)
         leave_key = CONTEXT_DELETE_CHAT_KEY if is_private else CONTEXT_LEAVE_KEY
         entries.append((leave_key, lambda event: self.leave_chat(dialog, is_private)))
         self.show_context_menu(entries)
 
+    def is_private_chat(self, dialog):
+        return dialog["category"] not in (CATEGORY_GROUPS, CATEGORY_BROADCASTS)
+
+    def on_chat_menu(self, action):
+        """Run one of the menu bar's entries for the selected chat; `action` is given that chat."""
+        dialog = self.selected_dialog()
+        if dialog is None:
+            self.notify(MSG_NO_CHAT_SELECTED_KEY)
+        else:
+            action(dialog)
+
+    def toggle_dialog_read(self, dialog):
+        if dialog["unread"] or dialog["marked_unread"]:
+            self.mark_dialog_read(dialog)
+        else:
+            self.mark_dialog_unread(dialog)
+
+    def toggle_dialog_muted(self, dialog):
+        if dialog["muted"]:
+            self.set_dialog_muted(dialog, 0)
+            return
+        with wx.SingleChoiceDialog(
+            self, self.i18n.get_string(MSG_CHOOSE_MUTE_KEY), self.i18n.get_string(APP_TITLE_KEY),
+            [self.i18n.get_string(label_key) for seconds, label_key in MUTE_DURATIONS]
+        ) as choice_dialog:
+            if choice_dialog.ShowModal() == wx.ID_OK:
+                self.set_dialog_muted(dialog, MUTE_DURATIONS[choice_dialog.GetSelection()][0])
+
+    def cycle_view(self, step):
+        """Move to the next or previous chat view, wrapping around: what the view box does, from the keyboard."""
+        self.back_to_list()
+        self.view_choice.SetSelection((self.view_index + step) % len(self.views))
+        self.on_view_changed(None)
+
+    def on_next_unread_menu(self, event):
+        start = self.dialogs_list.GetSelection()
+        for offset in range(1, len(self.dialogs) + 1):
+            index = (start + offset) % len(self.dialogs)
+            if self.dialogs[index]["unread"] or self.dialogs[index]["marked_unread"]:
+                self.dialogs_list.SetSelection(index)
+                self.on_open_dialog(event)
+                return
+        self.notify(MSG_NO_UNREAD_KEY)
+
     def show_chat_info(self, dialog):
         with ChatInfoDialog(self, self.i18n, self.telegram_manager, dialog) as info_dialog:
-            if info_dialog.ShowModal() != wx.ID_OK:
+            result = info_dialog.ShowModal()
+            if info_dialog.deleted:
+                self.on_chat_left(None, dialog)
+            if result != wx.ID_OK:
                 return
             new_title = info_dialog.saved_title
         index = self.find_dialog_index(dialog["id"])
@@ -482,12 +777,5 @@ class ChatListMixin:
                 self.dialogs_list.SetSelection(min(index, len(self.dialogs) - 1))
         if dialog["id"] == self.current_dialog_id:
             # Its messages are gone with it.
-            self.current_dialog_id = None
-            self.show_chat_name(None)
-            self.preview_text.ChangeValue("")
-            self.set_compose()
-            self.messages = []
-            self.has_older = False
-            self.messages_list.Clear()
-            self.enable_chat(False)
+            self.forget_open_chat()
         self.announce(self.i18n.get_string(MSG_LEFT_KEY).format(title=dialog["title"]))

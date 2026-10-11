@@ -3,6 +3,7 @@ from ui.layout import prepare_window
 from core.speech import speak
 from ui.admin_log_dialog import AdminLogDialog
 from ui.invite_links_dialog import InviteLinksDialog
+from ui.chat_admin_dialog import ChatAdminDialog
 from core.constants import (
     APP_TITLE_KEY, MSG_LOADING_KEY, CHAT_KIND_USER, CHAT_KIND_GROUP,
     MEMBER_ROLE_OWNER, MEMBER_ROLE_ADMIN, MEMBER_ACTION_KICK, MEMBER_ACTION_BAN,
@@ -21,7 +22,10 @@ from core.constants import (
     INFO_ROLE_VIEWER_KEY, INFO_NAME_LABEL_KEY, INFO_ABOUT_LABEL_KEY,
     INFO_MEMBER_SEARCH_LABEL_KEY, INFO_MEMBERS_LABEL_KEY, INFO_MEMBER_ROLE_FORMAT_KEY,
     INFO_MEMBERS_FOUND_FORMAT_KEY, BTN_SEARCH_MEMBERS_KEY, BTN_SAVE_KEY, BTN_CLOSE_KEY,
-    ERR_TITLE_REQUIRED_KEY
+    ERR_TITLE_REQUIRED_KEY, GROUP_ONLY_RIGHTS, RIGHTS_OFF_BY_DEFAULT, MEMBER_ACTION_RESTRICT,
+    MEMBER_ACTION_TITLE, MEMBER_ACTION_DELETE_MESSAGES, MSG_RESTRICT_PROMPT_FORMAT_KEY,
+    MSG_RESTRICT_DURATION_KEY, RESTRICT_DURATIONS, MSG_ADMIN_TITLE_PROMPT_FORMAT_KEY, BTN_ADMIN_SETTINGS_KEY,
+    INFO_PHONE_FORMAT_KEY, INFO_COMMON_CHATS_FORMAT_KEY
 )
 
 class ChatInfoDialog(wx.Dialog):
@@ -42,6 +46,8 @@ class ChatInfoDialog(wx.Dialog):
         self.list_modes = [MEMBERS_CURRENT]
         # Set once a new name has been saved, for the caller to show in its chat list.
         self.saved_title = None
+        # Set if the chat was deleted for everyone from the admin settings.
+        self.deleted = False
         self.init_ui()
         self.telegram_manager.load_chat_info(self.dialog_id, self.on_ui_thread(self.show_info))
 
@@ -99,13 +105,16 @@ class ChatInfoDialog(wx.Dialog):
         self.log_btn = wx.Button(self, label=self.i18n.get_string(BTN_ADMIN_LOG_KEY))
         self.log_btn.Bind(wx.EVT_BUTTON, self.on_admin_log)
         buttons.Add(self.log_btn, flag=wx.RIGHT, border=10)
+        self.admin_btn = wx.Button(self, label=self.i18n.get_string(BTN_ADMIN_SETTINGS_KEY))
+        self.admin_btn.Bind(wx.EVT_BUTTON, self.on_admin_settings)
+        buttons.Add(self.admin_btn, flag=wx.RIGHT, border=10)
         buttons.Add(wx.Button(self, wx.ID_CANCEL, self.i18n.get_string(BTN_CLOSE_KEY)))
         sizer.Add(buttons, flag=wx.ALL, border=10)
 
         # Nothing can be edited or searched until the chat's details arrive.
         for control in (
             self.title_input, self.about_input, self.save_btn, self.invite_btn, self.log_btn,
-            self.permissions_btn,
+            self.permissions_btn, self.admin_btn,
             self.list_label, self.list_choice, *self.members_controls
         ):
             control.Disable()
@@ -145,6 +154,10 @@ class ChatInfoDialog(wx.Dialog):
         lines = [text(INFO_KIND_FORMAT_KEY).format(kind=text(info["kind"]))]
         if info["username"]:
             lines.append(text(INFO_USERNAME_FORMAT_KEY).format(username=info["username"]))
+        if info["phone"]:
+            lines.append(text(INFO_PHONE_FORMAT_KEY).format(phone=info["phone"]))
+        if info["common_chats"]:
+            lines.append(text(INFO_COMMON_CHATS_FORMAT_KEY).format(titles="، ".join(info["common_chats"])))
         if info["members_count"] is not None:
             lines.append(text(INFO_MEMBERS_COUNT_FORMAT_KEY).format(count=info["members_count"]))
         is_user = info["kind"] == CHAT_KIND_USER
@@ -184,7 +197,7 @@ class ChatInfoDialog(wx.Dialog):
         for control, usable in (
             (self.list_label, has_choice), (self.list_choice, has_choice),
             (self.invite_btn, info["can_invite"]), (self.log_btn, has_log),
-            (self.permissions_btn, has_permissions)
+            (self.permissions_btn, has_permissions), (self.admin_btn, is_admin and not is_user)
         ):
             control.Show(usable)
             control.Enable(usable)
@@ -236,6 +249,20 @@ class ChatInfoDialog(wx.Dialog):
         ) as log_dialog:
             log_dialog.ShowModal()
 
+    def on_admin_settings(self, event):
+        with ChatAdminDialog(
+            self, self.i18n, self.telegram_manager, self.dialog_id, self.info["title"]
+        ) as admin_dialog:
+            admin_dialog.ShowModal()
+            deleted = admin_dialog.deleted
+        if deleted:
+            # Nothing is left to show information about.
+            self.deleted = True
+            self.EndModal(wx.ID_CANCEL)
+        else:
+            # Members may have been added, or the owner may be someone else now.
+            self.load_members()
+
     def on_invite_links(self, event):
         with InviteLinksDialog(
             self, self.i18n, self.telegram_manager, self.dialog_id, self.info["title"]
@@ -263,6 +290,8 @@ class ChatInfoDialog(wx.Dialog):
             if self.info["kind"] == CHAT_KIND_SUPERGROUP and member["role"] != MEMBER_ROLE_ADMIN:
                 is_restricted = member["role"] == MEMBER_ROLE_RESTRICTED
                 actions.append(MEMBER_ACTION_UNMUTE if is_restricted else MEMBER_ACTION_MUTE)
+                actions.append(MEMBER_ACTION_RESTRICT)
+                actions.append(MEMBER_ACTION_DELETE_MESSAGES)
             actions.append(MEMBER_ACTION_KICK)
             # Small basic groups have no ban list, only removal.
             if self.info["kind"] != CHAT_KIND_GROUP:
@@ -271,6 +300,9 @@ class ChatInfoDialog(wx.Dialog):
             # On someone who is already an admin, "promote" means changing their rights.
             actions.append(MEMBER_ACTION_PROMOTE)
             if member["role"] == MEMBER_ROLE_ADMIN:
+                # Small basic groups have one kind of admin, with no title of their own.
+                if self.info["kind"] != CHAT_KIND_GROUP:
+                    actions.append(MEMBER_ACTION_TITLE)
                 actions.append(MEMBER_ACTION_DEMOTE)
         return actions
 
@@ -282,12 +314,15 @@ class ChatInfoDialog(wx.Dialog):
     def choose_rights(self, member):
         """Ask which admin rights the member should hold; None if cancelled or nothing chosen."""
         is_channel = self.info["kind"] == CHAT_KIND_CHANNEL
-        names = [name for name in ADMIN_RIGHTS if is_channel or name not in CHANNEL_ONLY_RIGHTS]
+        names = [
+            name for name in ADMIN_RIGHTS
+            if name not in (GROUP_ONLY_RIGHTS if is_channel else CHANNEL_ONLY_RIGHTS)
+        ]
         if member["role"] == MEMBER_ROLE_ADMIN:
             chosen = member["rights"]
         else:
-            # A sensible start for a new admin: everything but appointing more admins.
-            chosen = set(names) - {"add_admins"}
+            # A sensible start for a new admin: everything but appointing more admins or hiding behind the group.
+            chosen = set(names) - RIGHTS_OFF_BY_DEFAULT
         with wx.MultiChoiceDialog(
             self,
             self.i18n.get_string(MSG_CHOOSE_RIGHTS_FORMAT_KEY).format(name=member["name"], chat=self.info["title"]),
@@ -327,12 +362,25 @@ class ChatInfoDialog(wx.Dialog):
 
     def manage_member(self, member, action):
         _, confirm_key, done_key = MEMBER_ACTION_TEXTS[action]
-        rights = None
+        rights = title = seconds = None
         if action == MEMBER_ACTION_PROMOTE and self.info["kind"] != CHAT_KIND_GROUP:
             # Picking the rights and pressing OK is the confirmation here.
             rights = self.choose_rights(member)
             if rights is None:
                 return
+        elif action == MEMBER_ACTION_RESTRICT:
+            chosen = self.choose_restriction(member)
+            if chosen is None:
+                return
+            rights, seconds = chosen
+        elif action == MEMBER_ACTION_TITLE:
+            with wx.TextEntryDialog(
+                self, self.i18n.get_string(MSG_ADMIN_TITLE_PROMPT_FORMAT_KEY).format(name=member["name"]),
+                self.i18n.get_string(APP_TITLE_KEY), value=member["title"]
+            ) as title_dialog:
+                if title_dialog.ShowModal() != wx.ID_OK:
+                    return
+                title = title_dialog.GetValue().strip()
         else:
             answer = wx.MessageBox(
                 self.i18n.get_string(confirm_key).format(name=member["name"], chat=self.info["title"]),
@@ -344,8 +392,28 @@ class ChatInfoDialog(wx.Dialog):
         self.telegram_manager.manage_member(
             self.dialog_id, member["id"], action,
             self.on_ui_thread(lambda result: self.on_member_managed(member, done_key)),
-            rights=rights
+            rights=rights, title=title, seconds=seconds
         )
+
+    def choose_restriction(self, member):
+        """Ask what a member may still do and for how long; None if cancelled. Returns (allowed, seconds)."""
+        title = self.i18n.get_string(APP_TITLE_KEY)
+        with wx.MultiChoiceDialog(
+            self, self.i18n.get_string(MSG_RESTRICT_PROMPT_FORMAT_KEY).format(name=member["name"]), title,
+            [self.i18n.get_string(MEMBER_PERMISSION_KEY_PREFIX + name) for name in MEMBER_PERMISSIONS]
+        ) as permissions_dialog:
+            # Starts from nothing taken away: the admin unticks what the member loses.
+            permissions_dialog.SetSelections(list(range(len(MEMBER_PERMISSIONS))))
+            if permissions_dialog.ShowModal() != wx.ID_OK:
+                return None
+            allowed = {MEMBER_PERMISSIONS[index] for index in permissions_dialog.GetSelections()}
+        with wx.SingleChoiceDialog(
+            self, self.i18n.get_string(MSG_RESTRICT_DURATION_KEY), title,
+            [self.i18n.get_string(label_key) for seconds, label_key in RESTRICT_DURATIONS]
+        ) as duration_dialog:
+            if duration_dialog.ShowModal() != wx.ID_OK:
+                return None
+            return allowed, RESTRICT_DURATIONS[duration_dialog.GetSelection()][0]
 
     def on_member_managed(self, member, done_key):
         speak(self.i18n.get_string(done_key).format(name=member["name"]))

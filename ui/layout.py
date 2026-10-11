@@ -26,6 +26,25 @@ def is_on_a_screen(rectangle):
     return wx.Display.GetFromPoint(rectangle.GetTopLeft()) != wx.NOT_FOUND
 
 
+class OptionalTabStop:
+    """Mixed into a control the Tab key may pass over. It stays on screen for the
+    mouse and its job stays on the menu bar; it is only no longer a stop on the
+    way from the chats to the message being written."""
+
+    skipped_by_tab = False
+
+    def AcceptsFocusFromKeyboard(self):
+        return not self.skipped_by_tab and super().AcceptsFocusFromKeyboard()
+
+
+class OptionalChoice(OptionalTabStop, wx.Choice):
+    pass
+
+
+class OptionalButton(OptionalTabStop, wx.Button):
+    pass
+
+
 class ReadOnlyText(wx.TextCtrl):
     """Wrapping, scrollable text for the eyes and the mouse. The Tab key skips it,
     so keyboard and screen reader users do not land on a second copy of what the

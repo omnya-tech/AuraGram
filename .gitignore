@@ -15,3 +15,6 @@ dist/
 
 __pycache__/
 *.pyc
+
+# Tones the user picked to replace the bundled ones
+/sounds/
