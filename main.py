@@ -10,7 +10,7 @@ from core.constants import (
 )
 from core.i18n import I18NManager
 from core import sounds
-from core.settings import SETTING_ANNOUNCE_CONNECTION, SETTING_START_SOUND, SETTING_THEME, Settings
+from core.settings import SETTING_ANNOUNCE_CONNECTION, SETTING_START_SOUND, SETTING_THEME, SETTING_LANGUAGE, Settings
 from core.speech import speak
 from ui.themes import set_theme
 from core.telegram_client import TelegramManager
@@ -32,8 +32,9 @@ class MainApplication(wx.App):
             ask_running_copy_to_show()
             return False
 
-        self.i18n = I18NManager(DEFAULT_LANG)
         self.settings = Settings()
+        # The whole interface loads in the saved language.
+        self.i18n = I18NManager(self.settings.get(SETTING_LANGUAGE))
         # Before any window exists, so the very first one already opens in the chosen colours.
         set_theme(self.settings.get(SETTING_THEME))
         if not self.ensure_credentials():
@@ -43,6 +44,8 @@ class MainApplication(wx.App):
         self.start_hidden = BACKGROUND_FLAG in sys.argv
         self.background = BackgroundWindow(self.i18n, self.show_window, self.quit)
         self.telegram_manager = TelegramManager(self.on_telegram_response)
+        # Messages are translated into the interface language.
+        self.telegram_manager.translate_lang = self.settings.get(SETTING_LANGUAGE)
         self.telegram_manager.set_connection_listener(self.on_connection_change)
         self.show_login()
         # Started only now: its callback needs the app and the frame to exist.

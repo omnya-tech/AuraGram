@@ -118,9 +118,11 @@ class AccessibilityTest(WindowTestCase):
         self.assertEqual(saved.get(s.SETTING_ANNOUNCE_WHEN), c.ANNOUNCE_WHEN_BACKGROUND)
         self.assertEqual(saved.get(s.SETTING_ANNOUNCE_WHAT), c.ANNOUNCE_WHAT_SENDER)
         self.assertTrue(saved.get(s.SETTING_BRAILLE_MESSAGES))
-        # Every on/off setting has a box somewhere in the dialog, and every list setting a drop-down.
+        # Every on/off setting has a box somewhere in the dialog. Every list setting has a drop-down,
+        # the language one shown by its own name rather than through the shared choices dict.
         self.assertEqual(set(dialog.checkboxes), set(s.DEFAULTS))
-        self.assertEqual(set(dialog.choices), set(s.CHOICES))
+        self.assertEqual(set(dialog.choices), set(s.CHOICES) - {s.SETTING_LANGUAGE})
+        self.assertEqual(dialog.language_choice.GetCount(), len(c.LANGUAGES))
 
     def test_next_unread_opens_it_and_says_when_there_is_none(self):
         self.frame.dialogs_list.SetSelection(0)
@@ -186,8 +188,10 @@ class ChoiceSettingsTest(unittest.TestCase):
     def test_every_choice_and_tone_has_its_text(self):
         from core.i18n import I18NManager
         strings = I18NManager("ar").strings
-        for options, default in s.CHOICES.values():
+        for setting, (options, default) in s.CHOICES.items():
             self.assertIn(default, options)
+            if setting == s.SETTING_LANGUAGE:
+                continue  # the language codes are shown by autonym, not by a locale string
             for option in options:
                 self.assertIn(option, strings)
         for name in c.SOUND_NAMES:

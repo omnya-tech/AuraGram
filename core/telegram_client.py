@@ -117,6 +117,8 @@ class TelegramManager(threading.Thread):
         super().__init__(daemon=True)
         self.ui_callback = ui_callback
         self.api_id, self.api_hash = load_credentials()
+        # The language new messages are translated into; set by the app from the user's choice.
+        self.translate_lang = DEFAULT_LANG
         self.loop = asyncio.new_event_loop()
         self.client = None
         self.phone = None
@@ -1216,7 +1218,7 @@ class TelegramManager(threading.Thread):
 
     async def _translate_async(self, dialog_id, message_id):
         result = await self.client(functions.messages.TranslateTextRequest(
-            to_lang=DEFAULT_LANG, peer=self.entities[dialog_id], id=[message_id]
+            to_lang=self.translate_lang, peer=self.entities[dialog_id], id=[message_id]
         ))
         return result.result[0].text
 

@@ -27,7 +27,7 @@ from core.constants import (
     MENU_DELETE_KEY, MENU_SEND_FILE_KEY, MENU_SEARCH_KEY, MENU_FIND_KEY, MENU_FIND_NEXT_KEY,
     APP_TITLE_KEY, MAIN_TITLE_KEY, DIALOGS_LABEL_KEY, MESSAGES_LABEL_KEY, MESSAGE_INPUT_LABEL_KEY,
     BTN_SEND_MESSAGE_KEY, STATUS_READY_KEY, MENU_FILE_KEY, MENU_LOGOUT_KEY, MENU_EXIT_KEY,
-    MSG_CONFIRM_LOGOUT_KEY, MENU_SEND_KEY, MENU_GO_KEY, MENU_GO_CHATS_KEY, MENU_GO_MESSAGES_KEY,
+    MSG_CONFIRM_LOGOUT_KEY, MSG_LANGUAGE_RESTART_KEY, MENU_SEND_KEY, MENU_GO_KEY, MENU_GO_CHATS_KEY, MENU_GO_MESSAGES_KEY,
     MENU_GO_INPUT_KEY, MENU_NEXT_UNREAD_KEY, MENU_NEXT_VIEW_KEY, MENU_PREVIOUS_VIEW_KEY,
     MENU_CHAT_INFO_KEY, MENU_CHAT_READ_KEY, MENU_CHAT_PIN_KEY, MENU_CHAT_MUTE_KEY, MENU_CHAT_ARCHIVE_KEY,
     MENU_CHAT_CLEAR_KEY, MENU_CHAT_LEAVE_KEY, MENU_COPY_KEY, MENU_COPY_LINK_KEY, MENU_OPEN_MEDIA_KEY,
@@ -545,6 +545,7 @@ class MainFrame(
             self.apply_simplicity()
             self.apply_text_size()
             self.apply_colours()
+            language_changed = settings_dialog.language_changed
             profile = settings_dialog.changed_profile()
             privacy = settings_dialog.changed_privacy()
             notify = settings_dialog.changed_notify()
@@ -554,6 +555,11 @@ class MainFrame(
         if privacy:
             self.telegram_manager.save_privacy(
                 privacy, self.on_ui_thread(lambda result: self.notify(MSG_PRIVACY_SAVED_KEY))
+            )
+        if language_changed:
+            wx.MessageBox(
+                self.i18n.get_string(MSG_LANGUAGE_RESTART_KEY), self.i18n.get_string(APP_TITLE_KEY),
+                wx.OK | wx.ICON_INFORMATION, self
             )
         if profile is None:
             if privacy:

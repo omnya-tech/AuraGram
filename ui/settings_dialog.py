@@ -8,7 +8,7 @@ from core.settings import (
     SETTING_MARK_READ_ON_OPEN, SETTING_START_SOUND, SETTING_ANNOUNCE_INTERRUPT,
     SETTING_BRAILLE_MESSAGES, SETTING_SPEAK_FEEDBACK, SETTING_ANNOUNCE_CONNECTION, SETTING_SIMPLE_TAB,
     SETTING_SHOW_PREVIEW, SETTING_ANNOUNCE_WHEN, SETTING_ANNOUNCE_WHAT, SETTING_ANNOUNCE_TYPING,
-    SETTING_VOICE_SPEED, SETTING_MIC_DEVICE, SETTING_MIC_LEVEL, SETTING_NOISE, CHOICES
+    SETTING_VOICE_SPEED, SETTING_MIC_DEVICE, SETTING_MIC_LEVEL, SETTING_NOISE, SETTING_LANGUAGE, CHOICES
 )
 from ui.layout import prepare_window
 from core.constants import (
@@ -42,7 +42,7 @@ from core.constants import (
     MSG_ACCOUNT_DELETED_KEY, SETTINGS_VOICE_SPEED_LABEL_KEY, SETTINGS_TAB_MICROPHONE_KEY, MIC_NOTE_KEY,
     MIC_DEVICE_LABEL_KEY, MIC_DEVICE_DEFAULT_KEY, MIC_LEVEL_LABEL_KEY, MIC_NOISE_LABEL_KEY, BTN_TEST_MIC_KEY,
     MSG_MIC_TEST_SPEAK_KEY, MSG_MIC_TEST_PLAYING_KEY, MSG_MIC_TEST_SILENT_KEY, MIC_LEVELS, NOISE_LEVELS,
-    MIC_TEST_MS, ERR_AUDIO_KEY, ERR_NO_AUDIO_SUPPORT_KEY
+    MIC_TEST_MS, ERR_AUDIO_KEY, ERR_NO_AUDIO_SUPPORT_KEY, LANGUAGES, LANGUAGE_NAMES, SETTINGS_LANGUAGE_LABEL_KEY
 )
 from core.speech import speak
 
@@ -94,6 +94,8 @@ class SettingsDialog(wx.Dialog):
         self.mic_tester = audio.Recorder()
         # Set once the account is gone: whoever opened the dialog has to close the app.
         self.account_deleted = False
+        # Set when the chosen language differs from the one running now.
+        self.language_changed = False
         self.sessions = []
         self.checkboxes = {}
         self.choices = {}
@@ -134,6 +136,11 @@ class SettingsDialog(wx.Dialog):
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(wx.StaticText(page, label=self.i18n.get_string(SETTINGS_APP_NOTE_KEY)), flag=wx.ALL, border=10)
         self.add_checkboxes(page, sizer, APP_OPTIONS)
+        # The interface language. Each one is named in its own script; takes effect after a restart.
+        sizer.Add(wx.StaticText(page, label=self.i18n.get_string(SETTINGS_LANGUAGE_LABEL_KEY)), flag=wx.LEFT|wx.RIGHT, border=10)
+        self.language_choice = wx.Choice(page, choices=[LANGUAGE_NAMES[code] for code in LANGUAGES])
+        self.language_choice.SetSelection(LANGUAGES.index(self.settings.get(SETTING_LANGUAGE)))
+        sizer.Add(self.language_choice, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
         page.SetSizer(sizer)
         return page
 
@@ -674,6 +681,9 @@ class SettingsDialog(wx.Dialog):
         for setting, choice in self.choices.items():
             self.settings.set(setting, CHOICES[setting][0][choice.GetSelection()])
         self.settings.set(SETTING_MIC_DEVICE, self.mic_names[self.mic_choice.GetSelection()])
+        language = LANGUAGES[self.language_choice.GetSelection()]
+        self.language_changed = language != self.settings.get(SETTING_LANGUAGE)
+        self.settings.set(SETTING_LANGUAGE, language)
         self.settings.save()
         for name, draft in self.sound_changes.items():
             if draft is None:

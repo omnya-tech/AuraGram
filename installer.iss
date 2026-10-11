@@ -48,6 +48,8 @@ UninstallDisplayName={#AppName}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+; Show the language chooser so the user can pick Arabic or English.
+ShowLanguageDialog=yes
 ; The running copy is closed by the code below, which lets it sign off properly;
 ; Windows' own "close applications" step would only see a program with no window.
 CloseApplications=no

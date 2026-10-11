@@ -57,6 +57,11 @@ ASSETS_DIR = os.path.join(RESOURCE_DIR, "assets")
 SOUNDS_DIR = os.path.join(ASSETS_DIR, "sounds")
 ICON_FILE = os.path.join(ASSETS_DIR, "auragram.ico")
 DEFAULT_LANG = "ar"
+# The interface languages the app offers, and the name each shows itself by.
+LANGUAGES = ("ar", "en")
+LANGUAGE_NAMES = {"ar": "العربية", "en": "English"}
+SETTINGS_LANGUAGE_LABEL_KEY = "SETTINGS_LANGUAGE_LABEL"
+MSG_LANGUAGE_RESTART_KEY = "MSG_LANGUAGE_RESTART"
 JSON_EXT = ".json"
 READ_MODE = "r"
 ENCODING_UTF8 = "utf-8"
