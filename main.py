@@ -4,12 +4,12 @@ import sys
 import wx
 from core.config import load_credentials, read_sealed, save_credentials
 from core.constants import (
-    APP_NAME, DEFAULT_LANG, APP_TITLE_KEY, STEP_DONE, BACKGROUND_FLAG, CHECK_FLAG, QUIT_FLAG,
+    APP_NAME, DEFAULT_LANG, STEP_DONE, BACKGROUND_FLAG, CHECK_FLAG, QUIT_FLAG,
     QUIT_WAIT_SECONDS, CONNECT_CHECK_SECONDS, BUNDLED_CONFIG_FILE, LOG_FILE, LOG_MAX_BYTES, APP_VERSION, IS_FROZEN,
-    SHOW_HOTKEY_TEXT, ERR_HOTKEY_TAKEN_FORMAT_KEY, SOUND_START, MSG_UNEXPECTED_ERROR_KEY
+    SHORTCUT_SHOW_WINDOW, SOUND_START, MSG_UNEXPECTED_ERROR_KEY
 )
 from core.i18n import I18NManager
-from core import diagnostics, proxy, sounds
+from core import diagnostics, proxy, shortcuts, sounds
 from core.settings import SETTING_ANNOUNCE_CONNECTION, SETTING_START_SOUND, SETTING_THEME, SETTING_LANGUAGE, Settings
 from core.speech import speak
 from ui.layout import use_interface_language
@@ -44,7 +44,9 @@ class MainApplication(wx.App):
 
         # Started with Windows: stay out of the way unless signing in is needed.
         self.start_hidden = BACKGROUND_FLAG in sys.argv
-        self.background = BackgroundWindow(self.i18n, self.show_window, self.quit)
+        self.background = BackgroundWindow(
+            self.i18n, self.show_window, self.quit, shortcuts.current(self.settings)[SHORTCUT_SHOW_WINDOW]
+        )
         self.telegram_manager = TelegramManager(self.on_telegram_response)
         # Messages are translated into the interface language.
         self.telegram_manager.translate_lang = self.settings.get(SETTING_LANGUAGE)
@@ -54,11 +56,6 @@ class MainApplication(wx.App):
         self.show_login()
         # Started only now: its callback needs the app and the frame to exist.
         self.telegram_manager.start()
-        if not self.background.has_hotkey and not self.start_hidden:
-            wx.MessageBox(
-                self.i18n.get_string(ERR_HOTKEY_TAKEN_FORMAT_KEY).format(hotkey=SHOW_HOTKEY_TEXT),
-                self.i18n.get_string(APP_TITLE_KEY), wx.OK | wx.ICON_INFORMATION
-            )
         return True
 
     def ensure_credentials(self):
@@ -89,7 +86,8 @@ class MainApplication(wx.App):
         if step == STEP_DONE:
             # Open the main window first so the app never has zero windows.
             self.main_frame = MainFrame(
-                self.i18n, self.telegram_manager, self.settings, self.log_out, self.quit
+                self.i18n, self.telegram_manager, self.settings, self.log_out, self.quit,
+                self.background.set_hotkey
             )
             if not self.start_hidden:
                 self.main_frame.Show()
@@ -97,6 +95,8 @@ class MainApplication(wx.App):
                 if self.settings.get(SETTING_START_SOUND):
                     sounds.play(SOUND_START)
                 self.main_frame.check_updates_once()
+                # After the window is up: a shortcut another program holds is news worth a question.
+                wx.CallAfter(self.main_frame.check_shortcuts_once)
             self.login_frame.Destroy()
             if error_key:
                 self.main_frame.show_error(error_key)

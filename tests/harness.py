@@ -13,6 +13,7 @@ from unittest import mock
 import wx
 from telethon.tl import types
 
+import core.key_conflicts
 import core.settings
 import core.sounds
 import core.telegram_client as telegram_client
@@ -529,6 +530,8 @@ class WindowTestCase(unittest.TestCase):
             mock.patch.object(core.settings, "SETTINGS_FILE", settings_file),
             mock.patch.object(wx, "MessageBox", message_box),
             mock.patch.object(core.sounds, "play", self.played.append),
+            # What other programs on the testing machine hold is no business of the tests.
+            mock.patch.object(core.key_conflicts, "find", lambda texts: {}),
             mock.patch.object(wx, "SingleChoiceDialog", FakeChooser),
             mock.patch.object(wx, "MultiChoiceDialog", FakeChooser),
             mock.patch.object(wx, "TextEntryDialog", FakeChooser),

@@ -1,11 +1,12 @@
 import os
 import threading
 import wx
-from core import audio, diagnostics, updates
+from core import audio, diagnostics, key_conflicts, shortcuts, updates
 from core.speech import speak
 from core.settings import (
     SETTING_KEEP_IN_BACKGROUND, SETTING_LARGE_TEXT, SETTING_THEME, SETTING_SPEAK_FEEDBACK,
-    SETTING_SIMPLE_TAB, SETTING_SHOW_PREVIEW, SETTING_CHECK_UPDATES, SETTING_LANGUAGE, SETTING_ENTER_SENDS
+    SETTING_SIMPLE_TAB, SETTING_SHOW_PREVIEW, SETTING_CHECK_UPDATES, SETTING_LANGUAGE, SETTING_ENTER_SENDS,
+    SHORTCUT_CONFLICTS_TOLD
 )
 from ui.themes import apply_theme, set_theme
 from ui.layout import (
@@ -18,7 +19,9 @@ from core.constants import (
     MENU_READ_MESSAGE_KEY, MENU_HELP_KEY, MENU_SHORTCUTS_KEY, SHORTCUTS_TITLE_KEY, SHORTCUTS_TEXT_KEY,
     MENU_MARK_KEY, MENU_UNMARK_ALL_KEY, MENU_NEW_GROUP_KEY, MENU_NEW_CHANNEL_KEY, MESSAGE_VIEWS,
     MENU_CHAT_VIEWS_KEY, MENU_NEW_POLL_KEY, MENU_REACT_KEY, MENU_SCHEDULE_KEY,
-    MSG_IN_BACKGROUND_FORMAT_KEY, SHOW_HOTKEY_TEXT, BTN_RECORD_KEY, MAIN_WINDOW_SIZE,
+    MSG_IN_BACKGROUND_FORMAT_KEY, MSG_IN_BACKGROUND_KEY, SHORTCUT_SHOW_WINDOW, BTN_RECORD_KEY, MAIN_WINDOW_SIZE,
+    SHORTCUTS_HELP_LINE_FORMAT_KEY, SHORTCUTS_HELP_ANYWHERE_KEY, MSG_SHORTCUT_CONFLICTS_STARTUP_FORMAT_KEY,
+    ERR_HOTKEY_TAKEN_FORMAT_KEY,
     MAIN_WINDOW_MIN_SIZE, PREVIEW_HEIGHT, PREVIEW_LABEL_KEY, MAIN_TITLE_CHAT_FORMAT_KEY,
     MESSAGES_OF_LABEL_FORMAT_KEY, TOOLTIP_SEND_KEY, TOOLTIP_RECORD_KEY, TOOLTIP_VIEW_KEY,
     BTN_CANCEL_RECORDING_KEY, MSG_CANNOT_WRITE_KEY, MENU_ABOUT_KEY, ABOUT_FORMAT_KEY,
@@ -67,7 +70,7 @@ class MainFrame(
     """The main window: builds the widgets and menus, holds the state every part
     shares, and offers the helpers the mixins rely on (status, errors, results)."""
 
-    def __init__(self, i18n, telegram_manager, settings, on_logout, on_quit=None):
+    def __init__(self, i18n, telegram_manager, settings, on_logout, on_quit=None, on_hotkey_changed=None):
         super().__init__(None, title=i18n.get_string(MAIN_TITLE_KEY), size=MAIN_WINDOW_SIZE)
         prepare_window(self, i18n)
         self.SetMinSize(MAIN_WINDOW_MIN_SIZE)
@@ -77,7 +80,15 @@ class MainFrame(
         self.on_logout = on_logout
         # Called to end the whole program; without it, closing this window is all there is.
         self.on_quit = on_quit
+        # Called with the shortcut that brings the window back from any program, when the user
+        # changes it; answers whether Windows gave it. Without it, nothing listens for that shortcut.
+        self.on_hotkey_changed = on_hotkey_changed
         self.is_quitting = False
+        # Menu command -> its entry in the menu bar, and every shortcut those entries answer to.
+        self.menu_items = {}
+        self.menu_shortcuts = set()
+        # Whether this run has already looked for shortcuts that other programs hold.
+        self.shortcuts_checked = False
         # Every loaded chat, and the subset the current view shows in the list.
         self.all_dialogs = []
         self.dialogs = []
@@ -546,8 +557,38 @@ class MainFrame(
                 label_key, handler, *item_id = entry
                 item = menu.Append(item_id[0] if item_id else wx.ID_ANY, self.i18n.get_string(label_key))
                 self.Bind(wx.EVT_MENU, handler, item)
+                self.menu_items[label_key] = item
             menu_bar.Append(menu, self.i18n.get_string(title_key))
+        self.apply_shortcuts()
         self.SetMenuBar(menu_bar)
+
+    def apply_shortcuts(self):
+        """Give every menu entry the shortcut the user has for it; wx reads it from after the tab in the label."""
+        table = shortcuts.current(self.settings)
+        for command, item in self.menu_items.items():
+            label = self.i18n.get_string(command)
+            item.SetItemLabel(label + "\t" + table[command] if table[command] else label)
+        self.menu_shortcuts = {table[command] for command in self.menu_items} - {""}
+
+    def show_window_shortcut(self):
+        return shortcuts.current(self.settings)[SHORTCUT_SHOW_WINDOW]
+
+    def check_shortcuts_once(self):
+        """Look, at most once a run, for shortcuts that other programs on this computer hold, and offer
+        to change them. The same finding is not brought up again at the next start."""
+        if not self or self.shortcuts_checked:
+            return
+        self.shortcuts_checked = True
+        table = shortcuts.current(self.settings)
+        conflicts = key_conflicts.find(table.values())
+        if sorted(conflicts) == self.settings.get(SHORTCUT_CONFLICTS_TOLD):
+            return
+        self.settings.set(SHORTCUT_CONFLICTS_TOLD, sorted(conflicts))
+        self.settings.save()
+        if conflicts and self.confirm(self.i18n.get_string(MSG_SHORTCUT_CONFLICTS_STARTUP_FORMAT_KEY).format(
+            conflicts=shortcuts.conflict_lines(self.i18n, table, conflicts)
+        )):
+            self.open_settings(on_shortcuts=True)
 
     def on_open_downloads_menu(self, event):
         # Nothing has been downloaded yet on a fresh install.
@@ -678,7 +719,13 @@ class MainFrame(
         os.startfile(os.path.dirname(path))
 
     def on_settings_menu(self, event):
+        self.open_settings()
+
+    def open_settings(self, on_shortcuts=False):
+        hotkey = self.show_window_shortcut()
         with SettingsDialog(self, self.i18n, self.settings, self.telegram_manager) as settings_dialog:
+            if on_shortcuts:
+                settings_dialog.show_shortcuts_page()
             if settings_dialog.ShowModal() != wx.ID_OK and not settings_dialog.account_deleted:
                 return
             if settings_dialog.account_deleted:
@@ -693,10 +740,17 @@ class MainFrame(
             self.apply_simplicity()
             self.apply_text_size()
             self.apply_colours()
+            self.apply_shortcuts()
             language_changed = settings_dialog.language_changed
             profile = settings_dialog.changed_profile()
             privacy = settings_dialog.changed_privacy()
             notify = settings_dialog.changed_notify()
+        new_hotkey = self.show_window_shortcut()
+        if new_hotkey != hotkey and self.on_hotkey_changed is not None and not self.on_hotkey_changed(new_hotkey):
+            wx.MessageBox(
+                self.i18n.get_string(ERR_HOTKEY_TAKEN_FORMAT_KEY).format(hotkey=new_hotkey),
+                self.i18n.get_string(APP_TITLE_KEY), wx.OK | wx.ICON_WARNING, self
+            )
         if notify:
             # Reloaded after: which chats are silent may have just changed for a whole kind of them.
             self.telegram_manager.save_notify(notify, self.on_ui_thread(lambda result: self.load_dialogs()))
@@ -726,7 +780,26 @@ class MainFrame(
             text_dialog.ShowModal()
 
     def on_shortcuts_menu(self, event):
-        self.show_text(SHORTCUTS_TITLE_KEY, self.i18n.get_string(SHORTCUTS_TEXT_KEY))
+        self.show_text(SHORTCUTS_TITLE_KEY, self.shortcuts_text())
+
+    def shortcuts_text(self):
+        """The keys that never change, then every menu with the shortcuts its entries have now."""
+        line = self.i18n.get_string(SHORTCUTS_HELP_LINE_FORMAT_KEY)
+        parts = [self.i18n.get_string(SHORTCUTS_TEXT_KEY)]
+        for menu, title in self.GetMenuBar().GetMenus():
+            rows = [
+                line.format(shortcut=item.GetItemLabel().partition("\t")[2], command=item.GetItemLabelText())
+                for item in menu.GetMenuItems() if "\t" in item.GetItemLabel()
+            ]
+            if rows:
+                parts.append("\n".join([wx.MenuItem.GetLabelText(title)] + rows))
+        hotkey = self.show_window_shortcut()
+        if hotkey:
+            parts.append("\n".join([
+                self.i18n.get_string(SHORTCUTS_HELP_ANYWHERE_KEY),
+                line.format(shortcut=hotkey, command=shortcuts.label(self.i18n, SHORTCUT_SHOW_WINDOW))
+            ]))
+        return "\n\n".join(parts)
 
     def on_about_menu(self, event):
         wx.MessageBox(
@@ -794,7 +867,11 @@ class MainFrame(
             self.update_record_buttons()
             self.save_placement()
             self.Hide()
-            speak(self.i18n.get_string(MSG_IN_BACKGROUND_FORMAT_KEY).format(hotkey=SHOW_HOTKEY_TEXT))
+            hotkey = self.show_window_shortcut()
+            speak(
+                self.i18n.get_string(MSG_IN_BACKGROUND_FORMAT_KEY).format(hotkey=hotkey) if hotkey
+                else self.i18n.get_string(MSG_IN_BACKGROUND_KEY)
+            )
             return
         self.player.stop()
         self.recorder.cancel()
@@ -893,9 +970,9 @@ class MainFrame(
             self.on_open_dialog(event)
         elif is_enter and focused is self.messages_list:
             self.on_activate_message(event)
-        elif is_enter and focused is self.message_input and not event.AltDown() \
-                and not (event.ControlDown() and event.ShiftDown()):
-            # With Alt, or with Ctrl and Shift together, it is one of the menu's own ways of sending.
+        elif is_enter and focused is self.message_input \
+                and shortcuts.from_key_event(event) not in self.menu_shortcuts:
+            # Where Enter with other keys is the shortcut of a menu entry, it is the menu's to act on.
             if self.enter_sends(event):
                 self.on_send_message(event)
             else:

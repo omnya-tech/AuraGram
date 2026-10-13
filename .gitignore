@@ -8,6 +8,10 @@ core/_seal.py
 # Personal preferences
 settings.json
 
+# The file of errors the program keeps beside the settings
+auragram.log
+auragram.log.*
+
 # Media saved from chats
 downloads/
 

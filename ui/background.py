@@ -2,6 +2,7 @@ import ctypes
 import time
 import wx
 import wx.adv
+from core import key_conflicts, shortcuts
 from core.constants import (
     BACKGROUND_WINDOW_TITLE, SHOW_HOTKEY_ID, ICON_FILE,
     TRAY_OPEN_KEY, TRAY_EXIT_KEY, TRAY_TOOLTIP_KEY, TRAY_STATUS_FORMAT_KEY,
@@ -92,21 +93,33 @@ class BackgroundWindow(wx.Frame):
     """Never shown. Keeps the program alive while its windows are hidden, and
     owns the two ways back in: the tray icon and the global shortcut."""
 
-    def __init__(self, i18n, on_show, on_quit):
+    def __init__(self, i18n, on_show, on_quit, hotkey):
         super().__init__(None, title=BACKGROUND_WINDOW_TITLE)
         self.tray = TrayIcon(i18n, on_show, on_quit)
-        # Ctrl+Alt+Shift+A. False if another program already holds the combination.
-        self.has_hotkey = self.RegisterHotKey(
-            SHOW_HOTKEY_ID, wx.MOD_CONTROL | wx.MOD_ALT | wx.MOD_SHIFT, ord("A")
-        )
+        self.hotkey = ""
+        self.has_hotkey = False
+        self.set_hotkey(hotkey)
         self.Bind(wx.EVT_HOTKEY, lambda event: on_show(), id=SHOW_HOTKEY_ID)
         # Nobody can click this window shut; a close request comes from --quit
         # (the installer) or from Windows shutting down, and both mean: exit.
         self.Bind(wx.EVT_CLOSE, lambda event: on_quit())
 
-    def shut_down(self):
+    def set_hotkey(self, hotkey):
+        """Answer to this shortcut from any program, in place of the one before; "" for none.
+
+        Returns False if another program already holds the combination.
+        """
         if self.has_hotkey:
             self.UnregisterHotKey(SHOW_HOTKEY_ID)
+            key_conflicts.own_hotkeys.discard(self.hotkey)
+        self.hotkey = hotkey
+        self.has_hotkey = bool(hotkey) and self.RegisterHotKey(SHOW_HOTKEY_ID, *shortcuts.wx_hotkey(hotkey))
+        if self.has_hotkey:
+            key_conflicts.own_hotkeys.add(hotkey)
+        return self.has_hotkey or not hotkey
+
+    def shut_down(self):
+        self.set_hotkey("")
         self.tray.RemoveIcon()
         self.tray.Destroy()
         self.Destroy()

@@ -55,6 +55,11 @@ SETTING_PROXY_PASSWORD = "proxy_password"
 SETTING_PROXY_SECRET = "proxy_secret"
 # The user's own Google Gemini API key, for describing pictures; empty leaves that turned off.
 SETTING_GEMINI_KEY = "gemini_key"
+# Not an on/off option: {command: shortcut} for the commands whose shortcut the user changed,
+# "" where they took it away. See core/shortcuts.py for the ones every command starts with.
+SETTING_SHORTCUTS = "shortcuts"
+# The shortcuts already reported as held by other programs, so the same news is not told at every start.
+SHORTCUT_CONFLICTS_TOLD = "shortcut_conflicts_told"
 
 DEFAULTS = {
     SETTING_LARGE_TEXT: False,
@@ -103,6 +108,8 @@ class Settings:
         for key, (allowed, default) in CHOICES.items():
             self.values[key] = default
         self.values.update(TEXTS)
+        self.values[SETTING_SHORTCUTS] = {}
+        self.values[SHORTCUT_CONFLICTS_TOLD] = []
         self.load()
 
     def load(self):
@@ -126,6 +133,12 @@ class Settings:
         placement = stored.get(WINDOW_PLACEMENT)
         if isinstance(placement, list) and len(placement) == 5 and all(isinstance(n, int) for n in placement):
             self.values[WINDOW_PLACEMENT] = placement
+        changed = stored.get(SETTING_SHORTCUTS)
+        if isinstance(changed, dict) and all(isinstance(text, str) for text in changed.values()):
+            self.values[SETTING_SHORTCUTS] = changed
+        told = stored.get(SHORTCUT_CONFLICTS_TOLD)
+        if isinstance(told, list) and all(isinstance(text, str) for text in told):
+            self.values[SHORTCUT_CONFLICTS_TOLD] = told
 
     def save(self):
         with open(SETTINGS_FILE, "w", encoding=ENCODING_UTF8) as file:

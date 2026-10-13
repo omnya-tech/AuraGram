@@ -2,7 +2,7 @@ import os
 import shutil
 import tempfile
 import wx
-from core import audio, sounds
+from core import audio, key_conflicts, shortcuts, sounds
 from core.settings import (
     SETTING_THEME, SETTING_LARGE_TEXT, SETTING_KEEP_IN_BACKGROUND, SETTING_SENT_SOUND, SETTING_PLAY_SOUND, SETTING_ANNOUNCE_MESSAGES,
     SETTING_MARK_READ_ON_OPEN, SETTING_START_SOUND, SETTING_ANNOUNCE_INTERRUPT,
@@ -14,6 +14,7 @@ from core.settings import (
 )
 from ui.layout import prepare_window
 from ui.proxy_dialog import ProxyDialog
+from ui.shortcut_dialog import ShortcutDialog
 from core.constants import (
     SOUNDS_DIR, SETTINGS_THEME_LABEL_KEY, SETTINGS_LARGE_TEXT_KEY, SETTINGS_KEEP_IN_BACKGROUND_KEY, SETTINGS_SENT_SOUND_KEY, SETTINGS_TITLE_KEY, SETTINGS_TAB_APP_KEY, SETTINGS_TAB_ACCOUNT_KEY,
     SETTINGS_APP_NOTE_KEY, SETTINGS_ACCOUNT_NOTE_KEY, SETTINGS_PLAY_SOUND_KEY,
@@ -49,7 +50,11 @@ from core.constants import (
     SETTINGS_CHECK_UPDATES_KEY, SETTINGS_TAB_SERVICES_KEY, BTN_PROXY_KEY, MSG_PROXY_SAVED_KEY,
     SETTINGS_GEMINI_KEY_LABEL_KEY, SETTINGS_GEMINI_NOTE_KEY, SETTINGS_CHAT_KIND_LABEL_KEY,
     SETTINGS_MESSAGE_STATS_LABEL_KEY, SETTINGS_TIME_STYLE_LABEL_KEY, SETTINGS_RECORD_SOUND_KEY,
-    SETTINGS_ENTER_SENDS_KEY
+    SETTINGS_ENTER_SENDS_KEY, SETTINGS_TAB_SHORTCUTS_KEY, SHORTCUTS_NOTE_KEY, SHORTCUTS_LIST_LABEL_KEY,
+    SHORTCUT_ROW_FORMAT_KEY, SHORTCUT_ROW_CONFLICT_FORMAT_KEY, SHORTCUT_NONE_KEY, BTN_SHORTCUT_CHANGE_KEY,
+    BTN_SHORTCUT_REMOVE_KEY, BTN_SHORTCUT_DEFAULT_KEY, BTN_SHORTCUTS_DEFAULTS_KEY, BTN_SHORTCUTS_CHECK_KEY,
+    MSG_SHORTCUT_USED_FORMAT_KEY, MSG_SHORTCUT_CONFLICT_FORMAT_KEY, MSG_CONFIRM_SHORTCUTS_DEFAULTS_KEY,
+    MSG_SHORTCUTS_DEFAULTS_KEY, MSG_SHORTCUTS_NO_CONFLICTS_KEY, MSG_SHORTCUTS_CONFLICTS_FORMAT_KEY
 )
 from core.speech import speak
 
@@ -113,10 +118,15 @@ class SettingsDialog(wx.Dialog):
         # Tones changed in this dialog, not yet saved: the converted file to use, or None for the bundled tone.
         self.sound_changes = {}
         self.sound_drafts_dir = None
+        # {command: shortcut} as it stands in this dialog, saved with the rest on OK.
+        self.shortcut_table = shortcuts.current(settings)
+        # {shortcut: who else holds it}, as last looked for on this computer.
+        self.shortcut_conflicts = key_conflicts.find(self.shortcut_table.values())
 
-        notebook = wx.Notebook(self)
+        notebook = self.notebook = wx.Notebook(self)
         notebook.AddPage(self.create_app_page(notebook), i18n.get_string(SETTINGS_TAB_APP_KEY))
         notebook.AddPage(self.create_accessibility_page(notebook), i18n.get_string(SETTINGS_TAB_ACCESSIBILITY_KEY))
+        notebook.AddPage(self.create_shortcuts_page(notebook), i18n.get_string(SETTINGS_TAB_SHORTCUTS_KEY))
         notebook.AddPage(self.create_sounds_page(notebook), i18n.get_string(SETTINGS_TAB_SOUNDS_KEY))
         notebook.AddPage(self.create_microphone_page(notebook), i18n.get_string(SETTINGS_TAB_MICROPHONE_KEY))
         notebook.AddPage(self.create_services_page(notebook), i18n.get_string(SETTINGS_TAB_SERVICES_KEY))
@@ -129,6 +139,7 @@ class SettingsDialog(wx.Dialog):
         sizer.Add(self.CreateButtonSizer(wx.OK|wx.CANCEL), flag=wx.EXPAND|wx.ALL, border=10)
         self.SetSizer(sizer)
         self.CenterOnParent()
+        self.Bind(wx.EVT_CHAR_HOOK, self.on_char_hook)
 
         telegram_manager.load_profile(
             lambda profile, error_key: wx.CallAfter(self.on_profile_loaded, profile, error_key)
@@ -203,6 +214,139 @@ class SettingsDialog(wx.Dialog):
         self.theme_choice = self.add_choice(box, group, SETTINGS_THEME_LABEL_KEY, SETTING_THEME)
         page.SetSizer(sizer)
         return page
+
+    def create_shortcuts_page(self, notebook):
+        """Every command with its shortcut, as one list to walk with the arrows."""
+        page = self.shortcuts_page = wx.Panel(notebook)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        note = wx.StaticText(page, label=self.i18n.get_string(SHORTCUTS_NOTE_KEY))
+        note.Wrap(660)
+        sizer.Add(note, flag=wx.ALL, border=10)
+        sizer.Add(wx.StaticText(page, label=self.i18n.get_string(SHORTCUTS_LIST_LABEL_KEY)), flag=wx.LEFT|wx.RIGHT, border=10)
+        self.shortcuts_list = wx.ListBox(page, style=wx.LB_SINGLE)
+        self.shortcuts_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_change_shortcut)
+        sizer.Add(self.shortcuts_list, proportion=1, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
+        for label_key, handler in (
+            (BTN_SHORTCUT_CHANGE_KEY, self.on_change_shortcut),
+            (BTN_SHORTCUT_REMOVE_KEY, self.on_remove_shortcut),
+            (BTN_SHORTCUT_DEFAULT_KEY, self.on_default_shortcut),
+            (BTN_SHORTCUTS_DEFAULTS_KEY, self.on_default_shortcuts),
+            (BTN_SHORTCUTS_CHECK_KEY, self.on_check_shortcuts),
+        ):
+            button = wx.Button(page, label=self.i18n.get_string(label_key))
+            button.Bind(wx.EVT_BUTTON, handler)
+            sizer.Add(button, flag=wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
+        page.SetSizer(sizer)
+        self.show_shortcuts(0)
+        return page
+
+    def show_shortcuts_page(self):
+        """Open on the shortcuts, for whoever came to change one."""
+        self.notebook.SetSelection(self.notebook.FindPage(self.shortcuts_page))
+        self.shortcuts_list.SetFocus()
+
+    def shortcut_row(self, command):
+        text = self.shortcut_table[command]
+        row = self.i18n.get_string(SHORTCUT_ROW_FORMAT_KEY).format(
+            command=shortcuts.label(self.i18n, command), shortcut=text or self.i18n.get_string(SHORTCUT_NONE_KEY)
+        )
+        if text in self.shortcut_conflicts:
+            row = self.i18n.get_string(SHORTCUT_ROW_CONFLICT_FORMAT_KEY).format(
+                row=row, holder=shortcuts.holder_text(self.i18n, self.shortcut_conflicts[text])
+            )
+        return row
+
+    def show_shortcuts(self, selection):
+        self.shortcuts_list.Set([self.shortcut_row(command) for command in shortcuts.COMMANDS])
+        self.shortcuts_list.SetSelection(selection)
+
+    def selected_command(self):
+        return shortcuts.COMMANDS[max(self.shortcuts_list.GetSelection(), 0)]
+
+    def ask(self, text):
+        """A yes or no question where yes is the usual answer."""
+        answer = wx.MessageBox(text, self.i18n.get_string(APP_TITLE_KEY), wx.YES_NO | wx.ICON_QUESTION, self)
+        return answer == wx.YES
+
+    def ask_shortcut(self, command):
+        """The shortcut the user presses for a command; None if they back out."""
+        with ShortcutDialog(self, self.i18n, shortcuts.label(self.i18n, command), command) as shortcut_dialog:
+            if shortcut_dialog.ShowModal() != wx.ID_OK:
+                return None
+            return shortcut_dialog.shortcut
+
+    def on_change_shortcut(self, event):
+        command = self.selected_command()
+        while True:
+            text = self.ask_shortcut(command)
+            if text is None:
+                return
+            if not self.may_take(command, text):
+                return
+            holder = key_conflicts.find([text]).get(text)
+            if holder is None:
+                self.shortcut_conflicts.pop(text, None)
+                break
+            # Something else on this computer answers to it: the user is told, and asked for another.
+            self.shortcut_conflicts[text] = holder
+            if not self.ask(self.i18n.get_string(MSG_SHORTCUT_CONFLICT_FORMAT_KEY).format(
+                shortcut=text, holder=shortcuts.holder_text(self.i18n, holder)
+            )):
+                break
+        self.set_shortcut(command, text)
+
+    def may_take(self, command, text):
+        """Whether a shortcut is free for a command, or the user agrees to take it from the command that has it."""
+        other = shortcuts.owner(self.shortcut_table, text, command)
+        return other is None or self.ask(self.i18n.get_string(MSG_SHORTCUT_USED_FORMAT_KEY).format(
+            shortcut=text, command=shortcuts.label(self.i18n, other)
+        ))
+
+    def set_shortcut(self, command, text):
+        """Give a command its shortcut in the dialog; whichever command had it is left without one."""
+        other = shortcuts.owner(self.shortcut_table, text, command)
+        if other is not None:
+            self.shortcut_table[other] = ""
+        self.shortcut_table[command] = text
+        self.show_shortcuts(shortcuts.COMMANDS.index(command))
+        speak(self.shortcut_row(command))
+
+    def on_remove_shortcut(self, event):
+        self.set_shortcut(self.selected_command(), "")
+
+    def on_default_shortcut(self, event):
+        command = self.selected_command()
+        text = shortcuts.defaults()[command]
+        if self.may_take(command, text):
+            self.set_shortcut(command, text)
+
+    def on_default_shortcuts(self, event):
+        if self.confirm(MSG_CONFIRM_SHORTCUTS_DEFAULTS_KEY):
+            self.shortcut_table = shortcuts.defaults()
+            self.show_shortcuts(self.shortcuts_list.GetSelection())
+            speak(self.i18n.get_string(MSG_SHORTCUTS_DEFAULTS_KEY))
+
+    def on_check_shortcuts(self, event):
+        """Look again at what other programs on this computer hold, and say what was found."""
+        self.shortcut_conflicts = key_conflicts.find(self.shortcut_table.values())
+        self.show_shortcuts(self.shortcuts_list.GetSelection())
+        if not self.shortcut_conflicts:
+            self.show_message(self.i18n.get_string(MSG_SHORTCUTS_NO_CONFLICTS_KEY))
+            return
+        lines = shortcuts.conflict_lines(self.i18n, self.shortcut_table, self.shortcut_conflicts)
+        self.show_message(self.i18n.get_string(MSG_SHORTCUTS_CONFLICTS_FORMAT_KEY).format(
+            count=len(lines.splitlines()), conflicts=lines
+        ), wx.ICON_WARNING)
+
+    def on_char_hook(self, event):
+        # On a command of the shortcuts list, Enter changes its shortcut rather than closing the dialog.
+        on_list = wx.Window.FindFocus() is self.shortcuts_list and not event.HasAnyModifiers()
+        if on_list and event.GetKeyCode() in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER):
+            self.on_change_shortcut(event)
+        elif on_list and event.GetKeyCode() == wx.WXK_DELETE:
+            self.on_remove_shortcut(event)
+        else:
+            event.Skip()
 
     def create_sounds_page(self, notebook):
         page = wx.Panel(notebook)
@@ -726,6 +870,7 @@ class SettingsDialog(wx.Dialog):
         language = LANGUAGES[self.language_choice.GetSelection()]
         self.language_changed = language != self.settings.get(SETTING_LANGUAGE)
         self.settings.set(SETTING_LANGUAGE, language)
+        shortcuts.store(self.settings, self.shortcut_table)
         self.settings.save()
         for name, draft in self.sound_changes.items():
             if draft is None:

@@ -27,7 +27,8 @@ class LocaleParityTest(unittest.TestCase):
                            "PREVIEW_SENDER_FORMAT", "MAIN_TITLE_CHAT_FORMAT", "ANNOUNCE_FORMAT", "STICKER_CHOICE_FORMAT",
                            "AUDIENCE_REACTION_FORMAT", "REACTION_COUNT_FORMAT", "THREAD_LABEL_FORMAT", "FILE_SIZE_FORMAT",
                            "SOUND_ROW_FORMAT", "STATS_PERCENT_FORMAT", "INFO_MEMBER_ROLE_FORMAT", "SEARCH_ALL_ROW_FORMAT",
-                           "TRAY_STATUS_FORMAT", "REACTION_CHOICE_FORMAT", "MEDIA_FORMAT", "POLL_OPTION_FORMAT"}
+                           "TRAY_STATUS_FORMAT", "REACTION_CHOICE_FORMAT", "MEDIA_FORMAT", "POLL_OPTION_FORMAT",
+                           "SHORTCUT_ROW_FORMAT", "SHORTCUTS_HELP_LINE_FORMAT"}
         untranslated = [key for key in ar if ar[key] == en[key] and key not in same_on_purpose]
         self.assertEqual(untranslated, [], "these English values are still the Arabic text")
 
@@ -40,10 +41,10 @@ class LocaleParityTest(unittest.TestCase):
         self.assertEqual(english.get_string("BTN_SEND_MESSAGE"), "Send")
         self.assertEqual(english.get_string("SENDER_YOU"), "You")
 
-    def test_english_keeps_the_shortcut_suffixes(self):
-        english = I18NManager("en")
-        self.assertTrue(english.get_string("MENU_REPLY").endswith("\tCtrl+R"))
-        self.assertIn("&", english.get_string("MENU_FILE"))
+    def test_shortcuts_are_the_users_to_choose_so_no_text_carries_one(self):
+        for language in c.LANGUAGES:
+            self.assertEqual([key for key, value in self.load(language).items() if "\t" in value], [])
+        self.assertIn("&", I18NManager("en").get_string("MENU_FILE"))
 
 
 class LanguageSettingTest(unittest.TestCase):
