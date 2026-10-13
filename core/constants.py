@@ -1243,3 +1243,14 @@ MESSAGE_NO_TIME_FORMAT = "{sender}: {text}"
 # Whether Enter sends the message being written or starts a new line in it.
 SETTINGS_ENTER_SENDS_KEY = "SETTINGS_ENTER_SENDS"
 MESSAGE_INPUT_HEIGHT = 56
+
+# The terms the program is given out under, one file per interface language, and the list of
+# other people's software inside it. Shown by the installer and from the Help menu.
+LICENSE_FILE_NAMES = {language: "LICENSE.%s.txt" % language for language in LANGUAGES}
+NOTICES_FILE_NAME = "THIRD-PARTY-NOTICES.txt"
+LEGAL_FILE_NAMES = tuple(LICENSE_FILE_NAMES.values()) + (NOTICES_FILE_NAME,)
+MENU_LICENSE_KEY = "MENU_LICENSE"
+LICENSE_TITLE_KEY = "LICENSE_TITLE"
+# What Telegram lists this program as among the account's devices, beside its version.
+CLIENT_DEVICE_MODEL = "PC"
+CLIENT_SYSTEM_FORMAT = "Windows {release}"

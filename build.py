@@ -19,7 +19,7 @@ import sys
 from core.config import read_credentials, seal_credentials
 from core.constants import (
     APP_COPYRIGHT, APP_NAME, APP_PUBLISHER, APP_VERSION, BASE_DIR, BUNDLED_CONFIG_NAME, CHECK_FLAG,
-    CONFIG_FILE
+    CONFIG_FILE, LEGAL_FILE_NAMES
 )
 
 DIST_DIR = os.path.join(BASE_DIR, "dist")
@@ -56,7 +56,7 @@ VERSION_INFO_TEMPLATE = """VSVersionInfo(
 )
 """
 SELF_CHECK_PROBLEMS = (
-    (1, "texts, icon or tones are missing from the build"),
+    (1, "texts, icon, tones or the licence files are missing from the build"),
     (2, "voice messages will not work (audio libraries not bundled)"),
     (4, "screen reader announcements will not work (accessible_output2 not bundled)"),
     (8, "no API id and hash inside: the program will ask each user for them"),
@@ -126,6 +126,9 @@ def build_program():
     ]
     for folder in DATA_FOLDERS:
         command += ["--add-data", os.path.join(BASE_DIR, folder) + os.pathsep + folder]
+    # The terms of use and the notices, for the Help menu to show.
+    for name in LEGAL_FILE_NAMES:
+        command += ["--add-data", os.path.join(BASE_DIR, name) + os.pathsep + "."]
     if write_bundled_config():
         command += ["--add-data", BUNDLED_CONFIG_BUILD_FILE + os.pathsep + "."]
     for package in COLLECTED_PACKAGES:

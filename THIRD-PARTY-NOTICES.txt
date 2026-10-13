@@ -1,0 +1,56 @@
+﻿AuraGram - software made by others
+
+AuraGram is built with, and its installed copy contains, the components below.
+Each stays under its own licence; the full text of each licence is at the address given.
+
+Python 3.11 - Python Software Foundation Licence
+    https://docs.python.org/3/license.html
+
+wxPython and wxWidgets - wxWindows Library Licence
+    https://wxpython.org  https://www.wxwidgets.org/about/licence/
+
+Telethon - MIT Licence
+    https://codeberg.org/Lonami/Telethon
+
+accessible_output2, libloader, platform_utils - MIT Licence
+    https://github.com/accessibleapps/accessible_output2
+  Shipped with it, to talk to screen readers:
+    NVDA Controller Client - GNU LGPL 2.1     https://github.com/nvaccess/nvda
+    and the client libraries of JAWS, Dolphin, System Access, PC Talker and ZDSR,
+    each the property of its maker.
+
+PyAV - BSD 3-Clause Licence
+    https://github.com/PyAV-Org/PyAV
+  Shipped with it, as separate library files:
+    FFmpeg (libavcodec, libavformat, libavutil, libavfilter, libavdevice, libswresample, libswscale)
+        https://ffmpeg.org/legal.html
+    x264 and x265 - GNU GPL 2 or later        https://www.videolan.org/developers/x264.html  https://www.x265.org
+    LAME - GNU LGPL                           https://lame.sourceforge.io
+    Opus - BSD 3-Clause                       https://opus-codec.org/license/
+    OpenCORE AMR - Apache Licence 2.0         https://sourceforge.net/projects/opencore-amr/
+    libvpx, libwebp, dav1d, SVT-AV1 - BSD-style licences
+    Intel VPL - MIT Licence
+    zlib - zlib Licence
+    libiconv - GNU LGPL
+    GCC runtime libraries - GNU GPL with the GCC Runtime Library Exception
+  Source code for these libraries is available from the addresses above and from
+  https://github.com/PyAV-Org/pyav-ffmpeg , which builds the copies shipped here.
+
+NumPy - BSD 3-Clause Licence
+    https://numpy.org
+
+sounddevice - MIT Licence; PortAudio - MIT Licence
+    https://python-sounddevice.readthedocs.io  http://www.portaudio.com/license.html
+
+python-socks - Apache Licence 2.0
+    https://github.com/romis2012/python-socks
+
+pyaes - MIT Licence; rsa - Apache Licence 2.0; pyasn1 - BSD 2-Clause Licence; cryptg - CC0
+
+OpenSSL - Apache Licence 2.0
+    https://www.openssl.org/source/license.html
+
+SQLite - public domain
+    https://www.sqlite.org/copyright.html
+
+Microsoft Visual C++ runtime - redistributed under Microsoft's terms for it.

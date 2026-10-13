@@ -46,7 +46,7 @@ from core.constants import (
     MENU_DESCRIBE_IMAGE_KEY, MENU_CHECK_UPDATES_KEY, MENU_PROBLEM_REPORT_KEY, MSG_UPDATE_AVAILABLE_FORMAT_KEY,
     MSG_UP_TO_DATE_FORMAT_KEY, ERR_UPDATE_CHECK_KEY, MSG_PROBLEM_REPORT_PROMPT_KEY,
     MSG_PROBLEM_REPORT_SAVED_FORMAT_KEY, ERR_PROBLEM_REPORT_KEY, REPORT_LANGUAGE_FORMAT, MENU_MESSAGE_SENDER_KEY,
-    MESSAGE_INPUT_HEIGHT
+    MESSAGE_INPUT_HEIGHT, MENU_LICENSE_KEY, LICENSE_TITLE_KEY, LICENSE_FILE_NAMES, NOTICES_FILE_NAME, RESOURCE_DIR
 )
 from ui.chat_list import ChatListMixin
 from ui.message_list import MessageListMixin
@@ -521,6 +521,7 @@ class MainFrame(
                 (MENU_CHECK_UPDATES_KEY, lambda event: self.check_for_updates(quiet=False)),
                 (MENU_PROBLEM_REPORT_KEY, self.on_problem_report_menu),
                 (MENU_ABOUT_KEY, self.on_about_menu, wx.ID_ABOUT),
+                (MENU_LICENSE_KEY, self.on_license_menu),
             )),
         ):
             menu = wx.Menu()
@@ -656,6 +657,17 @@ class MainFrame(
             ),
             self.i18n.get_string(APP_TITLE_KEY), wx.OK | wx.ICON_INFORMATION, self
         )
+
+    def on_license_menu(self, event):
+        """The terms of use in the interface language, then the list of other people's software inside."""
+        texts = []
+        for name in (LICENSE_FILE_NAMES[self.settings.get(SETTING_LANGUAGE)], NOTICES_FILE_NAME):
+            try:
+                with open(os.path.join(RESOURCE_DIR, name), encoding="utf-8-sig") as legal_file:
+                    texts.append(legal_file.read().strip())
+            except OSError:
+                pass
+        self.show_text(LICENSE_TITLE_KEY, "\n\n\n".join(texts))
 
     def select_item_under_mouse(self, list_box, event):
         """A right click does not select by itself; keyboard menu keys report no position."""

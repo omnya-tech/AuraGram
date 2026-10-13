@@ -164,10 +164,10 @@ def self_check():
     """
     import os
     from core import audio, speech
-    from core.constants import ICON_FILE, SOUNDS_DIR, SOUND_NAMES
+    from core.constants import ICON_FILE, SOUNDS_DIR, SOUND_NAMES, LEGAL_FILE_NAMES, RESOURCE_DIR
     files = [ICON_FILE] + [
         os.path.join(SOUNDS_DIR, name + ".wav") for name in SOUND_NAMES
-    ]
+    ] + [os.path.join(RESOURCE_DIR, name) for name in LEGAL_FILE_NAMES]
     problems = 0
     if not I18NManager(DEFAULT_LANG).strings or not all(os.path.exists(path) for path in files):
         problems += 1

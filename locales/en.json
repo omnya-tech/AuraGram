@@ -979,5 +979,7 @@
     "MONTH_9": "September",
     "MONTH_10": "October",
     "MONTH_11": "November",
-    "MONTH_12": "December"
+    "MONTH_12": "December",
+    "MENU_LICENSE": "Licence agreement and components",
+    "LICENSE_TITLE": "AuraGram licence agreement"
 }

@@ -2,6 +2,7 @@ import asyncio
 import datetime
 import logging
 import os
+import platform
 import threading
 from telethon import TelegramClient, events
 from telethon.password import compute_check
@@ -23,6 +24,7 @@ from telethon.utils import get_display_name, get_input_peer, get_peer_id, parse_
 from core.config import load_credentials
 from core.proxy import client_arguments
 from core.constants import (
+    APP_VERSION, CLIENT_DEVICE_MODEL, CLIENT_SYSTEM_FORMAT,
     SESSION_NAME, EMPTY_STRING, DIALOGS_LIMIT, MESSAGES_LIMIT,
     STEP_PHONE, STEP_CODE, STEP_PASSWORD, STEP_DONE,
     ERR_CODE_INVALID_KEY, ERR_CODE_EXPIRED_KEY, ERR_PHONE_INVALID_KEY,
@@ -164,7 +166,14 @@ class TelegramManager(threading.Thread):
         self.loop.run_forever()
 
     def _create_client(self):
-        self.client = TelegramClient(SESSION_NAME, self.api_id, self.api_hash, **client_arguments(self.proxy))
+        self.client = TelegramClient(
+            SESSION_NAME, self.api_id, self.api_hash,
+            # How the account's list of devices names this program; Telethon's own defaults say nothing of it.
+            device_model=CLIENT_DEVICE_MODEL, app_version=APP_VERSION,
+            system_version=CLIENT_SYSTEM_FORMAT.format(release=platform.release()),
+            lang_code=self.translate_lang, system_lang_code=self.translate_lang,
+            **client_arguments(self.proxy)
+        )
         self.client.add_event_handler(self._on_new_message, events.NewMessage())
         self.client.add_event_handler(self._on_message_edited, events.MessageEdited())
         self.client.add_event_handler(self._on_message_deleted, events.MessageDeleted())

@@ -435,3 +435,32 @@ class DescribePictureTest(WindowTestCase):
         self.select(0)
         self.frame.on_message_context_menu(self.context_event(self.frame.messages_list))
         self.assertNotIn(label, self.menu_labels)
+
+
+class ReleasePapersTest(WindowTestCase):
+    chats = [(ALI, 0, False)]
+
+    def test_help_shows_the_terms_in_the_interface_language_and_the_notices(self):
+        shown = []
+        self.frame.show_text = lambda title_key, text: shown.append((title_key, text))
+        self.frame.on_license_menu(None)
+        title_key, text = shown[0]
+        self.assertEqual(title_key, c.LICENSE_TITLE_KEY)
+        self.assertIn("اتفاقية الاستخدام", text)
+        self.assertIn("Telethon", text)
+        # The mark that tells the installer how the file is written is not part of the text.
+        self.assertFalse(text.startswith("\ufeff"))
+
+    def test_installer_shows_each_language_its_own_terms_and_both_files_exist(self):
+        with open(os.path.join(c.BASE_DIR, "installer.iss"), encoding="utf-8") as script_file:
+            script = script_file.read()
+        for name in c.LEGAL_FILE_NAMES:
+            with open(os.path.join(c.BASE_DIR, name), "rb") as legal_file:
+                self.assertEqual(legal_file.read(3), b"\xef\xbb\xbf", name)
+        for name in c.LICENSE_FILE_NAMES.values():
+            self.assertIn('LicenseFile: "%s"' % name, script)
+
+    def test_telegram_is_told_the_programs_own_version(self):
+        made = FakeTelegramClient.created_with[-1]
+        self.assertEqual(made["app_version"], c.APP_VERSION)
+        self.assertTrue(made["system_version"].startswith("Windows"))
