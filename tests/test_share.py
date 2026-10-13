@@ -5,11 +5,15 @@ import tempfile
 import unittest
 from unittest import mock
 
+import wx
+
 import core.constants as c
 import core.share as share
+import ui.chat_list
 from core.i18n import I18NManager
 from tests.harness import FakeChooser, WindowTestCase, get_app, make_channel, make_message, make_user, pump
 from ui.background import WM_HOTKEY, BackgroundWindow
+from ui.chat_picker_dialog import ChatPickerDialog
 
 ALI = make_user(1, "Ali")
 MONA = make_user(2, "Mona")
@@ -75,6 +79,60 @@ class ShareWindowTest(WindowTestCase):
     def setUp(self):
         super().setUp()
         self.addCleanup(setattr, FakeChooser, "selections", [])
+
+        class FakePicker(FakeChooser):
+            """The window that picks chats, answered from the test like the other choosers."""
+
+            def __init__(self, parent, i18n, prompt, titles):
+                FakeChooser.last_choices = list(titles)
+
+            def chosen(self):
+                return list(FakeChooser.selections)
+
+        patch = mock.patch.object(ui.chat_list, "ChatPickerDialog", FakePicker)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def picker(self, titles=("Ali Hassan", "Mona", "Work team", "Family", "ALI the second")):
+        dialog = ChatPickerDialog(self.frame, self.i18n, "to whom?", titles)
+        self.addCleanup(dialog.Destroy)
+        return dialog
+
+    def tick(self, dialog, row, ticked=True):
+        dialog.chats_list.Check(row, ticked)
+        event = wx.CommandEvent(wx.wxEVT_CHECKLISTBOX, dialog.chats_list.GetId())
+        event.SetInt(row)
+        dialog.on_tick(event)
+
+    def test_typing_in_the_search_narrows_the_list_whatever_the_case(self):
+        dialog = self.picker()
+        self.assertEqual(dialog.chats_list.GetCount(), 5)
+        dialog.search_input.SetValue("ali")
+        self.assertEqual(dialog.chats_list.GetStrings(), ["Ali Hassan", "ALI the second"])
+        dialog.say_count()
+        self.assertEqual(self.spoken[-1], self.text(c.MSG_CHAT_PICKER_COUNT_FORMAT_KEY).format(count=2))
+        dialog.search_input.SetValue("nobody")
+        self.assertEqual(dialog.chats_list.GetCount(), 0)
+        dialog.say_count()
+        self.assertEqual(self.spoken[-1], self.text(c.MSG_CHAT_PICKER_NONE_KEY))
+        self.assertEqual(dialog.chosen(), [])
+
+    def test_ticks_stay_through_one_search_after_another(self):
+        dialog = self.picker()
+        dialog.search_input.SetValue("ali")
+        self.tick(dialog, 1)
+        dialog.search_input.SetValue("team")
+        self.tick(dialog, 0)
+        dialog.search_input.SetValue("")
+        self.assertEqual([dialog.chats_list.IsChecked(row) for row in range(5)], [False, False, True, False, True])
+        self.assertEqual(dialog.chosen(), [2, 4])
+        self.tick(dialog, 4, False)
+        self.assertEqual(dialog.chosen(), [2])
+
+    def test_with_nothing_ticked_the_chat_the_list_stands_on_is_meant(self):
+        dialog = self.picker()
+        dialog.search_input.SetValue("fam")
+        self.assertEqual(dialog.chosen(), [3])
 
     def sent(self):
         return self.calls("send_file")

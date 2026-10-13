@@ -1030,8 +1030,12 @@
     "MSG_IN_BACKGROUND": "AuraGram يعمل في الخلفية. افتحه من أيقونته بجانب الساعة.",
     "SHORTCUTS_HELP_LINE_FORMAT": "{shortcut}: {command}",
     "SHORTCUTS_HELP_ANYWHERE": "من أي برنامج",
-    "MSG_SHARE_TO": "حدّد المحادثة أو المحادثات التي تريد إرسال الملفات إليها (المسافة تحدد):",
+    "MSG_SHARE_TO": "اختر المحادثات التي تريد إرسال الملفات إليها. اكتب جزءاً من الاسم للبحث، ثم حدّد بالمسافة في القائمة. إن لم تحدد شيئاً ذهبت الملفات إلى المحادثة التي تقف عليها القائمة.",
     "MSG_SHARE_BUSY": "هناك ملف آخر يُرسل أو يُنزّل الآن. أعد إرسال هذه الملفات بعد انتهائه.",
     "MSG_SHARE_NO_CHAT": "لا توجد محادثة تستطيع الكتابة فيها لإرسال الملفات إليها",
-    "MSG_SHARED_TO_CHATS_FORMAT": "أُرسلت الملفات إلى {count} محادثات"
+    "MSG_SHARED_TO_CHATS_FORMAT": "أُرسلت الملفات إلى {count} محادثات",
+    "CHAT_PICKER_SEARCH_LABEL": "بحث بالاسم:",
+    "CHAT_PICKER_LIST_LABEL": "المحادثات:",
+    "MSG_CHAT_PICKER_COUNT_FORMAT": "{count} محادثات",
+    "MSG_CHAT_PICKER_NONE": "لا توجد محادثة بهذا الاسم"
 }

@@ -1,6 +1,7 @@
 import wx
 from core.speech import speak
 from core.settings import SETTING_CHAT_KIND
+from ui.chat_picker_dialog import ChatPickerDialog
 from ui.chat_info_dialog import ChatInfoDialog
 from core.chat_views import build_views, contacts_first_online, is_online
 from core.constants import (
@@ -385,6 +386,15 @@ class ChatListMixin:
             if choice_dialog.ShowModal() != wx.ID_OK:
                 return None
             return chats[choice_dialog.GetSelection()]
+
+    def choose_chats(self, prompt_key, chats):
+        """Let the user pick one chat or several, searching the list by name; [] if they cancel."""
+        with ChatPickerDialog(
+            self, self.i18n, self.i18n.get_string(prompt_key), [chat["title"] for chat in chats]
+        ) as picker_dialog:
+            if picker_dialog.ShowModal() != wx.ID_OK:
+                return []
+            return [chats[index] for index in picker_dialog.chosen()]
 
     def on_saved_messages_menu(self, event):
         self.set_status(MSG_LOADING_KEY)

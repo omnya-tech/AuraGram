@@ -156,13 +156,13 @@ class ComposerMixin:
         if not chats:
             self.notify(MSG_SHARE_NO_CHAT_KEY)
             return
-        chosen = self.pick_many(self.i18n.get_string(MSG_SHARE_TO_KEY), [chat["title"] for chat in chats], [])
+        chosen = self.choose_chats(MSG_SHARE_TO_KEY, chats)
         if not chosen:
             return
         how = self.ask_how_to_send(paths)
         if how is not None:
             self.is_busy = True
-            self.send_to_chats(paths, *how, [chats[index]["id"] for index in chosen])
+            self.send_to_chats(paths, *how, [chat["id"] for chat in chosen])
 
     def send_to_chats(self, paths, caption, as_documents, dialog_ids, position=0):
         """Send the same files to one chat after another. Each gets them as they are: not as an
