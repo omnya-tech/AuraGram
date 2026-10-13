@@ -625,7 +625,8 @@ class ReleasePapersTest(WindowTestCase):
     def test_help_explains_the_licence_then_shows_the_components_and_its_text(self):
         shown = []
         self.frame.show_text = lambda title_key, text: shown.append((title_key, text))
-        self.frame.on_license_menu(None)
+        with mock.patch.object(ui.main_frame, "SOURCE_CODE_URL", ""):
+            self.frame.on_license_menu(None)
         title_key, text = shown[0]
         self.assertEqual(title_key, c.LICENSE_TITLE_KEY)
         self.assertTrue(text.startswith(self.text(c.LICENSE_NOTICE_KEY)))

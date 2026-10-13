@@ -1144,11 +1144,11 @@ STEP_DONE = 4
 
 # Where the program learns of a newer release: the address of a small JSON file, described
 # in core/updates.py. Empty until there is one, and then the program never asks.
-UPDATE_INFO_URL = ""
+UPDATE_INFO_URL = "https://github.com/omnya-tech/AuraGram/releases/latest/download/update.json"
 UPDATE_TIMEOUT_SECONDS = 10
 # Where releases are published, as "https://github.com/<owner>/<repository>/releases". build.py
 # makes the download addresses in update.json from it; empty, it leaves them for filling in by hand.
-RELEASES_URL = ""
+RELEASES_URL = "https://github.com/omnya-tech/AuraGram/releases"
 UPDATE_INFO_FILE_NAME = "update.json"
 # The two files a release offers: the whole installer, and a small one with only what changes
 # between versions. Each name is also its key in update.json.
@@ -1286,7 +1286,7 @@ LICENSE_TITLE_KEY = "LICENSE_TITLE"
 LICENSE_NOTICE_KEY = "LICENSE_NOTICE"
 LICENSE_SOURCE_FORMAT_KEY = "LICENSE_SOURCE_FORMAT"
 # Where the program's source code is published; the licence has every copy say where. Empty until it is.
-SOURCE_CODE_URL = ""
+SOURCE_CODE_URL = "https://github.com/omnya-tech/AuraGram"
 # What Telegram lists this program as among the account's devices, beside its version.
 CLIENT_DEVICE_MODEL = "PC"
 CLIENT_SYSTEM_FORMAT = "Windows {release}"

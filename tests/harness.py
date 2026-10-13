@@ -16,6 +16,7 @@ from telethon.tl import types
 import core.key_conflicts
 import core.settings
 import core.sounds
+import core.updates
 import core.telegram_client as telegram_client
 from core.i18n import I18NManager
 from core.settings import Settings
@@ -530,6 +531,8 @@ class WindowTestCase(unittest.TestCase):
             mock.patch.object(core.settings, "SETTINGS_FILE", settings_file),
             mock.patch.object(wx, "MessageBox", message_box),
             mock.patch.object(core.sounds, "play", self.played.append),
+            # No test goes out to ask whether a newer release is published.
+            mock.patch.object(core.updates, "UPDATE_INFO_URL", ""),
             # What other programs on the testing machine hold is no business of the tests.
             mock.patch.object(core.key_conflicts, "find", lambda texts: {}),
             mock.patch.object(wx, "SingleChoiceDialog", FakeChooser),
