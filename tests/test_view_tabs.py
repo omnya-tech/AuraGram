@@ -146,3 +146,36 @@ class ViewTabsTest(WindowTestCase):
             self.tabs().buttons[self.tabs().GetSelection()].GetBackgroundColour(),
             self.tabs().buttons[self.tabs().GetSelection() - 1].GetBackgroundColour()
         )
+
+
+class WindowsForTheEyesTest(WindowTestCase):
+    """What a ruler and a pair of eyes found on a tour of the windows."""
+
+    chats = [(make_channel(31, "Team", group=True, creator=True), 0, False)]
+
+    def test_chat_control_shows_every_button_whole_in_both_languages(self):
+        from core.i18n import I18NManager
+        from ui.chat_control_dialog import ChatControlDialog
+        for language in c.LANGUAGES:
+            dialog = ChatControlDialog(self.frame, I18NManager(language), self.manager, self.frame.dialogs[0])
+            self.addCleanup(dialog.Destroy)
+            dialog.Layout()
+            dialog.SendSizeEvent()
+            pump(timeout=0.1)
+            area = dialog.GetClientSize()
+            buttons = [child for child in dialog.GetChildren() if isinstance(child, wx.Button)]
+            self.assertEqual(len(buttons), 7)
+            for button in buttons:
+                rect = button.GetRect()
+                self.assertGreaterEqual(rect.width, button.GetBestSize().width, (language, button.GetLabel()))
+                self.assertLessEqual(rect.GetRight(), area.width, (language, button.GetLabel()))
+                self.assertLessEqual(rect.GetBottom(), area.height, (language, button.GetLabel()))
+
+    def test_wx_words_its_own_buttons_in_the_interface_language(self):
+        from ui.layout import use_interface_language
+        self.addCleanup(wx.Translations.Set, wx.Translations())
+        use_interface_language("en")
+        self.assertEqual(wx.GetStockLabel(wx.ID_CANCEL), "Cancel")
+        use_interface_language("ar")
+        self.assertNotEqual(wx.GetStockLabel(wx.ID_CANCEL), "Cancel")
+        self.assertNotIn("OK", wx.GetStockLabel(wx.ID_OK))

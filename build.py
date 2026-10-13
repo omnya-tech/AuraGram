@@ -144,6 +144,12 @@ def build_program():
     ]
     for folder in DATA_FOLDERS:
         command += ["--add-data", os.path.join(BASE_DIR, folder) + os.pathsep + folder]
+    # wx's own words for its ready-made buttons, in each interface language that is not English.
+    import wx
+    for language in LANGUAGES:
+        catalog = os.path.join(os.path.dirname(wx.__file__), "locale", language, "LC_MESSAGES", "wxstd.mo")
+        if os.path.exists(catalog):
+            command += ["--add-data", catalog + os.pathsep + os.path.join("wx", "locale", language, "LC_MESSAGES")]
     # The terms of use and the notices, for the Help menu to show.
     for name in LEGAL_FILE_NAMES:
         command += ["--add-data", os.path.join(BASE_DIR, name) + os.pathsep + "."]

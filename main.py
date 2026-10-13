@@ -12,6 +12,7 @@ from core.i18n import I18NManager
 from core import diagnostics, proxy, sounds
 from core.settings import SETTING_ANNOUNCE_CONNECTION, SETTING_START_SOUND, SETTING_THEME, SETTING_LANGUAGE, Settings
 from core.speech import speak
+from ui.layout import use_interface_language
 from ui.themes import set_theme
 from core.telegram_client import TelegramManager
 from ui.api_setup_dialog import ApiSetupDialog
@@ -35,6 +36,7 @@ class MainApplication(wx.App):
         self.settings = Settings()
         # The whole interface loads in the saved language.
         self.i18n = I18NManager(self.settings.get(SETTING_LANGUAGE))
+        use_interface_language(self.settings.get(SETTING_LANGUAGE))
         # Before any window exists, so the very first one already opens in the chosen colours.
         set_theme(self.settings.get(SETTING_THEME))
         if not self.ensure_credentials():

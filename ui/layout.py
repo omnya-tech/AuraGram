@@ -6,6 +6,21 @@ from core.constants import (
     FILE_SIZE_UNITS, FILE_SIZE_FORMAT_KEY
 )
 
+def use_interface_language(language):
+    """Have wx word its own buttons (OK, Cancel, Close) in the interface language.
+
+    The app's texts come from its locale files, but the ready-made dialogs for a line of
+    text or a choice from a list bring their buttons from wx, which words them in English
+    unless told otherwise. Only wx's own words change: the number and date formats of the
+    program are left alone.
+    """
+    if language == "en":
+        return
+    translations = wx.Translations()
+    translations.SetLanguage(language)
+    translations.AddStdCatalog()
+    wx.Translations.Set(translations)
+
 def prepare_window(window, i18n):
     """Give a window the app's icon and the reading direction of the interface language.
 

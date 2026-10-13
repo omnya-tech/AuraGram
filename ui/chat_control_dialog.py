@@ -93,24 +93,26 @@ class ChatControlDialog(wx.Dialog):
         sizer.Add(self.members_list, proportion=1, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
         self.members_controls += [self.search_input, self.search_btn, self.members_list]
 
-        buttons = wx.BoxSizer(wx.HORIZONTAL)
+        # Six buttons are more than the window is wide: they go on to a second row rather than
+        # squeeze the last of them, Close, out of sight.
+        buttons = wx.WrapSizer(wx.HORIZONTAL, wx.REMOVE_LEADING_SPACES)
         self.save_btn = wx.Button(self, label=self.i18n.get_string(BTN_SAVE_KEY))
         self.save_btn.Bind(wx.EVT_BUTTON, self.on_save)
-        buttons.Add(self.save_btn, flag=wx.RIGHT, border=10)
+        buttons.Add(self.save_btn, flag=wx.RIGHT|wx.BOTTOM, border=10)
         self.invite_btn = wx.Button(self, label=self.i18n.get_string(BTN_INVITE_LINKS_KEY))
         self.invite_btn.Bind(wx.EVT_BUTTON, self.on_invite_links)
-        buttons.Add(self.invite_btn, flag=wx.RIGHT, border=10)
+        buttons.Add(self.invite_btn, flag=wx.RIGHT|wx.BOTTOM, border=10)
         self.permissions_btn = wx.Button(self, label=self.i18n.get_string(BTN_MEMBER_PERMISSIONS_KEY))
         self.permissions_btn.Bind(wx.EVT_BUTTON, self.on_member_permissions)
-        buttons.Add(self.permissions_btn, flag=wx.RIGHT, border=10)
+        buttons.Add(self.permissions_btn, flag=wx.RIGHT|wx.BOTTOM, border=10)
         self.log_btn = wx.Button(self, label=self.i18n.get_string(BTN_ADMIN_LOG_KEY))
         self.log_btn.Bind(wx.EVT_BUTTON, self.on_admin_log)
-        buttons.Add(self.log_btn, flag=wx.RIGHT, border=10)
+        buttons.Add(self.log_btn, flag=wx.RIGHT|wx.BOTTOM, border=10)
         self.admin_btn = wx.Button(self, label=self.i18n.get_string(BTN_ADMIN_SETTINGS_KEY))
         self.admin_btn.Bind(wx.EVT_BUTTON, self.on_admin_settings)
-        buttons.Add(self.admin_btn, flag=wx.RIGHT, border=10)
-        buttons.Add(wx.Button(self, wx.ID_CANCEL, self.i18n.get_string(BTN_CLOSE_KEY)))
-        sizer.Add(buttons, flag=wx.ALL, border=10)
+        buttons.Add(self.admin_btn, flag=wx.RIGHT|wx.BOTTOM, border=10)
+        buttons.Add(wx.Button(self, wx.ID_CANCEL, self.i18n.get_string(BTN_CLOSE_KEY)), flag=wx.BOTTOM, border=10)
+        sizer.Add(buttons, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.TOP, border=10)
 
         # Nothing can be edited or searched until the chat's details arrive.
         for control in (

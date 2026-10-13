@@ -21,7 +21,7 @@ class ProxyDialog(wx.Dialog):
     """
 
     def __init__(self, parent, i18n, settings, telegram_manager):
-        super().__init__(parent, title=i18n.get_string(PROXY_TITLE_KEY), size=(520, 640))
+        super().__init__(parent, title=i18n.get_string(PROXY_TITLE_KEY), size=(520, 550))
         prepare_window(self, i18n)
         self.i18n = i18n
         self.settings = settings
