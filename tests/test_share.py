@@ -9,7 +9,6 @@ import wx
 
 import core.constants as c
 import core.share as share
-import ui.chat_list
 from core.i18n import I18NManager
 from tests.harness import FakeChooser, WindowTestCase, get_app, make_channel, make_message, make_user, pump
 from ui.background import WM_HOTKEY, BackgroundWindow
@@ -76,23 +75,6 @@ class ShareWindowTest(WindowTestCase):
     chats = [(ALI, 0, False), (MONA, 0, False), (NEWS, 0, False)]
     history = {1: [make_message(1, "hello", sender=ALI)]}
 
-    def setUp(self):
-        super().setUp()
-        self.addCleanup(setattr, FakeChooser, "selections", [])
-
-        class FakePicker(FakeChooser):
-            """The window that picks chats, answered from the test like the other choosers."""
-
-            def __init__(self, parent, i18n, prompt, titles):
-                FakeChooser.last_choices = list(titles)
-
-            def chosen(self):
-                return list(FakeChooser.selections)
-
-        patch = mock.patch.object(ui.chat_list, "ChatPickerDialog", FakePicker)
-        patch.start()
-        self.addCleanup(patch.stop)
-
     def picker(self, titles=("Ali Hassan", "Mona", "Work team", "Family", "ALI the second")):
         dialog = ChatPickerDialog(self.frame, self.i18n, "to whom?", titles)
         self.addCleanup(dialog.Destroy)
@@ -138,7 +120,7 @@ class ShareWindowTest(WindowTestCase):
         return self.calls("send_file")
 
     def test_files_go_to_the_chat_that_is_chosen_without_entering_it(self):
-        FakeChooser.selections = [1]
+        FakeChooser.picked = [1]
         FakeChooser.values = ["look"]
         self.frame.share_files(["notes.pdf"])
         self.assertEqual(FakeChooser.last_message.count("notes.pdf"), 1)
@@ -149,7 +131,7 @@ class ShareWindowTest(WindowTestCase):
         self.assertEqual(self.spoken[-1], self.text(c.MSG_FILE_SENT_KEY))
 
     def test_several_chats_get_the_same_files_one_after_another_with_one_caption(self):
-        FakeChooser.selections = [0, 1]
+        FakeChooser.picked = [0, 1]
         FakeChooser.values = ["look"]
         self.frame.share_files(["notes.pdf", "more.pdf"])
         self.assertTrue(pump(lambda: len(self.sent()) == 2 and not self.frame.is_busy))
@@ -163,7 +145,7 @@ class ShareWindowTest(WindowTestCase):
         self.assertEqual(self.frame.all_dialogs[0]["id"], 2)
 
     def test_ticking_no_chat_sends_nothing(self):
-        FakeChooser.selections = []
+        FakeChooser.picked = []
         self.frame.share_files(["notes.pdf"])
         pump(timeout=0.1)
         self.assertEqual(self.sent(), [])
@@ -180,7 +162,7 @@ class ShareWindowTest(WindowTestCase):
     def test_files_for_another_chat_are_not_an_answer_in_the_open_one(self):
         self.open_chat(0)
         self.frame.set_compose(reply_to=self.frame.messages[0])
-        FakeChooser.selections = [1]
+        FakeChooser.picked = [1]
         FakeChooser.values = [""]
         self.frame.share_files(["notes.pdf"])
         self.assertTrue(pump(lambda: len(self.sent()) == 1))
@@ -195,7 +177,7 @@ class ShareWindowTest(WindowTestCase):
         self.frame.share_files(["early.pdf"])
         self.assertIsNone(FakeChooser.last_message)
         self.assertEqual(self.frame.shared_paths, ["early.pdf"])
-        FakeChooser.selections = [0]
+        FakeChooser.picked = [0]
         FakeChooser.values = [""]
         self.frame.show_dialogs(chats)
         self.assertTrue(pump(lambda: len(self.sent()) == 1))

@@ -3,7 +3,7 @@ from core.speech import speak
 from ui.layout import prepare_window
 from core.constants import (
     APP_TITLE_KEY, CHAT_PICKER_SEARCH_LABEL_KEY, CHAT_PICKER_LIST_LABEL_KEY, MSG_CHAT_PICKER_COUNT_FORMAT_KEY,
-    MSG_CHAT_PICKER_NONE_KEY, CHAT_PICKER_SPEAK_DELAY_MS
+    MSG_CHAT_PICKER_NONE_KEY, CHAT_PICKER_SPEAK_DELAY_MS, CHAT_PICKER_HINT_KEY
 )
 
 class ChatPickerDialog(wx.Dialog):
@@ -23,7 +23,8 @@ class ChatPickerDialog(wx.Dialog):
         self.shown = []
         self.count_timer = None
         sizer = wx.BoxSizer(wx.VERTICAL)
-        note = wx.StaticText(self, label=prompt)
+        # What is being asked, then how this window is worked: the same whoever asks.
+        note = wx.StaticText(self, label=prompt + "\n" + i18n.get_string(CHAT_PICKER_HINT_KEY))
         note.Wrap(440)
         sizer.Add(note, flag=wx.ALL, border=10)
         sizer.Add(wx.StaticText(self, label=i18n.get_string(CHAT_PICKER_SEARCH_LABEL_KEY)), flag=wx.LEFT|wx.RIGHT, border=10)

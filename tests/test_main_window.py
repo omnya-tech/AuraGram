@@ -599,6 +599,23 @@ class MarkingTest(WindowTestCase):
         self.assertEqual(self.calls("delete"), [])
         self.assertEqual(self.spoken[-1], self.text(c.MSG_CANNOT_DELETE_SOME_KEY))
 
+    def test_forward_goes_to_every_chat_that_is_ticked(self):
+        self.open_chat(0)
+        FakeChooser.picked = [0, 1]
+        self.frame.messages_list.SetSelection(self.frame.message_offset())
+        self.frame.on_forward_menu(None)
+        self.assertTrue(pump(lambda: len(self.calls("forward")) == 2))
+        self.assertEqual(
+            [call[1] for call in self.calls("forward")], [chat["id"] for chat in self.frame.all_dialogs[:2]]
+        )
+        self.assertTrue(pump(
+            lambda: self.spoken[-1:] == [self.text(c.MSG_FORWARDED_TO_CHATS_FORMAT_KEY).format(count=2)]
+        ))
+        FakeChooser.picked = []
+        self.frame.on_forward_menu(None)
+        pump(timeout=0.1)
+        self.assertEqual(len(self.calls("forward")), 2)
+
     def test_forward_sends_marked_messages_in_chat_order(self):
         self.mark(2, 0)
         FakeChooser.selection = 1

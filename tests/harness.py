@@ -471,6 +471,7 @@ class FakeChooser:
     confirmed = True
     selection = 0
     selections = []
+    picked = None     # what the window that picks chats answers; None for the one chat at `selection`
     values = []       # consumed in order by GetValue
     last_choices = None
     last_message = None
@@ -505,6 +506,17 @@ class FakeChooser:
         return FakeChooser.values.pop(0)
 
 
+class FakeChatPicker(FakeChooser):
+    """Stands in for the window that picks chats from a searched list."""
+
+    def __init__(self, parent, i18n, prompt, titles):
+        FakeChooser.last_message = prompt
+        FakeChooser.last_choices = list(titles)
+
+    def chosen(self):
+        return [FakeChooser.selection] if FakeChooser.picked is None else list(FakeChooser.picked)
+
+
 class WindowTestCase(unittest.TestCase):
     """Base for tests that drive the real main window against FakeTelegramClient."""
 
@@ -513,6 +525,7 @@ class WindowTestCase(unittest.TestCase):
 
     def setUp(self):
         get_app()
+        import ui.chat_list
         import ui.main_frame as main_frame_module
         self.spoken = []
         self.played = []
@@ -521,6 +534,7 @@ class WindowTestCase(unittest.TestCase):
         settings_file = os.path.join(tempfile.mkdtemp(), "settings.json")
         FakeTelegramClient.reset(list(self.chats), {key: list(value) for key, value in self.history.items()})
         FakeChooser.confirmed, FakeChooser.selection, FakeChooser.values = True, 0, []
+        FakeChooser.picked = None
 
         def message_box(message, *args, **kwargs):
             self.boxes.append(message)
@@ -538,6 +552,7 @@ class WindowTestCase(unittest.TestCase):
             mock.patch.object(wx, "SingleChoiceDialog", FakeChooser),
             mock.patch.object(wx, "MultiChoiceDialog", FakeChooser),
             mock.patch.object(wx, "TextEntryDialog", FakeChooser),
+            mock.patch.object(ui.chat_list, "ChatPickerDialog", FakeChatPicker),
         ]
         # Every UI module imports speak() by name, so each copy has to be silenced.
         for module in self.speaking_modules():

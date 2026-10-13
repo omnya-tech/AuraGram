@@ -10,7 +10,7 @@ from core.constants import (
     MESSAGE_VIEW_SCHEDULED, MSG_CONFIRM_CANCEL_SCHEDULED_KEY, MSG_SCHEDULED_CANCELLED_KEY,
     MSG_POLL_CLOSED_KEY, MSG_VOTED_KEY, MSG_CHOOSE_REACTION_KEY, REACTION_REMOVE_KEY,
     REACTION_CHOICE_FORMAT_KEY, MSG_REACTED_KEY, REACTION_EMOJIS, REACTION_NAME_KEY_PREFIX,
-    MSG_FORWARD_TO_KEY, MSG_FORWARDED_FORMAT_KEY, MSG_PINNED_KEY, MSG_UNPINNED_KEY,
+    MSG_FORWARD_TO_KEY, MSG_FORWARDED_FORMAT_KEY, MSG_FORWARDED_TO_CHATS_FORMAT_KEY, MSG_PINNED_KEY, MSG_UNPINNED_KEY,
     MSG_CANNOT_PIN_KEY, MSG_CONFIRM_DELETE_OTHER_KEY, MSG_COPIED_KEY, MSG_CANNOT_DELETE_KEY,
     MSG_CONFIRM_DELETE_KEY, MSG_DELETED_KEY, APP_TITLE_KEY, MSG_LOADING_KEY, STATUS_READY_KEY,
     MSG_MARKED_COUNT_FORMAT_KEY, MSG_MARKS_CLEARED_KEY, MSG_CONFIRM_DELETE_MANY_FORMAT_KEY,
@@ -223,22 +223,32 @@ class MessageActionsMixin:
         message = self.actionable_message()
         if message is None or not self.all_dialogs:
             return
-        target = self.choose_chat(MSG_FORWARD_TO_KEY, self.all_dialogs)
-        if target is None:
+        targets = self.choose_chats(MSG_FORWARD_TO_KEY, self.all_dialogs)
+        if not targets:
             return
         marked = self.marked_messages()
         # Marked messages go together, in the order they appear in the chat.
         message_ids = [marked_message["id"] for marked_message in marked] if marked else message["id"]
+        self.forward_to(self.peer(self.current_dialog_id), message_ids, targets, 0)
+
+    def forward_to(self, source, message_ids, targets, position):
+        """Forward to one chosen chat after another."""
         self.telegram_manager.forward_message(
-            self.peer(self.current_dialog_id), message_ids, target["id"],
-            self.on_ui_thread(self.on_forwarded, target)
+            source, message_ids, targets[position]["id"],
+            self.on_ui_thread(self.on_forwarded, source, message_ids, targets, position)
         )
 
-    def on_forwarded(self, result, target):
+    def on_forwarded(self, result, source, message_ids, targets, position):
+        if position + 1 < len(targets):
+            self.forward_to(source, message_ids, targets, position + 1)
+            return
         if self.marked:
             self.marked = set()
             self.render_messages(self.messages_list.GetSelection() - self.message_offset())
-        self.announce(self.i18n.get_string(MSG_FORWARDED_FORMAT_KEY).format(title=target["title"]))
+        self.announce(
+            self.i18n.get_string(MSG_FORWARDED_FORMAT_KEY).format(title=targets[0]["title"]) if len(targets) == 1
+            else self.i18n.get_string(MSG_FORWARDED_TO_CHATS_FORMAT_KEY).format(count=len(targets))
+        )
 
     def on_react_menu(self, event):
         message = self.actionable_message()

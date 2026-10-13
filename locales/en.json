@@ -760,7 +760,7 @@
     "MSG_CHOOSE_CONTACT": "Choose the contact:",
     "MSG_NO_CONTACTS": "There are no contacts in your account",
     "MSG_FIND_CHAT_PROMPT": "Type the username (like @name) or the phone number with its country code, or paste a t.me link or invite link:",
-    "MSG_FORWARD_TO": "Choose the chat to forward to:",
+    "MSG_FORWARD_TO": "Choose the chats to forward to:",
     "MSG_FORWARDED_FORMAT": "Forwarded to {title}",
     "ERR_CHAT_NOT_FOUND": "No user or chat was found by that name or number.",
     "PRIVACY_EVERYONE": "Everyone",
@@ -1030,12 +1030,14 @@
     "MSG_IN_BACKGROUND": "AuraGram is running in the background. Open it from its icon near the clock.",
     "SHORTCUTS_HELP_LINE_FORMAT": "{shortcut}: {command}",
     "SHORTCUTS_HELP_ANYWHERE": "From any program",
-    "MSG_SHARE_TO": "Choose the chats to send the files to. Type part of a name to search, then tick with Space in the list. With none ticked, the files go to the chat the list stands on.",
+    "MSG_SHARE_TO": "Choose the chats to send the files to:",
     "MSG_SHARE_BUSY": "Another file is being sent or fetched now. Send these again when it is done.",
     "MSG_SHARE_NO_CHAT": "There is no chat you can write in to send the files to",
     "MSG_SHARED_TO_CHATS_FORMAT": "The files were sent to {count} chats",
     "CHAT_PICKER_SEARCH_LABEL": "Search by name:",
     "CHAT_PICKER_LIST_LABEL": "Chats:",
     "MSG_CHAT_PICKER_COUNT_FORMAT": "{count} chats",
-    "MSG_CHAT_PICKER_NONE": "No chat with this name"
+    "MSG_CHAT_PICKER_NONE": "No chat with this name",
+    "CHAT_PICKER_HINT": "Type part of a name to search, then tick with Space in the list. With none ticked, the chat the list stands on is taken.",
+    "MSG_FORWARDED_TO_CHATS_FORMAT": "Forwarded to {count} chats"
 }
