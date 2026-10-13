@@ -91,7 +91,7 @@ class SettingsDialog(wx.Dialog):
     account settings change the Telegram account everywhere."""
 
     def __init__(self, parent, i18n, settings, telegram_manager):
-        super().__init__(parent, title=i18n.get_string(SETTINGS_TITLE_KEY), size=(600, 710))
+        super().__init__(parent, title=i18n.get_string(SETTINGS_TITLE_KEY), size=(720, 710))
         prepare_window(self, i18n)
         self.i18n = i18n
         self.settings = settings
