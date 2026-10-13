@@ -56,6 +56,9 @@ class ChatListMixin:
         loaded_from, self.loading_more_from = self.loading_more_from, None
         self.render_dialogs()
         self.set_status(STATUS_READY_KEY)
+        if self.shared_paths:
+            # Files that came from outside before there were chats to choose from.
+            wx.CallAfter(self.share_files, [])
         if loaded_from is not None:
             # Asked for by the user, so its end is told wherever they are in the list by now.
             added = len(dialogs) - loaded_from

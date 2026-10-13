@@ -1029,5 +1029,8 @@
     "MSG_SHORTCUT_CONFLICTS_STARTUP_FORMAT": "هذه الاختصارات في AuraGram تستخدمها برامج أخرى على هذا الجهاز، فقد لا تعمل:\n\n{conflicts}\n\nهل تفتح إعدادات الاختصارات الآن لتغييرها؟",
     "MSG_IN_BACKGROUND": "AuraGram يعمل في الخلفية. افتحه من أيقونته بجانب الساعة.",
     "SHORTCUTS_HELP_LINE_FORMAT": "{shortcut}: {command}",
-    "SHORTCUTS_HELP_ANYWHERE": "من أي برنامج"
+    "SHORTCUTS_HELP_ANYWHERE": "من أي برنامج",
+    "MSG_SHARE_TO": "اختر المحادثة التي تريد إرسال الملفات إليها:",
+    "MSG_SHARE_BUSY": "هناك ملف آخر يُرسل أو يُنزّل الآن. أعد إرسال هذه الملفات بعد انتهائه.",
+    "MSG_SHARE_NO_CHAT": "لا توجد محادثة تستطيع الكتابة فيها لإرسال الملفات إليها"
 }

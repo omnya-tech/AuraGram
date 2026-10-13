@@ -1333,3 +1333,11 @@ MSG_SHORTCUT_CONFLICTS_STARTUP_FORMAT_KEY = "MSG_SHORTCUT_CONFLICTS_STARTUP_FORM
 MSG_IN_BACKGROUND_KEY = "MSG_IN_BACKGROUND"
 SHORTCUTS_HELP_LINE_FORMAT_KEY = "SHORTCUTS_HELP_LINE_FORMAT"
 SHORTCUTS_HELP_ANYWHERE_KEY = "SHORTCUTS_HELP_ANYWHERE"
+
+# Files sent to the program from Windows' "Send to" menu. A second copy started with them
+# leaves their paths in this folder and tells the running one, by this number, to pick them up.
+SHARE_INBOX_DIR = os.path.join(tempfile.gettempdir(), APP_NAME + "-shared")
+SHARE_HOTKEY_ID = 2
+MSG_SHARE_TO_KEY = "MSG_SHARE_TO"
+MSG_SHARE_BUSY_KEY = "MSG_SHARE_BUSY"
+MSG_SHARE_NO_CHAT_KEY = "MSG_SHARE_NO_CHAT"

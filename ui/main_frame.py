@@ -87,6 +87,8 @@ class MainFrame(
         # Menu command -> its entry in the menu bar, and every shortcut those entries answer to.
         self.menu_items = {}
         self.menu_shortcuts = set()
+        # Files from outside the app, waiting for the chat list to load before asking where they go.
+        self.shared_paths = []
         # Whether this run has already looked for shortcuts that other programs hold.
         self.shortcuts_checked = False
         # Every loaded chat, and the subset the current view shows in the list.

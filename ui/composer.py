@@ -8,7 +8,7 @@ from core.settings import SETTING_SENT_SOUND
 from core.schedule import parse_send_time
 from ui.layout import file_kind, file_size
 from core.constants import (
-    SOUND_SENT,
+    SOUND_SENT, MSG_SHARE_TO_KEY, MSG_SHARE_BUSY_KEY, MSG_SHARE_NO_CHAT_KEY,
     MSG_POLL_QUESTION_PROMPT_KEY, MSG_POLL_OPTIONS_PROMPT_KEY, MSG_POLL_SENT_KEY,
     ERR_POLL_OPTIONS_KEY, POLL_MIN_OPTIONS, POLL_MAX_OPTIONS, MSG_SCHEDULE_PROMPT_KEY,
     MSG_SCHEDULED_FORMAT_KEY, MSG_NOTHING_TO_SCHEDULE_KEY, ERR_BAD_TIME_KEY, REPLY_LABEL_FORMAT_KEY,
@@ -138,8 +138,32 @@ class ComposerMixin:
             paths = file_dialog.GetPaths()
         self.send_paths(paths)
 
-    def send_paths(self, paths):
-        """Send files as one message, after asking what goes with them; cancelling either question sends nothing."""
+    def share_files(self, paths):
+        """Files handed over from outside the app, by Windows' "Send to" menu: ask which chat they are for, then send as usual."""
+        if not self:
+            return
+        paths, self.shared_paths = self.shared_paths + paths, []
+        if not paths:
+            return
+        if not self.all_dialogs:
+            # The chats are still on their way: asked again once they are in.
+            self.shared_paths = paths
+            return
+        if self.is_busy:
+            self.notify(MSG_SHARE_BUSY_KEY)
+            return
+        chats = [chat for chat in self.all_dialogs if chat.get("can_send", True)]
+        if not chats:
+            self.notify(MSG_SHARE_NO_CHAT_KEY)
+            return
+        target = self.choose_chat(MSG_SHARE_TO_KEY, chats)
+        if target is not None:
+            self.send_paths(paths, target["id"])
+
+    def send_paths(self, paths, dialog_id=None):
+        """Send files as one message, after asking what goes with them; cancelling either question sends nothing.
+
+        They go to the open chat, as an answer if one was being written, unless another chat is named."""
         # Said before anything is sent: what each file is and how big, so a wrong pick is caught here.
         with wx.TextEntryDialog(
             self, self.describe_paths(paths) + "\n\n" + self.i18n.get_string(MSG_CAPTION_PROMPT_KEY),
@@ -159,10 +183,15 @@ class ComposerMixin:
                 as_documents = kind_dialog.GetSelection() == 1
         self.is_busy = True
         self.set_status(MSG_UPLOADING_KEY)
-        dialog_id = self.current_dialog_id
+        if dialog_id is None:
+            dialog_id = self.current_dialog_id
+            peer, reply_to = self.peer(dialog_id), self.take_reply()
+        else:
+            # A chat chosen by name gets the files as they are: not under the post or in the topic that may be open.
+            peer, reply_to = dialog_id, None
         self.telegram_manager.send_files(
-            self.peer(dialog_id), paths, caption, as_documents,
-            self.on_ui_thread(self.on_files_sent, dialog_id, len(paths)), reply_to=self.take_reply(),
+            peer, paths, caption, as_documents,
+            self.on_ui_thread(self.on_files_sent, dialog_id, len(paths)), reply_to=reply_to,
             on_progress=self.progress_reporter(MSG_UPLOAD_PROGRESS_FORMAT_KEY)
         )
 

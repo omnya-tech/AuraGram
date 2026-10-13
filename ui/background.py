@@ -4,7 +4,7 @@ import wx
 import wx.adv
 from core import key_conflicts, shortcuts
 from core.constants import (
-    BACKGROUND_WINDOW_TITLE, SHOW_HOTKEY_ID, ICON_FILE,
+    BACKGROUND_WINDOW_TITLE, SHOW_HOTKEY_ID, SHARE_HOTKEY_ID, ICON_FILE,
     TRAY_OPEN_KEY, TRAY_EXIT_KEY, TRAY_TOOLTIP_KEY, TRAY_STATUS_FORMAT_KEY,
     CONNECTION_CONNECTING, CONNECTION_STATE_KEYS, CONNECTION_OFFLINE,
     MSG_CONNECTION_LOST_KEY, MSG_CONNECTION_BACK_KEY
@@ -14,7 +14,7 @@ WM_HOTKEY = 0x0312
 WM_CLOSE = 0x0010
 ASFW_ANY = -1
 
-def ask_running_copy_to_show():
+def ask_running_copy_to_show(request=SHOW_HOTKEY_ID):
     """From a second copy of the program: bring the first one's window forward.
 
     Returns False if the first copy's hidden window could not be found.
@@ -26,8 +26,13 @@ def ask_running_copy_to_show():
     # Windows lets only the foreground program hand the foreground to another.
     user32.AllowSetForegroundWindow(ASFW_ANY)
     # Same message the global shortcut produces, so both take the same path.
-    user32.PostMessageW(window, WM_HOTKEY, SHOW_HOTKEY_ID, 0)
+    user32.PostMessageW(window, WM_HOTKEY, request, 0)
     return True
+
+
+def ask_running_copy_to_take_files():
+    """From a second copy started with files to send: have the first one pick up what was left for it."""
+    return ask_running_copy_to_show(SHARE_HOTKEY_ID)
 
 
 def ask_running_copy_to_quit(wait_seconds):
@@ -93,13 +98,16 @@ class BackgroundWindow(wx.Frame):
     """Never shown. Keeps the program alive while its windows are hidden, and
     owns the two ways back in: the tray icon and the global shortcut."""
 
-    def __init__(self, i18n, on_show, on_quit, hotkey):
+    def __init__(self, i18n, on_show, on_quit, hotkey, on_files=None):
         super().__init__(None, title=BACKGROUND_WINDOW_TITLE)
         self.tray = TrayIcon(i18n, on_show, on_quit)
         self.hotkey = ""
         self.has_hotkey = False
         self.set_hotkey(hotkey)
         self.Bind(wx.EVT_HOTKEY, lambda event: on_show(), id=SHOW_HOTKEY_ID)
+        if on_files is not None:
+            # No key combination behind this one: it is how a second copy says it left files to send.
+            self.Bind(wx.EVT_HOTKEY, lambda event: on_files(), id=SHARE_HOTKEY_ID)
         # Nobody can click this window shut; a close request comes from --quit
         # (the installer) or from Windows shutting down, and both mean: exit.
         self.Bind(wx.EVT_CLOSE, lambda event: on_quit())

@@ -9,7 +9,7 @@ Results:
     dist/AuraGram-Update-<version>.exe  the small installer for those who already have AuraGram
     dist/update.json                    what installed copies read to learn of this release
 
-Needs PyInstaller (pip install pyinstaller). The installer step needs Inno Setup 6
+Needs PyInstaller (pip install pyinstaller). The installer step needs Inno Setup 6 or 7
 (https://jrsoftware.org/isinfo.php) and is skipped with a notice if it is not found.
 """
 import json
@@ -42,10 +42,14 @@ DATA_FOLDERS = ("locales", "assets")
 # alone: the screen reader bridges, the audio device library, the codecs, and the
 # SOCKS library Telethon loads only once a proxy is set.
 COLLECTED_PACKAGES = ("accessible_output2", "sounddevice", "av", "python_socks")
-INNO_SETUP_COMPILERS = (
-    os.path.join(os.environ.get("ProgramFiles(x86)", ""), "Inno Setup 6", "ISCC.exe"),
-    os.path.join(os.environ.get("ProgramFiles", ""), "Inno Setup 6", "ISCC.exe"),
-    os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Inno Setup 6", "ISCC.exe"),
+# Where Inno Setup puts its compiler, the newer version first.
+INNO_SETUP_COMPILERS = tuple(
+    os.path.join(folder, "Inno Setup " + version, "ISCC.exe")
+    for version in ("7", "6")
+    for folder in (
+        os.environ.get("ProgramFiles(x86)", ""), os.environ.get("ProgramFiles", ""),
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs"),
+    )
 )
 VERSION_INFO_FILE = os.path.join(WORK_DIR, "version_info.txt")
 # The format PyInstaller reads for a Windows version resource. 040904B0 = English, Unicode.
@@ -180,7 +184,7 @@ def build_installer():
     # The usual install folders first, then wherever the PATH knows an ISCC from.
     compiler = next((path for path in INNO_SETUP_COMPILERS if os.path.exists(path)), None) or shutil.which("ISCC")
     if compiler is None:
-        print("Inno Setup 6 was not found, so no installer was made.")
+        print("Inno Setup was not found, so no installer was made.")
         print("Install it from https://jrsoftware.org/isinfo.php and run this script again.")
         return False
     # The whole installer, then the small one that only brings an installed copy up to date.

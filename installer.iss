@@ -74,6 +74,8 @@ arabic.DesktopIcon=إنشاء اختصار على سطح المكتب
 english.DesktopIcon=Create a desktop shortcut
 arabic.StartWithWindows=تشغيل AuraGram في الخلفية عند بدء ويندوز
 english.StartWithWindows=Start AuraGram in the background when Windows starts
+arabic.SendToMenu=إضافة AuraGram إلى قائمة «إرسال إلى» لإرسال الملفات من مستكشف الملفات
+english.SendToMenu=Add AuraGram to the "Send to" menu, to send files from File Explorer
 arabic.LaunchNow=تشغيل AuraGram الآن
 english.LaunchNow=Launch AuraGram now
 arabic.UninstallShortcut=إزالة AuraGram
@@ -86,6 +88,7 @@ english.RemoveData=Also delete your account data and settings from this computer
 [Tasks]
 Name: "desktopicon"; Description: "{cm:DesktopIcon}"
 Name: "startup"; Description: "{cm:StartWithWindows}"
+Name: "sendto"; Description: "{cm:SendToMenu}"
 #endif
 
 [Files]
@@ -107,6 +110,9 @@ Source: "dist\{#AppName}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsu
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
 Name: "{group}\{cm:UninstallShortcut}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
+; Right click on files, "Send to", AuraGram: the program starts with their paths and asks which chat.
+; Windows keeps this menu per user and has no shared one, so it is added for whoever runs the installer.
+Name: "{usersendto}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: sendto
 
 [Registry]
 ; --background: start hidden next to the clock; the window opens with Ctrl+Alt+Shift+A.

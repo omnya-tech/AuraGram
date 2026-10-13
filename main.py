@@ -9,14 +9,17 @@ from core.constants import (
     SHORTCUT_SHOW_WINDOW, SOUND_START, MSG_UNEXPECTED_ERROR_KEY
 )
 from core.i18n import I18NManager
-from core import diagnostics, proxy, shortcuts, sounds
+from core import diagnostics, proxy, share, shortcuts, sounds
 from core.settings import SETTING_ANNOUNCE_CONNECTION, SETTING_START_SOUND, SETTING_THEME, SETTING_LANGUAGE, Settings
 from core.speech import speak
 from ui.layout import use_interface_language
 from ui.themes import set_theme
 from core.telegram_client import TelegramManager
 from ui.api_setup_dialog import ApiSetupDialog
-from ui.background import BackgroundWindow, ask_running_copy_to_quit, ask_running_copy_to_show, connection_news_key
+from ui.background import (
+    BackgroundWindow, ask_running_copy_to_quit, ask_running_copy_to_show, ask_running_copy_to_take_files,
+    connection_news_key
+)
 from ui.login_frame import LoginFrame
 from ui.main_frame import MainFrame
 
@@ -29,8 +32,14 @@ class MainApplication(wx.App):
         self.connection_state = None
         # Two copies would fight over the same Telegram session file.
         self.instance_checker = wx.SingleInstanceChecker(APP_NAME + "-" + wx.GetUserId())
+        # Files to send, when started from Windows' "Send to" menu.
+        self.shared_paths = share.files_among(sys.argv[1:])
         if self.instance_checker.IsAnotherRunning():
-            ask_running_copy_to_show()
+            if self.shared_paths:
+                share.leave(self.shared_paths)
+                ask_running_copy_to_take_files()
+            else:
+                ask_running_copy_to_show()
             return False
 
         self.settings = Settings()
@@ -45,7 +54,8 @@ class MainApplication(wx.App):
         # Started with Windows: stay out of the way unless signing in is needed.
         self.start_hidden = BACKGROUND_FLAG in sys.argv
         self.background = BackgroundWindow(
-            self.i18n, self.show_window, self.quit, shortcuts.current(self.settings)[SHORTCUT_SHOW_WINDOW]
+            self.i18n, self.show_window, self.quit, shortcuts.current(self.settings)[SHORTCUT_SHOW_WINDOW],
+            self.take_shared_files
         )
         self.telegram_manager = TelegramManager(self.on_telegram_response)
         # Messages are translated into the interface language.
@@ -100,6 +110,7 @@ class MainApplication(wx.App):
             self.login_frame.Destroy()
             if error_key:
                 self.main_frame.show_error(error_key)
+            self.hand_over_shared_files()
         else:
             # Signing in needs the user, even when asked to start in the background.
             self.login_frame.Show()
@@ -134,6 +145,18 @@ class MainApplication(wx.App):
         elif self.login_frame:
             self.login_frame.Show()
             self.login_frame.Raise()
+
+    def take_shared_files(self):
+        """Another copy was started with files to send and left them for this one."""
+        self.shared_paths += share.collect()
+        self.show_window()
+        self.hand_over_shared_files()
+
+    def hand_over_shared_files(self):
+        # Until someone is signed in the files wait: there is nobody to send them as.
+        if self.main_frame and self.shared_paths:
+            paths, self.shared_paths = self.shared_paths, []
+            self.main_frame.share_files(paths)
 
     def log_out(self):
         self.show_login()

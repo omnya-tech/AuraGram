@@ -1029,5 +1029,8 @@
     "MSG_SHORTCUT_CONFLICTS_STARTUP_FORMAT": "These AuraGram shortcuts are used by other programs on this computer, so they may not work:\n\n{conflicts}\n\nOpen the shortcut settings now to change them?",
     "MSG_IN_BACKGROUND": "AuraGram is running in the background. Open it from its icon near the clock.",
     "SHORTCUTS_HELP_LINE_FORMAT": "{shortcut}: {command}",
-    "SHORTCUTS_HELP_ANYWHERE": "From any program"
+    "SHORTCUTS_HELP_ANYWHERE": "From any program",
+    "MSG_SHARE_TO": "Choose the chat to send the files to:",
+    "MSG_SHARE_BUSY": "Another file is being sent or fetched now. Send these again when it is done.",
+    "MSG_SHARE_NO_CHAT": "There is no chat you can write in to send the files to"
 }
