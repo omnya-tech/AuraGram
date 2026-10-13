@@ -29,7 +29,7 @@ class ContactsViewTest(WindowTestCase):
         FakeTelegramClient.contacts = [ZAKI, BASMA, ALI]
 
     def show_contacts(self):
-        self.frame.view_choice.SetSelection(CONTACTS_VIEW)
+        self.frame.view_tabs.SetSelection(CONTACTS_VIEW)
         self.frame.on_view_changed(None)
         self.assertTrue(pump(lambda: len(self.frame.dialogs) == len(FakeTelegramClient.contacts)))
 
@@ -77,7 +77,7 @@ class ContactsViewTest(WindowTestCase):
 
     def test_an_account_without_contacts_says_so(self):
         FakeTelegramClient.contacts = []
-        self.frame.view_choice.SetSelection(CONTACTS_VIEW)
+        self.frame.view_tabs.SetSelection(CONTACTS_VIEW)
         self.frame.on_view_changed(None)
         self.assertTrue(pump(lambda: self.spoken[-1:] == [self.text(c.MSG_NO_CONTACTS_KEY)]))
         self.assertEqual(self.rows(), [])

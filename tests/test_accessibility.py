@@ -90,14 +90,14 @@ class AccessibilityTest(WindowTestCase):
         self.assertEqual(self.frame.GetStatusBar().GetStatusText(), self.text(c.MSG_NO_CHAT_SELECTED_KEY))
 
     def test_tab_skips_the_view_box_and_the_send_button(self):
-        optional = (self.frame.view_choice, self.frame.send_btn)
+        optional = (self.frame.view_tabs, self.frame.send_btn)
         self.assertEqual([control.AcceptsFocusFromKeyboard() for control in optional], [False] * 2)
         # Attaching and recording have no other place in the window, so Tab still reaches them.
         for control in (self.frame.dialogs_list, self.frame.attach_btn, self.frame.record_btn):
             self.assertTrue(control.AcceptsFocusFromKeyboard())
         self.frame.settings.set(s.SETTING_SIMPLE_TAB, False)
         self.frame.apply_simplicity()
-        self.assertTrue(self.frame.view_choice.AcceptsFocusFromKeyboard())
+        self.assertTrue(self.frame.view_tabs.AcceptsFocusFromKeyboard())
 
     def test_preview_box_can_be_taken_away(self):
         self.open_chat(0)

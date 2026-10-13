@@ -101,15 +101,15 @@ class ChatListMixin:
 
     def show_folders(self, folders):
         self.views = build_views(self.i18n, folders)
-        self.view_choice.Set([view.label for view in self.views])
+        self.view_tabs.Set([view.label for view in self.views])
         if self.view_index >= len(self.views):
             # The folder on show was deleted from under its view: back to every chat.
             self.view_index = 0
             self.render_dialogs()
-        self.view_choice.SetSelection(self.view_index)
+        self.view_tabs.SetSelection(self.view_index)
 
     def on_view_changed(self, event):
-        self.view_index = self.view_choice.GetSelection()
+        self.view_index = self.view_tabs.GetSelection()
         # A different view is a different list: start it from the top.
         self.dialogs_list.SetSelection(wx.NOT_FOUND)
         self.render_dialogs()
@@ -348,13 +348,13 @@ class ChatListMixin:
             if not self.views[self.view_index].matches(known):
                 # The current view would hide it: fall back to the view that shows everything.
                 self.view_index = 0
-                self.view_choice.SetSelection(0)
+                self.view_tabs.SetSelection(0)
             self.render_dialogs()
         index = self.find_dialog_index(known["id"])
         if index == wx.NOT_FOUND:
             # Archived chats are in no view but the archive.
             self.view_index = 2
-            self.view_choice.SetSelection(2)
+            self.view_tabs.SetSelection(2)
             self.render_dialogs()
             index = self.find_dialog_index(known["id"])
         self.dialogs_list.SetSelection(index)
@@ -763,7 +763,7 @@ class ChatListMixin:
     def cycle_view(self, step):
         """Move to the next or previous chat view, wrapping around: what the view box does, from the keyboard."""
         self.back_to_list()
-        self.view_choice.SetSelection((self.view_index + step) % len(self.views))
+        self.view_tabs.SetSelection((self.view_index + step) % len(self.views))
         self.on_view_changed(None)
 
     def on_next_unread_menu(self, event):

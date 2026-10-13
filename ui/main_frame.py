@@ -9,7 +9,7 @@ from core.settings import (
 )
 from ui.themes import apply_theme, set_theme
 from ui.layout import (
-    OptionalButton, OptionalChoice, ReadOnlyText, file_size, is_on_a_screen, prepare_window, reading_font
+    OptionalButton, ReadOnlyText, ViewTabs, file_size, is_on_a_screen, prepare_window, reading_font
 )
 from ui.settings_dialog import SettingsDialog
 from core.chat_views import build_views
@@ -144,10 +144,13 @@ class MainFrame(
         dialogs_box = self.dialogs_box = wx.BoxSizer(wx.VERTICAL)
         view_label = wx.StaticText(self.panel, label=self.i18n.get_string(VIEW_LABEL_KEY))
         dialogs_box.Add(view_label, flag=wx.BOTTOM, border=5)
-        self.view_choice = OptionalChoice(self.panel, choices=[view.label for view in self.views])
-        self.view_choice.SetSelection(self.view_index)
-        self.view_choice.Bind(wx.EVT_CHOICE, self.on_view_changed)
-        dialogs_box.Add(self.view_choice, flag=wx.EXPAND|wx.BOTTOM, border=10)
+        # Every view in sight, as tabs: a drop-down would show only the one that is on.
+        self.view_tabs = ViewTabs(
+            self.panel, [view.label for view in self.views], lambda: self.on_view_changed(None),
+            self.i18n.get_string(TOOLTIP_VIEW_KEY)
+        )
+        self.view_tabs.SetName(self.i18n.get_string(VIEW_LABEL_KEY))
+        dialogs_box.Add(self.view_tabs, flag=wx.EXPAND|wx.BOTTOM, border=6)
         dialogs_label = wx.StaticText(self.panel, label=self.i18n.get_string(DIALOGS_LABEL_KEY))
         dialogs_box.Add(dialogs_label, flag=wx.BOTTOM, border=5)
         self.dialogs_list = wx.ListBox(self.panel, style=wx.LB_SINGLE)
@@ -218,7 +221,6 @@ class MainFrame(
         chat_box.Add(self.progress_gauge, flag=wx.EXPAND|wx.TOP, border=10)
         hbox.Add(chat_box, proportion=1, flag=wx.EXPAND|wx.ALL, border=15)
 
-        self.view_choice.SetToolTip(self.i18n.get_string(TOOLTIP_VIEW_KEY))
         self.send_btn.SetToolTip(self.i18n.get_string(TOOLTIP_SEND_KEY))
         self.record_btn.SetToolTip(self.i18n.get_string(TOOLTIP_RECORD_KEY))
         self.attach_btn.SetToolTip(self.i18n.get_string(TOOLTIP_ATTACH_KEY))
@@ -244,7 +246,7 @@ class MainFrame(
         """Keep the window as plain as the settings ask: fewer stops for Tab, and the preview only if wanted."""
         skipped = self.settings.get(SETTING_SIMPLE_TAB)
         # Each of these is one key away anyway: the view on the menu bar, sending on Enter.
-        for control in (self.view_choice, self.send_btn, self.back_btn):
+        for control in (self.view_tabs, self.send_btn, self.back_btn):
             control.skipped_by_tab = skipped
         # Part of the chat screen, so never there while the list of chats is.
         shown = self.in_chat and self.settings.get(SETTING_SHOW_PREVIEW)
@@ -285,6 +287,8 @@ class MainFrame(
         """Switch the whole app to the theme chosen in the settings."""
         set_theme(self.settings.get(SETTING_THEME))
         apply_theme(self)
+        # Painted over with the rest just now: mark the current view's tab again.
+        self.view_tabs.SetSelection(self.view_tabs.GetSelection())
 
     def restore_placement(self):
         """Open where the window was last left, if that spot still exists."""
@@ -881,6 +885,9 @@ class MainFrame(
         if sideways and focused in (self.dialogs_list, self.messages_list) and not event.HasAnyModifiers():
             # In the lists only up and down move. Windows would make left and right do the
             # same; they are kept free here for what they may be given to do later.
+            pass
+        elif self.view_tabs.handle_key(event, focused):
+            # An arrow on one of the view tabs went to its neighbour.
             pass
         elif is_enter and focused is self.dialogs_list:
             self.on_open_dialog(event)

@@ -48,6 +48,15 @@ def apply_theme(window):
         _set_dark_title_bar(window, bool(colours and colours["dark_title_bar"]))
     window.Refresh()
 
+def chosen_colours():
+    """(background, text) for the one chosen item among several, such as the current tab; None
+    under Windows' own colours, where the control's pressed look already tells it apart."""
+    colours = THEME_COLOURS[_current]
+    if colours is None:
+        return None
+    # The theme's two strongest colours swapped: as far from its neighbours as the theme allows.
+    return wx.Colour(colours["text"]), wx.Colour(colours["window"])
+
 def _paint(control, colours):
     if colours is None or isinstance(control, wx.StatusBar):
         # wx.NullColour hands the control back to its Windows default. The status bar
@@ -56,7 +65,7 @@ def _paint(control, colours):
         background = foreground = wx.NullColour
     elif isinstance(control, FIELD_CONTROLS):
         background, foreground = wx.Colour(colours["field"]), wx.Colour(colours["field_text"])
-    elif isinstance(control, wx.Button):
+    elif isinstance(control, (wx.Button, wx.ToggleButton)):
         background, foreground = wx.Colour(colours["button"]), wx.Colour(colours["text"])
     else:
         background, foreground = wx.Colour(colours["window"]), wx.Colour(colours["text"])

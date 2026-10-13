@@ -112,7 +112,7 @@ class MoreToolsTest(WindowTestCase):
         self.assertTrue(pump(lambda: len(self.frame.views) == 4))
         self.assertIsNone(self.requests("UpdateDialogFilterRequest")[0].filter)
         self.assertEqual(self.frame.view_index, 0)
-        self.assertEqual(self.frame.view_choice.GetSelection(), 0)
+        self.assertEqual(self.frame.view_tabs.GetSelection(), 0)
 
     def test_every_unread_chat_is_marked_read_after_a_yes(self):
         self.box_answer = wx.NO

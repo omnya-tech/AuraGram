@@ -36,7 +36,7 @@ class ChatListTest(WindowTestCase):
         return [dialog["title"] for dialog in self.frame.dialogs]
 
     def show_view(self, index):
-        self.frame.view_choice.SetSelection(index)
+        self.frame.view_tabs.SetSelection(index)
         self.frame.on_view_changed(None)
 
     def test_default_view_hides_archived_and_shows_unread_counts(self):
@@ -392,7 +392,7 @@ class ChatPreviewAndMenuTest(WindowTestCase):
         self.assertTrue(pump(lambda: len(self.rows()) == 3))
         self.assertEqual(self.calls("folder"), [("folder", NEWS_ID, 1)])
         self.assertEqual(self.frame.dialogs_list.GetSelection(), 1)
-        self.frame.view_choice.SetSelection(2)
+        self.frame.view_tabs.SetSelection(2)
         self.frame.on_view_changed(None)
         self.assertEqual(self.menu(0)[4], self.text(c.CONTEXT_UNARCHIVE_KEY))
 
