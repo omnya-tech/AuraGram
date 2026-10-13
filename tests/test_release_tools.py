@@ -440,27 +440,57 @@ class DescribePictureTest(WindowTestCase):
 class ReleasePapersTest(WindowTestCase):
     chats = [(ALI, 0, False)]
 
-    def test_help_shows_the_terms_in_the_interface_language_and_the_notices(self):
+    def test_help_explains_the_licence_then_shows_the_components_and_its_text(self):
         shown = []
         self.frame.show_text = lambda title_key, text: shown.append((title_key, text))
         self.frame.on_license_menu(None)
         title_key, text = shown[0]
         self.assertEqual(title_key, c.LICENSE_TITLE_KEY)
-        self.assertIn("اتفاقية الاستخدام", text)
-        self.assertIn("Telethon", text)
-        # The mark that tells the installer how the file is written is not part of the text.
-        self.assertFalse(text.startswith("\ufeff"))
+        self.assertTrue(text.startswith(self.text(c.LICENSE_NOTICE_KEY)))
+        self.assertLess(text.index("Telethon"), text.index("GNU GENERAL PUBLIC LICENSE"))
+        self.assertIn("Version 3, 29 June 2007", text)
+        # No address for the code is shown until there is one.
+        self.assertNotIn(self.text(c.LICENSE_SOURCE_FORMAT_KEY).format(url=""), text)
+        with mock.patch.object(ui.main_frame, "SOURCE_CODE_URL", "https://example.org/code"):
+            self.frame.on_license_menu(None)
+        self.assertIn(self.text(c.LICENSE_SOURCE_FORMAT_KEY).format(url="https://example.org/code"), shown[1][1])
 
-    def test_installer_shows_each_language_its_own_terms_and_both_files_exist(self):
+    def test_installer_shows_the_licence_and_the_legal_files_exist(self):
         with open(os.path.join(c.BASE_DIR, "installer.iss"), encoding="utf-8") as script_file:
             script = script_file.read()
+        self.assertEqual(script.count('LicenseFile: "%s"' % c.LICENSE_FILE_NAME), len(c.LANGUAGES))
         for name in c.LEGAL_FILE_NAMES:
-            with open(os.path.join(c.BASE_DIR, name), "rb") as legal_file:
-                self.assertEqual(legal_file.read(3), b"\xef\xbb\xbf", name)
-        for name in c.LICENSE_FILE_NAMES.values():
-            self.assertIn('LicenseFile: "%s"' % name, script)
+            self.assertTrue(os.path.getsize(os.path.join(c.BASE_DIR, name)) > 1000, name)
 
     def test_telegram_is_told_the_programs_own_version(self):
         made = FakeTelegramClient.created_with[-1]
         self.assertEqual(made["app_version"], c.APP_VERSION)
         self.assertTrue(made["system_version"].startswith("Windows"))
+
+
+class BuildSecretTest(unittest.TestCase):
+    """The code is public; what unseals a built program's API id and hash must not be in it."""
+
+    HASH = "0123456789abcdef0123456789abcdef"
+
+    def sealed_file(self, secret):
+        from core.config import seal_credentials
+        path = os.path.join(tempfile.mkdtemp(), "packed")
+        with open(path, "wb") as packed:
+            packed.write(seal_credentials(777, self.HASH, secret))
+        return path
+
+    def test_a_build_seals_with_its_own_secret_and_only_that_program_can_read_it(self):
+        import core.config as config
+        path = self.sealed_file(b"this build's secret")
+        with mock.patch.object(config, "_build_secret", lambda: b"this build's secret"):
+            self.assertEqual(config.read_sealed(path), (777, self.HASH))
+        # The published code alone, or another build, reads nothing from it.
+        with mock.patch.object(config, "_build_secret", lambda: b""):
+            self.assertEqual(config.read_sealed(path), (0, ""))
+        with mock.patch.object(config, "_build_secret", lambda: b"another build's secret"):
+            self.assertEqual(config.read_sealed(path), (0, ""))
+
+    def test_the_secret_is_kept_out_of_the_repository(self):
+        with open(os.path.join(c.BASE_DIR, ".gitignore"), encoding="utf-8") as ignore_file:
+            self.assertIn("core/_seal.py", ignore_file.read().splitlines())

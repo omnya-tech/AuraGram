@@ -55,8 +55,8 @@ ShowLanguageDialog=yes
 CloseApplications=no
 
 [Languages]
-Name: "arabic"; MessagesFile: "compiler:Languages\Arabic.isl"; LicenseFile: "LICENSE.ar.txt"
-Name: "english"; MessagesFile: "compiler:Default.isl"; LicenseFile: "LICENSE.en.txt"
+Name: "arabic"; MessagesFile: "compiler:Languages\Arabic.isl"; LicenseFile: "LICENSE"
+Name: "english"; MessagesFile: "compiler:Default.isl"; LicenseFile: "LICENSE"
 
 [CustomMessages]
 arabic.DesktopIcon=إنشاء اختصار على سطح المكتب

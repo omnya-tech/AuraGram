@@ -1244,13 +1244,18 @@ MESSAGE_NO_TIME_FORMAT = "{sender}: {text}"
 SETTINGS_ENTER_SENDS_KEY = "SETTINGS_ENTER_SENDS"
 MESSAGE_INPUT_HEIGHT = 56
 
-# The terms the program is given out under, one file per interface language, and the list of
-# other people's software inside it. Shown by the installer and from the Help menu.
-LICENSE_FILE_NAMES = {language: "LICENSE.%s.txt" % language for language in LANGUAGES}
+# AuraGram is free software under the GNU General Public License, version 3 or later: its
+# text, and the list of other people's software inside the program. Shown by the installer
+# and from the Help menu.
+LICENSE_FILE_NAME = "LICENSE"
 NOTICES_FILE_NAME = "THIRD-PARTY-NOTICES.txt"
-LEGAL_FILE_NAMES = tuple(LICENSE_FILE_NAMES.values()) + (NOTICES_FILE_NAME,)
+LEGAL_FILE_NAMES = (LICENSE_FILE_NAME, NOTICES_FILE_NAME)
 MENU_LICENSE_KEY = "MENU_LICENSE"
 LICENSE_TITLE_KEY = "LICENSE_TITLE"
+LICENSE_NOTICE_KEY = "LICENSE_NOTICE"
+LICENSE_SOURCE_FORMAT_KEY = "LICENSE_SOURCE_FORMAT"
+# Where the program's source code is published; the licence has every copy say where. Empty until it is.
+SOURCE_CODE_URL = ""
 # What Telegram lists this program as among the account's devices, beside its version.
 CLIENT_DEVICE_MODEL = "PC"
 CLIENT_SYSTEM_FORMAT = "Windows {release}"

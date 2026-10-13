@@ -980,6 +980,8 @@
     "MONTH_10": "October",
     "MONTH_11": "November",
     "MONTH_12": "December",
-    "MENU_LICENSE": "Licence agreement and components",
-    "LICENSE_TITLE": "AuraGram licence agreement"
+    "MENU_LICENSE": "Licence and components",
+    "LICENSE_TITLE": "AuraGram licence",
+    "LICENSE_NOTICE": "AuraGram is free, open-source software. Copyright (C) 2026 Omnya Technology.\n\nYou may use, copy, study, change and redistribute it under the terms of the GNU General Public License, version 3 or any later version. Whoever distributes a changed copy must publish its code under the same licence.\n\nAuraGram is distributed in the hope that it will be useful, but without any warranty. The full text of the licence is at the end of this window.\n\nAuraGram is an independent program: it is not made by Telegram and is not affiliated with it. It connects to Telegram directly or through a proxy you set, passes through no server of the developer's, and collects no data. Your session and settings stay on your computer, and a picture is sent to Google only when you ask for it to be described with your own key.",
+    "LICENSE_SOURCE_FORMAT": "Source code: {url}"
 }

@@ -1,5 +1,7 @@
 # Secrets: API credentials and the logged-in Telegram session
 config.json
+# The secret half of the seal on those credentials inside a built program; build.py makes a new one each time
+core/_seal.py
 *.session
 *.session-journal
 

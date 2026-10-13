@@ -1,7 +1,8 @@
 ﻿AuraGram - software made by others
 
-AuraGram is built with, and its installed copy contains, the components below.
-Each stays under its own licence; the full text of each licence is at the address given.
+AuraGram itself is free software under the GNU General Public License, version 3 or later
+(see the file LICENSE). It is built with, and its installed copy contains, the components
+below. Each stays under its own licence; the full text of each is at the address given.
 
 Python 3.11 - Python Software Foundation Licence
     https://docs.python.org/3/license.html

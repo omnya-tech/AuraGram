@@ -63,6 +63,11 @@ SELF_CHECK_PROBLEMS = (
     (16, "the built program could not connect to Telegram (no internet now, or a wrong API id)"),
 )
 BUNDLED_CONFIG_BUILD_FILE = os.path.join(WORK_DIR, BUNDLED_CONFIG_NAME)
+# The secret half of the seal on the API id and hash: made anew by every build, compiled into
+# that build's program, and kept out of git. See _build_secret in core/config.py.
+SEAL_MODULE = "core._seal"
+SEAL_MODULE_FILE = os.path.join(BASE_DIR, "core", "_seal.py")
+SEAL_SECRET_BYTES = 32
 
 
 def step(title):
@@ -104,9 +109,12 @@ def write_bundled_config():
         print("      every user for an API id and hash on first run.")
         return False
     os.makedirs(WORK_DIR, exist_ok=True)
+    secret = os.urandom(SEAL_SECRET_BYTES)
+    with open(SEAL_MODULE_FILE, "w", encoding="utf-8") as seal_file:
+        seal_file.write("# Made by build.py for one build. Never commit this file.\nSECRET = %r\n" % secret)
     # Sealed: a search through the installed files finds neither value.
     with open(BUNDLED_CONFIG_BUILD_FILE, "wb") as config_file:
-        config_file.write(seal_credentials(api_id, api_hash))
+        config_file.write(seal_credentials(api_id, api_hash, secret))
     print("Packing this project's API id and hash into the program, sealed.")
     return True
 
@@ -130,7 +138,7 @@ def build_program():
     for name in LEGAL_FILE_NAMES:
         command += ["--add-data", os.path.join(BASE_DIR, name) + os.pathsep + "."]
     if write_bundled_config():
-        command += ["--add-data", BUNDLED_CONFIG_BUILD_FILE + os.pathsep + "."]
+        command += ["--add-data", BUNDLED_CONFIG_BUILD_FILE + os.pathsep + ".", "--hidden-import", SEAL_MODULE]
     for package in COLLECTED_PACKAGES:
         command += ["--collect-all", package]
     run(command)

@@ -43,12 +43,25 @@ def read_credentials(path):
         return 0, EMPTY_STRING
     return api_id, api_hash
 
-def _seal_key(salt):
+def _build_secret():
+    """What build.py made up for one build and packed into that program; empty when running from source.
+
+    The code is published, and with it the way the pair is sealed. This is the part that
+    is not: it is in no repository, only inside a built program, and new for every build.
+    """
+    try:
+        from core._seal import SECRET
+    except ImportError:
+        return b""
+    return SECRET
+
+def _seal_key(salt, secret=None):
     # Made at run time from pieces, so that neither the key nor the values it guards
     # sit anywhere in the program as text for a search to find. This keeps the pair
     # out of sight; it cannot keep it from someone who takes the program apart,
     # because the program itself has to be able to read it.
     material = (APP_NAME[::-1] + "%d" % (len(APP_NAME) * 7919)).encode(ENCODING_UTF8)
+    material += _build_secret() if secret is None else secret
     return hashlib.sha256(salt + hashlib.sha256(material).digest() + salt[::-1]).digest()
 
 def _seal_stream(key, length):
@@ -58,11 +71,14 @@ def _seal_stream(key, length):
         counter += 1
     return blocks[:length]
 
-def seal_credentials(api_id, api_hash):
-    """The API id and hash as unreadable bytes for packing into the program; different every time it is made."""
+def seal_credentials(api_id, api_hash, secret=None):
+    """The API id and hash as unreadable bytes for packing into the program; different every time it is made.
+
+    `secret` is the build's own (see _build_secret); left out, the one this program carries is used.
+    """
     plain = json.dumps([api_id, api_hash]).encode(ENCODING_UTF8)
     salt = os.urandom(SEAL_SALT_BYTES)
-    key = _seal_key(salt)
+    key = _seal_key(salt, secret)
     sealed = bytes(a ^ b for a, b in zip(plain, _seal_stream(key, len(plain))))
     check = hmac.new(key, sealed, hashlib.sha256).digest()[:SEAL_CHECK_BYTES]
     return salt + check + sealed
