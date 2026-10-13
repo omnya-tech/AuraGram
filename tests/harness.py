@@ -119,9 +119,11 @@ class FakeTelegramClient:
     invitation = None  # (title, entity) behind any invitation link, where a test sets it
     read_outbox = None  # id of the newest sent message the other side has read, where a test sets it
     calls = []
+    created_with = []  # the keyword arguments each client was made with, in order
 
     @classmethod
     def reset(cls, chats, history=None):
+        cls.created_with = []
         cls.chats = chats
         cls.history = history or {}
         cls.scheduled = {}
@@ -156,6 +158,7 @@ class FakeTelegramClient:
     def __init__(self, *args, **kwargs):
         self.connected = False
         self.handlers = {}
+        self.created_with.append(kwargs)
 
     def add_event_handler(self, handler, event):
         self.handlers[type(event).__name__] = handler
@@ -334,8 +337,8 @@ class FakeTelegramClient:
         self.calls.append((name, request))
         if name == "GetPeerDialogsRequest" and self.read_outbox is not None:
             return Record(dialogs=[Record(read_outbox_max_id=self.read_outbox)])
-        if name == "GetContactsRequest" and self.contacts is not None:
-            return Record(users=list(self.contacts))
+        if name == "GetContactsRequest":
+            return Record(users=list(self.contacts or []))
         if name == "GetAllStickersRequest":
             return Record(sets=[
                 Record(id=index, access_hash=1, title=title) for index, (title, emojis) in enumerate(self.sticker_sets)

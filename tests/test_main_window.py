@@ -6,6 +6,7 @@ from unittest import mock
 import wx
 
 import core.constants as c
+import core.settings as s
 import core.telegram_client as telegram_client
 from tests.harness import (
     FakeChooser, FakeTelegramClient, Record, WindowTestCase, make_channel, make_message, make_user, pump
@@ -41,7 +42,25 @@ class ChatListTest(WindowTestCase):
     def test_default_view_hides_archived_and_shows_unread_counts(self):
         self.assertEqual(self.titles(), ["Ali", "News", "MyGroup"])
         self.assertIn("2", self.frame.dialogs_list.GetString(0))
+        self.assertEqual(self.frame.dialogs_list.GetString(2), "MyGroup، " + self.text(c.CHAT_KIND_GROUP))
+
+    def test_kind_of_chat_is_named_for_groups_and_channels_unless_turned_off(self):
+        rows = [self.frame.dialogs_list.GetString(index) for index in range(3)]
+        # A person's chat is the ordinary case and says nothing.
+        self.assertNotIn(self.text(c.CHAT_KIND_GROUP), rows[0])
+        self.assertTrue(rows[1].startswith("News، " + self.text(c.CHAT_KIND_CHANNEL)))
+        self.assertTrue(rows[2].startswith("MyGroup، " + self.text(c.CHAT_KIND_GROUP)))
+
+        self.frame.settings.set(s.SETTING_CHAT_KIND, c.CHAT_KIND_PLACE_BEFORE)
+        self.frame.render_dialogs()
+        self.assertEqual(self.frame.dialogs_list.GetString(2), self.text(c.CHAT_KIND_GROUP) + "، MyGroup")
+        self.assertTrue(self.frame.dialogs_list.GetString(1).startswith(self.text(c.CHAT_KIND_CHANNEL) + "، News"))
+        self.assertTrue(self.frame.dialogs_list.GetString(0).startswith("Ali"))
+
+        self.frame.settings.set(s.SETTING_CHAT_KIND, c.CHAT_KIND_PLACE_OFF)
+        self.frame.render_dialogs()
         self.assertEqual(self.frame.dialogs_list.GetString(2), "MyGroup")
+        self.assertNotIn(self.text(c.CHAT_KIND_CHANNEL), self.frame.dialogs_list.GetString(1))
 
     def test_views_filter_the_list_and_announce_the_count(self):
         self.show_view(1)
@@ -298,18 +317,25 @@ class ChatPreviewAndMenuTest(WindowTestCase):
     def test_every_chat_shows_its_latest_message_read_or_not(self):
         rows = self.rows()
         self.assertEqual(rows[0], "Ali، 2 غير مقروءة. are you there?")
-        self.assertEqual(rows[1], "News. headline of the day")
+        self.assertEqual(rows[1], "News، %s. headline of the day" % self.text(c.CHAT_KIND_CHANNEL))
 
     def test_group_preview_names_the_sender_and_own_messages_say_you(self):
         rows = self.rows()
-        self.assertEqual(rows[2], "MyGroup. Mona: hello all")
+        self.assertEqual(rows[2], "MyGroup، %s. Mona: hello all" % self.text(c.CHAT_KIND_GROUP))
         self.assertEqual(rows[3], "Sara. أنت: see you")
 
     def test_preview_follows_what_is_sent(self):
         self.open_chat(3)
         self.frame.message_input.SetValue("new plan")
         self.frame.on_send_message(None)
-        self.assertTrue(pump(lambda: self.rows()[3] == "Sara. أنت: new plan"))
+        # Written in just now, so it is also the first chat of the list.
+        self.assertTrue(pump(lambda: self.rows()[0] == "Sara. أنت: new plan"))
+
+    def test_editing_an_old_message_leaves_the_chat_where_it_is(self):
+        self.open_chat(3)
+        self.frame.on_message_sent(None, self.frame.current_dialog_id, False)
+        pump(timeout=0.2)
+        self.assertTrue(self.rows()[3].startswith("Sara"))
 
     def test_menu_follows_the_order_of_telegram_desktop(self):
         self.assertEqual(self.menu(0), [self.text(key) for key in (

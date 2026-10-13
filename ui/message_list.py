@@ -2,10 +2,14 @@ import datetime
 import os
 import wx
 from core import audio
-from core.settings import SETTING_MARK_READ_ON_OPEN
+from core.settings import SETTING_MARK_READ_ON_OPEN, SETTING_MESSAGE_STATS, SETTING_TIME_STYLE
 from ui.layout import duration_text, file_kind, file_size
 from core.constants import (
-    PREVIEW_FORMAT_KEY, CONTEXT_COPY_LINK_KEY, CONTEXT_SAVE_AS_KEY, CONTEXT_SELECT_KEY, CONTEXT_UNSELECT_KEY,
+    PREVIEW_FORMAT_KEY, CONTEXT_COPY_LINK_KEY, CONTEXT_SAVE_AS_KEY, CONTEXT_DESCRIBE_IMAGE_KEY, DESCRIBABLE_MEDIA,
+    CONTEXT_MESSAGE_SENDER_FORMAT_KEY,
+    MESSAGE_STATS_BEFORE, STATS_AFTER_FORMAT, STATS_BEFORE_FORMAT, STATS_SEPARATOR, TIME_STYLE_NUMBERS,
+    TIME_STYLE_NONE, TIME_STYLE_WORDS_12, MONTH_KEY_PREFIX, TIME_AM_KEY, TIME_PM_KEY, TIME_12_FORMAT,
+    DATE_WORDS_FORMAT_KEY, DATE_WORDS_YEAR_FORMAT_KEY, DATE_TIME_WORDS_FORMAT_KEY, MESSAGE_NO_TIME_FORMAT, CONTEXT_SELECT_KEY, CONTEXT_UNSELECT_KEY,
     MSG_CHOOSE_SAVE_FOLDER_KEY, MSG_SAVED_FORMAT_KEY, CONTEXT_READ_MESSAGE_KEY, READ_MESSAGE_TITLE_KEY, READ_MESSAGE_HEADER_FORMAT_KEY, MARKED_FORMAT_KEY, MESSAGE_VIEW_SEARCH, MESSAGE_VIEW_SCHEDULED, MSG_VIEW_RESULTS_FORMAT_KEY, MSG_VIEW_EMPTY_KEY,
     POLL_FORMAT_KEY, POLL_OPTION_FORMAT_KEY, POLL_CHOSEN_KEY, POLL_VOTERS_FORMAT_KEY,
     POLL_CLOSED_SUFFIX_KEY, CONTEXT_VOTE_KEY, CONTEXT_REACT_KEY, REACTIONS_FORMAT_KEY,
@@ -202,7 +206,7 @@ class MessageListMixin:
             return
         self.preview_text.ChangeValue(self.i18n.get_string(PREVIEW_FORMAT_KEY).format(
             sender=self.sender_name(message),
-            time=message["date"].astimezone().strftime(DATE_TIME_FORMAT),
+            time=self.time_text(message["date"], True),
             text=self.message_text(message)
         ))
 
@@ -317,6 +321,10 @@ class MessageListMixin:
             entries.append((CONTEXT_EDIT_KEY, self.on_edit_menu))
         if chat["can_pin"]:
             entries.append((CONTEXT_UNPIN_KEY if message["pinned"] else CONTEXT_PIN_KEY, self.on_pin_menu))
+        if self.can_message_sender(message):
+            # Already worded, with the person's name in it: a text that is no key is shown as it is.
+            label = self.i18n.get_string(CONTEXT_MESSAGE_SENDER_FORMAT_KEY).format(name=message["sender"])
+            entries.append((label, self.on_message_sender_menu))
         entries.append((CONTEXT_FORWARD_KEY, self.on_forward_menu))
         if message["text"]:
             entries.append((CONTEXT_COPY_KEY, self.on_copy_message))
@@ -331,6 +339,8 @@ class MessageListMixin:
         if has_media:
             entries.append((CONTEXT_OPEN_MEDIA_KEY, self.on_activate_message))
             entries.append((CONTEXT_SAVE_AS_KEY, self.on_save_as_menu))
+        if message["media"] in DESCRIBABLE_MEDIA:
+            entries.append((CONTEXT_DESCRIBE_IMAGE_KEY, self.on_describe_image_menu))
         entries.append((CONTEXT_READ_MESSAGE_KEY, self.on_read_message_menu))
         is_marked = message["id"] in self.marked
         entries.append((CONTEXT_UNSELECT_KEY if is_marked else CONTEXT_SELECT_KEY, self.on_mark_menu))
@@ -675,10 +685,48 @@ class MessageListMixin:
             return
         header = self.i18n.get_string(READ_MESSAGE_HEADER_FORMAT_KEY).format(
             sender=self.sender_name(message),
-            time=message["date"].astimezone().strftime(DATE_TIME_FORMAT)
+            time=self.time_text(message["date"], True)
         )
         # The list squeezes a message into one row; here it keeps its own line breaks.
         self.show_text(READ_MESSAGE_TITLE_KEY, header + "\n\n" + self.message_text(message))
+
+    def time_text(self, date, with_day):
+        """A moment written the way the settings ask; `with_day` says which day, not only what time."""
+        local = date.astimezone()
+        style = self.settings.get(SETTING_TIME_STYLE)
+        # Where the row leaves the time out, the places that still tell it use plain numbers.
+        if style in (TIME_STYLE_NUMBERS, TIME_STYLE_NONE):
+            return local.strftime(DATE_TIME_FORMAT if with_day else TIME_FORMAT)
+        text = self.i18n.get_string
+        if style == TIME_STYLE_WORDS_12:
+            clock = TIME_12_FORMAT.format(
+                hour=local.hour % 12 or 12, minute="%02d" % local.minute,
+                half=text(TIME_AM_KEY if local.hour < 12 else TIME_PM_KEY)
+            )
+        else:
+            clock = local.strftime(TIME_FORMAT)
+        if not with_day:
+            return clock
+        # The year only when it is not this one: said every time, it is just noise.
+        this_year = local.year == datetime.date.today().year
+        day = text(DATE_WORDS_FORMAT_KEY if this_year else DATE_WORDS_YEAR_FORMAT_KEY).format(
+            day=local.day, month=text(MONTH_KEY_PREFIX + str(local.month)), year=local.year
+        )
+        return text(DATE_TIME_WORDS_FORMAT_KEY).format(date=day, time=clock)
+
+    def message_stats(self, message):
+        """A message's numbers in words: how many saw it, commented on it, reacted to it; empty if it has none."""
+        stats = []
+        if message["views"] is not None:
+            stats.append(self.i18n.get_string(VIEWS_FORMAT_KEY).format(count=message["views"]))
+        if message["comments"] is not None:
+            stats.append(self.i18n.get_string(COMMENTS_FORMAT_KEY).format(count=message["comments"]))
+        if message["reactions"]:
+            stats.append(self.i18n.get_string(REACTIONS_FORMAT_KEY).format(reactions="، ".join(
+                self.i18n.get_string(REACTION_COUNT_FORMAT_KEY).format(emoji=emoji, count=count)
+                for emoji, count in message["reactions"]
+            )))
+        return STATS_SEPARATOR.join(stats)
 
     def format_message(self, message):
         local_date = message["date"].astimezone()
@@ -695,33 +743,29 @@ class MessageListMixin:
             text = self.i18n.get_string(forward_key).format(name=message["forwarded_from"], text=text)
         if message["edited"]:
             text = self.i18n.get_string(EDITED_FORMAT_KEY).format(text=text)
-        if message["views"] is not None:
-            text = self.i18n.get_string(VIEWS_FORMAT_KEY).format(text=text, count=message["views"])
         if message["buttons"]:
             text = self.i18n.get_string(BUTTONS_FORMAT_KEY).format(text=text, buttons="، ".join(message["buttons"]))
-        if message["comments"] is not None:
-            text = self.i18n.get_string(COMMENTS_FORMAT_KEY).format(text=text, count=message["comments"])
+        stats = self.message_stats(message)
+        stats_first = self.settings.get(SETTING_MESSAGE_STATS) == MESSAGE_STATS_BEFORE
+        if stats and not stats_first:
+            text = STATS_AFTER_FORMAT.format(text=text, stats=stats)
         if message["pinned"]:
             text = self.i18n.get_string(PINNED_FORMAT_KEY).format(text=text)
-        if message["reactions"]:
-            text = self.i18n.get_string(REACTIONS_FORMAT_KEY).format(
-                text=text,
-                reactions="، ".join(
-                    self.i18n.get_string(REACTION_COUNT_FORMAT_KEY).format(emoji=emoji, count=count)
-                    for emoji, count in message["reactions"]
-                )
-            )
-        line = self.i18n.get_string(MESSAGE_FORMAT_KEY).format(
+        no_time = self.settings.get(SETTING_TIME_STYLE) == TIME_STYLE_NONE
+        line = (MESSAGE_NO_TIME_FORMAT if no_time else self.i18n.get_string(MESSAGE_FORMAT_KEY)).format(
             sender=self.sender_name(message),
             # A row is one line: the list would drop the line breaks and glue the
             # words on either side together, so turn them into spaces first.
             text=" ".join(text.split()),
-            time=local_date.strftime(TIME_FORMAT if is_today else DATE_TIME_FORMAT)
+            time=self.time_text(message["date"], not is_today)
         )
         if message["read"] is not None:
             # Last on the row, where Telegram's own apps put their check marks.
             read_key = MESSAGE_READ_FORMAT_KEY if message["read"] else MESSAGE_UNREAD_FORMAT_KEY
             line = self.i18n.get_string(read_key).format(text=line)
+        if stats and stats_first:
+            # Ahead of the sender's name too: heard before the message itself begins.
+            line = STATS_BEFORE_FORMAT.format(stats=stats, text=line)
         if message["id"] == self.first_unread_id:
             # Where reading stopped last time.
             line = self.i18n.get_string(NEW_FROM_HERE_FORMAT_KEY).format(text=line)

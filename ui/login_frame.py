@@ -6,15 +6,18 @@ from core.constants import (
     MSG_ENTER_PHONE_KEY, PHONE_LABEL_KEY, BTN_SEND_PHONE_KEY,
     MSG_CODE_SENT_KEY, CODE_LABEL_KEY, BTN_SEND_CODE_KEY,
     MSG_PASSWORD_NEEDED_KEY, PASSWORD_LABEL_KEY, BTN_SEND_PASSWORD_KEY,
-    STEP_PHONE, STEP_CODE, STEP_PASSWORD
+    STEP_PHONE, STEP_CODE, STEP_PASSWORD, BTN_PROXY_KEY
 )
+from ui.proxy_dialog import ProxyDialog
 
 class LoginFrame(wx.Frame):
-    def __init__(self, i18n, telegram_manager):
-        super().__init__(None, title=i18n.get_string(LOGIN_TITLE_KEY), size=(520, 420))
+    def __init__(self, i18n, telegram_manager, settings=None):
+        super().__init__(None, title=i18n.get_string(LOGIN_TITLE_KEY), size=(520, 470))
         prepare_window(self, i18n)
         self.i18n = i18n
         self.telegram_manager = telegram_manager
+        # Where the proxy is kept; without it the window offers none.
+        self.settings = settings
         self.is_processing = False
         self.step_controls = {}
         self.init_ui()
@@ -37,6 +40,13 @@ class LoginFrame(wx.Frame):
             STEP_PASSWORD, MSG_PASSWORD_NEEDED_KEY, PASSWORD_LABEL_KEY, BTN_SEND_PASSWORD_KEY,
             self.on_send_password, input_style=wx.TE_PASSWORD
         )
+
+        # Usable at every step and while waiting too: where Telegram is blocked,
+        # the waiting never ends until a proxy is set.
+        self.proxy_btn = wx.Button(self.panel, label=self.i18n.get_string(BTN_PROXY_KEY))
+        self.proxy_btn.Bind(wx.EVT_BUTTON, self.on_proxy)
+        self.proxy_btn.Show(self.settings is not None)
+        self.vbox.Add(self.proxy_btn, flag=wx.ALL, border=15)
 
         self.panel.SetSizer(self.vbox)
         self.Center()
@@ -74,12 +84,12 @@ class LoginFrame(wx.Frame):
         """Lock the form while waiting for Telegram to answer."""
         self.is_processing = True
         self.set_instruction(MSG_LOADING_KEY)
-        self.panel.Disable()
+        self.lock_steps(True)
 
     def set_step(self, step):
         """Show only the controls of the given login step and unlock the form."""
         self.is_processing = False
-        self.panel.Enable()
+        self.lock_steps(False)
         for controls_step, (_, _, controls) in self.step_controls.items():
             for control in controls:
                 control.Show(controls_step == step)
@@ -97,6 +107,18 @@ class LoginFrame(wx.Frame):
         if step == STEP_CODE:
             # Focus alone would read only the field's label, not how the code is coming.
             speak(self.i18n.get_string(instruction_key))
+
+    def lock_steps(self, locked):
+        """Lock or unlock what the login steps are made of; the proxy button stays usable either way."""
+        for _, _, controls in self.step_controls.values():
+            for control in controls:
+                control.Enable(not locked)
+
+    def on_proxy(self, event):
+        with ProxyDialog(self, self.i18n, self.settings, self.telegram_manager) as proxy_dialog:
+            if proxy_dialog.ShowModal() == wx.ID_OK:
+                # Connecting again, the new way; Telegram's answer brings the form back.
+                self.set_busy()
 
     def show_error(self, error_key):
         wx.MessageBox(

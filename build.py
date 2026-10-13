@@ -29,8 +29,9 @@ INSTALLER = os.path.join(DIST_DIR, "%s-Setup-%s.exe" % (APP_NAME, APP_VERSION))
 # Read-only files the program loads at run time.
 DATA_FOLDERS = ("locales", "assets")
 # Packages whose DLLs and data files PyInstaller does not find from the imports
-# alone: the screen reader bridges, the audio device library, and the codecs.
-COLLECTED_PACKAGES = ("accessible_output2", "sounddevice", "av")
+# alone: the screen reader bridges, the audio device library, the codecs, and the
+# SOCKS library Telethon loads only once a proxy is set.
+COLLECTED_PACKAGES = ("accessible_output2", "sounddevice", "av", "python_socks")
 INNO_SETUP_COMPILERS = (
     os.path.join(os.environ.get("ProgramFiles(x86)", ""), "Inno Setup 6", "ISCC.exe"),
     os.path.join(os.environ.get("ProgramFiles", ""), "Inno Setup 6", "ISCC.exe"),

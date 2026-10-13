@@ -21,6 +21,7 @@ from telethon.errors import (
 from telethon.tl import functions, types
 from telethon.utils import get_display_name, get_input_peer, get_peer_id, parse_username
 from core.config import load_credentials
+from core.proxy import client_arguments
 from core.constants import (
     SESSION_NAME, EMPTY_STRING, DIALOGS_LIMIT, MESSAGES_LIMIT,
     STEP_PHONE, STEP_CODE, STEP_PASSWORD, STEP_DONE,
@@ -119,6 +120,8 @@ class TelegramManager(threading.Thread):
         self.api_id, self.api_hash = load_credentials()
         # The language new messages are translated into; set by the app from the user's choice.
         self.translate_lang = DEFAULT_LANG
+        # How Telegram is reached, as core.proxy describes it; None for a direct connection.
+        self.proxy = None
         self.loop = asyncio.new_event_loop()
         self.client = None
         self.phone = None
@@ -161,7 +164,7 @@ class TelegramManager(threading.Thread):
         self.loop.run_forever()
 
     def _create_client(self):
-        self.client = TelegramClient(SESSION_NAME, self.api_id, self.api_hash)
+        self.client = TelegramClient(SESSION_NAME, self.api_id, self.api_hash, **client_arguments(self.proxy))
         self.client.add_event_handler(self._on_new_message, events.NewMessage())
         self.client.add_event_handler(self._on_message_edited, events.MessageEdited())
         self.client.add_event_handler(self._on_message_deleted, events.MessageDeleted())
@@ -180,6 +183,11 @@ class TelegramManager(threading.Thread):
             pass
         self.loop.call_soon_threadsafe(self.loop.stop)
         self.join(timeout=STOP_TIMEOUT_SECONDS)
+
+    def set_proxy(self, proxy):
+        """Reach Telegram another way from now on. Connects again at once; signing in starts over
+        from the phone number, while an account already signed in simply carries on."""
+        asyncio.run_coroutine_threadsafe(self._set_proxy_async(proxy), self.loop)
 
     def send_phone(self, phone):
         asyncio.run_coroutine_threadsafe(self._send_phone_async(phone), self.loop)
@@ -380,6 +388,10 @@ class TelegramManager(threading.Thread):
     def find_chat(self, query, on_result):
         """Looks up a username, phone number or link; the result is a chat like those of load_dialogs."""
         self._request(on_result, self._find_chat_async, query)
+
+    def open_sender(self, dialog_id, message_id, on_result):
+        """The private chat with whoever wrote a message, shaped like the chats of load_dialogs."""
+        self._request(on_result, self._open_sender_async, dialog_id, message_id)
 
     def load_contacts(self, on_result):
         self._request(on_result, self._load_contacts_async)
@@ -840,6 +852,15 @@ class TelegramManager(threading.Thread):
         chat = self._describe_chat(entity)
         self.entities[chat["id"]] = get_input_peer(entity)
         return chat
+
+    async def _open_sender_async(self, dialog_id, message_id):
+        message = await self.client.get_messages(self.entities[dialog_id], ids=message_id)
+        sender = getattr(message, "sender", None)
+        if sender is None and hasattr(message, "get_sender"):
+            sender = await message.get_sender()
+        if not isinstance(sender, types.User):
+            raise ChatNotFoundError()
+        return self._remember_chat(sender)
 
     async def _load_contacts_async(self):
         result = await self.client(functions.contacts.GetContactsRequest(hash=0))
@@ -1764,6 +1785,8 @@ class TelegramManager(threading.Thread):
         return {
             "id": message.id,
             "sender": get_display_name(sender) if sender else EMPTY_STRING,
+            # Set when a person wrote it, and so can be written to; None for a channel or a group writing as itself.
+            "sender_id": sender.id if isinstance(sender, types.User) else None,
             "text": message.message or EMPTY_STRING,
             # Words for an attachment that has no text of its own: a sticker's emoji, a contact's name and number.
             "detail": self._describe_detail(message),
@@ -2131,6 +2154,20 @@ class TelegramManager(threading.Thread):
         except Exception:
             logger.exception("Telegram request failed")
             self.ui_callback(STEP_PHONE, ERR_CONNECTION_KEY)
+
+    async def _set_proxy_async(self, proxy):
+        async with self.connect_lock:
+            self.proxy = proxy
+            entities = self.entities
+            try:
+                await self.client.disconnect()
+            except Exception:
+                logger.exception("Telegram request failed")
+            # The way in is fixed when a client is made, so this takes a new one on the same session.
+            self._create_client()
+            # The chats on screen are still the same ones.
+            self.entities = entities
+        await self._connect_async()
 
     async def _disconnect_async(self):
         # Otherwise the watcher would connect again right behind this.

@@ -6,10 +6,10 @@ from core.config import load_credentials, read_sealed, save_credentials
 from core.constants import (
     APP_NAME, DEFAULT_LANG, APP_TITLE_KEY, STEP_DONE, BACKGROUND_FLAG, CHECK_FLAG, QUIT_FLAG,
     QUIT_WAIT_SECONDS, CONNECT_CHECK_SECONDS, BUNDLED_CONFIG_FILE, LOG_FILE, LOG_MAX_BYTES, APP_VERSION, IS_FROZEN,
-    SHOW_HOTKEY_TEXT, ERR_HOTKEY_TAKEN_FORMAT_KEY, SOUND_START
+    SHOW_HOTKEY_TEXT, ERR_HOTKEY_TAKEN_FORMAT_KEY, SOUND_START, MSG_UNEXPECTED_ERROR_KEY
 )
 from core.i18n import I18NManager
-from core import sounds
+from core import diagnostics, proxy, sounds
 from core.settings import SETTING_ANNOUNCE_CONNECTION, SETTING_START_SOUND, SETTING_THEME, SETTING_LANGUAGE, Settings
 from core.speech import speak
 from ui.themes import set_theme
@@ -46,6 +46,8 @@ class MainApplication(wx.App):
         self.telegram_manager = TelegramManager(self.on_telegram_response)
         # Messages are translated into the interface language.
         self.telegram_manager.translate_lang = self.settings.get(SETTING_LANGUAGE)
+        self.telegram_manager.proxy = proxy.from_settings(self.settings)
+        diagnostics.on_unexpected_error = lambda: wx.CallAfter(self.tell_unexpected_error)
         self.telegram_manager.set_connection_listener(self.on_connection_change)
         self.show_login()
         # Started only now: its callback needs the app and the frame to exist.
@@ -70,7 +72,7 @@ class MainApplication(wx.App):
 
     def show_login(self):
         # The login window starts in its busy state until Telegram says what is needed.
-        self.login_frame = LoginFrame(self.i18n, self.telegram_manager)
+        self.login_frame = LoginFrame(self.i18n, self.telegram_manager, self.settings)
         # Closing it without signing in leaves nothing to keep running for.
         self.login_frame.Bind(wx.EVT_CLOSE, lambda event: self.quit())
         if not self.start_hidden:
@@ -92,6 +94,7 @@ class MainApplication(wx.App):
                 # The app's own chime: only when its window really opens, never on a silent start with Windows.
                 if self.settings.get(SETTING_START_SOUND):
                     sounds.play(SOUND_START)
+                self.main_frame.check_updates_once()
             self.login_frame.Destroy()
             if error_key:
                 self.main_frame.show_error(error_key)
@@ -103,6 +106,11 @@ class MainApplication(wx.App):
                 self.login_frame.show_error(error_key)
         # Only the very first window honours the background start.
         self.start_hidden = False
+
+    def tell_unexpected_error(self):
+        """A command failed in a way nothing foresaw: say so, instead of leaving the user to wonder."""
+        if self.main_frame:
+            self.main_frame.notify(MSG_UNEXPECTED_ERROR_KEY)
 
     def on_connection_change(self, state):
         wx.CallAfter(self._show_connection_state, state)
@@ -221,5 +229,6 @@ if __name__ == '__main__':
         # Exit code 0 tells the installer the program is closed and its files are free.
         sys.exit(0 if ask_running_copy_to_quit(QUIT_WAIT_SECONDS) else 1)
     start_logging()
+    diagnostics.catch_unexpected_errors()
     app = MainApplication()
     app.MainLoop()

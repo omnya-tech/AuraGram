@@ -1,12 +1,15 @@
 import os
 import wx
-from core import audio
-from core.settings import SETTING_VOICE_SPEED, SETTING_MIC_DEVICE, SETTING_MIC_LEVEL, SETTING_NOISE
+from core import audio, sounds
+from core.settings import (
+    SETTING_VOICE_SPEED, SETTING_MIC_DEVICE, SETTING_MIC_LEVEL, SETTING_NOISE, SETTING_RECORD_SOUND
+)
 from core.constants import (
     MSG_UPLOAD_PROGRESS_FORMAT_KEY, VOICE_SPEEDS, MSG_VOICE_SPEED_FORMAT_KEY, MIC_LEVELS, NOISE_LEVELS,
     BTN_RECORD_KEY, BTN_STOP_AND_SEND_KEY, VOICE_NOTE_FILE, MIN_VOICE_SECONDS, MSG_RECORDING_KEY, MSG_RECORDING_CANCELLED_KEY,
     MSG_RECORDING_TOO_SHORT_KEY, MSG_SENDING_VOICE_KEY, MSG_VOICE_SENT_KEY, MSG_PLAYING_KEY,
-    MSG_PLAYBACK_STOPPED_KEY, ERR_AUDIO_KEY, ERR_NO_AUDIO_SUPPORT_KEY, STATUS_READY_KEY
+    MSG_PLAYBACK_STOPPED_KEY, ERR_AUDIO_KEY, ERR_NO_AUDIO_SUPPORT_KEY, STATUS_READY_KEY,
+    SOUND_RECORD_START, SOUND_RECORD_STOP
 )
 
 class VoiceMixin:
@@ -47,7 +50,12 @@ class VoiceMixin:
         # Where exactly: the topic or the comments it was started in, even if they are left meanwhile.
         self.recording_target = (self.peer(self.current_dialog_id), self.thread_root())
         self.update_record_buttons()
-        self.notify(MSG_RECORDING_KEY)
+        if self.settings.get(SETTING_RECORD_SOUND):
+            # A tone, and the words only on screen: spoken, they would be the start of the voice message.
+            sounds.play(SOUND_RECORD_START)
+            self.set_status(MSG_RECORDING_KEY)
+        else:
+            self.notify(MSG_RECORDING_KEY)
 
     def finish_recording(self):
         try:
@@ -59,6 +67,8 @@ class VoiceMixin:
             self.show_error(ERR_AUDIO_KEY)
             return
         self.update_record_buttons()
+        if self.settings.get(SETTING_RECORD_SOUND):
+            sounds.play(SOUND_RECORD_STOP)
         if seconds < MIN_VOICE_SECONDS:
             self.notify(MSG_RECORDING_TOO_SHORT_KEY)
             return

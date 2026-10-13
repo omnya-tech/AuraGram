@@ -90,7 +90,7 @@ class ComposerMixin:
         self.enable_chat(False)
         self.set_status(MSG_LOADING_KEY)
         dialog_id = self.current_dialog_id
-        on_result = self.on_ui_thread(self.on_message_sent, dialog_id)
+        on_result = self.on_ui_thread(self.on_message_sent, dialog_id, self.editing is None)
         if self.editing is not None:
             self.telegram_manager.edit_message(self.peer(dialog_id), self.editing["id"], text, on_result)
         else:
@@ -99,9 +99,12 @@ class ComposerMixin:
                 reply_to=self.reply_to["id"] if self.reply_to else self.thread_root(), silent=silent
             )
 
-    def on_message_sent(self, result, dialog_id):
+    def on_message_sent(self, result, dialog_id, is_new=True):
         # It was sent, so it is no longer a draft, even if another chat is open by now.
         self.drafts.pop(dialog_id, None)
+        # An edit changes an old message; only something new makes the chat the latest one.
+        if is_new:
+            self.lift_dialog(dialog_id)
         if self.settings.get(SETTING_SENT_SOUND):
             sounds.play(SOUND_SENT)
         if dialog_id != self.current_dialog_id:
@@ -192,6 +195,7 @@ class ComposerMixin:
             self.refresh_after_sending(dialog_id)
 
     def refresh_after_sending(self, dialog_id):
+        self.lift_dialog(dialog_id)
         if dialog_id != self.current_dialog_id:
             return
         if self.thread is not None:

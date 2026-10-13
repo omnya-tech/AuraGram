@@ -13,7 +13,9 @@ import numpy
 from PIL import Image, ImageDraw
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from core.constants import BASE_DIR, SOUND_MESSAGE, SOUND_MESSAGE_IN_CHAT, SOUND_SENT, SOUND_START
+from core.constants import (
+    BASE_DIR, SOUND_MESSAGE, SOUND_MESSAGE_IN_CHAT, SOUND_SENT, SOUND_START, SOUND_RECORD_START, SOUND_RECORD_STOP
+)
 
 SAMPLE_RATE = 44100
 ASSETS = os.path.join(BASE_DIR, "assets")
@@ -73,12 +75,21 @@ def make_sounds():
     save(SOUND_SENT, mix(
         0.6, (0.00, note(G5, 0.3, 11.0)), (0.07, note(C6, 0.35, 10.0)), (0.14, note(E6, 0.46, 8.0))
     ), volume=0.50)
+    make_recording_sounds()
     # The app opening: its signature. An open chord climbing two octaves over a low note
     # that keeps ringing underneath, so it sounds like a glow spreading rather than a bell.
     save(SOUND_START, mix(
         1.9, (0.00, note(D4, 1.8, 2.2) * 0.6), (0.00, note(D5, 1.5, 3.0)), (0.13, note(A5, 1.5, 3.0)),
         (0.26, note(D6, 1.5, 2.8)), (0.39, note(F6_SHARP, 1.45, 2.6) * 0.8)
     ), volume=0.50)
+
+
+def make_recording_sounds():
+    # Recording starts: two quick notes going up, "go on". Short and quiet, since the
+    # microphone is already open and hears it too.
+    save(SOUND_RECORD_START, mix(0.2, (0.00, note(D5, 0.12, 22.0)), (0.07, note(A5, 0.13, 20.0))), volume=0.30)
+    # Recording ends: the same two coming back down.
+    save(SOUND_RECORD_STOP, mix(0.22, (0.00, note(A5, 0.12, 22.0)), (0.07, note(D5, 0.15, 18.0))), volume=0.30)
 
 
 def make_icon():

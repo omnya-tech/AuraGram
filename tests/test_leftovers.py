@@ -7,6 +7,7 @@ import wx
 from telethon.tl import types
 
 import core.constants as c
+import core.settings as s
 from tests.harness import (
     NOW, FakeChooser, FakeTelegramClient, Record, WindowTestCase, make_message, make_user, pump
 )
@@ -143,7 +144,17 @@ class LeftoversTest(WindowTestCase):
         rows = [self.frame.messages_list.GetString(index) for index in range(5)]
         self.assertIn(self.text(c.FORWARDED_FORMAT_KEY).format(name="Hidden Hand", text="passed on"), rows[2])
         self.assertIn(self.text(c.EDITED_FORMAT_KEY).format(text="fixed typo"), rows[3])
-        self.assertIn(self.text(c.VIEWS_FORMAT_KEY).format(text="news", count=120), rows[4])
+        views = self.text(c.VIEWS_FORMAT_KEY).format(count=120)
+        self.assertIn("news. " + views, rows[4])
+
+        # The numbers can be put ahead of the message instead, to be heard first.
+        self.frame.settings.set(s.SETTING_MESSAGE_STATS, c.MESSAGE_STATS_BEFORE)
+        self.frame.render_messages(4)
+        row = self.frame.messages_list.GetString(4)
+        self.assertTrue(row.startswith(views + ". "))
+        self.assertEqual(row.count(views), 1)
+        # A message with no numbers is untouched by the choice.
+        self.assertEqual(self.frame.messages_list.GetString(3), rows[3])
         # A post stamped only because its reactions changed was not edited.
         self.assertFalse(self.frame.messages[4]["edited"])
         self.assertEqual(rows[0].count("bonjour"), 1)

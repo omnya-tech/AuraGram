@@ -8,7 +8,7 @@ from core.settings import (
 from core.constants import (
     EVENT_NEW_MESSAGE, EVENT_MESSAGE_EDITED, EVENT_MESSAGES_DELETED, ANNOUNCE_FORMAT_KEY,
     SOUND_MESSAGE, SOUND_MESSAGE_IN_CHAT, ANNOUNCE_WHEN_FOREGROUND, ANNOUNCE_WHEN_BACKGROUND,
-    ANNOUNCE_WHAT_SENDER, ANNOUNCE_SENDER_FORMAT_KEY, EVENT_MESSAGES_READ, EVENT_USER_STATUS, EVENT_TYPING,
+    ANNOUNCE_WHAT_SENDER, ANNOUNCE_WHAT_WHOLE, ANNOUNCE_SENDER_FORMAT_KEY, EVENT_MESSAGES_READ, EVENT_USER_STATUS, EVENT_TYPING,
     MSG_TYPING_FORMAT_KEY, TYPING_SHOWN_MS, EVENT_DRAFT
 )
 
@@ -64,9 +64,12 @@ class LiveUpdatesMixin:
 
     def report_message(self, source, message):
         """Tell the screen reader user about a new message, as the accessibility settings ask."""
-        sender_only = self.settings.get(SETTING_ANNOUNCE_WHAT) == ANNOUNCE_WHAT_SENDER
+        what = self.settings.get(SETTING_ANNOUNCE_WHAT)
+        sender_only = what == ANNOUNCE_WHAT_SENDER
+        # To the end if asked, with its line breaks as pauses; otherwise only how it begins.
+        said = " ".join(self.message_text(message).split()) if what == ANNOUNCE_WHAT_WHOLE else self.message_snippet(message)
         text = self.i18n.get_string(ANNOUNCE_SENDER_FORMAT_KEY if sender_only else ANNOUNCE_FORMAT_KEY).format(
-            source=source, text=self.message_snippet(message)
+            source=source, text=said
         )
         if self.settings.get(SETTING_BRAILLE_MESSAGES):
             speech.braille(text)
@@ -110,11 +113,15 @@ class LiveUpdatesMixin:
     def on_user_status(self, user_id, status):
         # A person's private chat has the same id as the person.
         dialog = self.find_known_dialog(user_id)
-        if dialog is None or dialog["status"] is None:
-            # Not a chat in the list, or one that shows no status (this account itself, a bot).
-            return
-        dialog["status"] = status
-        if user_id == self.current_dialog_id:
+        # A contact may be listed without having a chat, and so be known only there.
+        contact = next((chat for chat in self.contacts if chat["id"] == user_id), None)
+        for chat in (dialog, contact):
+            # Not listed, or one that shows no status (this account itself, a bot).
+            if chat is not None and chat["status"] is not None:
+                chat["status"] = status
+        if self.showing_contacts() and contact is not None:
+            self.refresh_dialog_row(dialog or contact)
+        if dialog is not None and user_id == self.current_dialog_id:
             self.show_chat_name(dialog)
 
     def on_draft(self, dialog_id, text):

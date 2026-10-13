@@ -1,7 +1,8 @@
 import wx
 from core.speech import speak
+from core.settings import SETTING_CHAT_KIND
 from ui.chat_info_dialog import ChatInfoDialog
-from core.chat_views import build_views
+from core.chat_views import build_views, contacts_first_online, is_online
 from core.constants import (
     CATEGORY_GROUPS, CATEGORY_BROADCASTS, CONTEXT_LEAVE_KEY, CONTEXT_DELETE_CHAT_KEY,
     MSG_CONFIRM_LEAVE_KEY, MSG_CONFIRM_DELETE_CHAT_KEY, MSG_LEFT_KEY, MSG_VIEW_COUNT_FORMAT_KEY,
@@ -28,7 +29,9 @@ from core.constants import (
     MSG_FOLDER_NAME_PROMPT_KEY, MSG_FOLDER_RULES_PROMPT_KEY, FOLDER_RULE_KEY_PREFIX, FOLDER_EXCLUSIONS,
     MSG_FOLDER_CHATS_PROMPT_KEY, ERR_FOLDER_EMPTY_KEY, MSG_CONFIRM_DELETE_FOLDER_FORMAT_KEY,
     MSG_FOLDERS_SAVED_KEY, FIRST_FOLDER_ID, FOLDER_CATEGORIES, MSG_CONFIRM_MARK_ALL_READ_FORMAT_KEY,
-    MSG_ALL_READ_KEY, MSG_NOTHING_UNREAD_KEY, MSG_INVITE_COPIED_KEY
+    MSG_ALL_READ_KEY, MSG_NOTHING_UNREAD_KEY, MSG_INVITE_COPIED_KEY, MSG_CONTACTS_COUNT_FORMAT_KEY,
+    STATUS_OFFLINE_KEY, CHAT_KIND_GROUP, CHAT_KIND_CHANNEL, CHAT_KIND_PLACE_AFTER, CHAT_KIND_PLACE_BEFORE,
+    CHAT_KIND_BEFORE_FORMAT_KEY
 )
 
 class ChatListMixin:
@@ -55,14 +58,20 @@ class ChatListMixin:
     def render_dialogs(self):
         """Refill the chat list with the chats of the current view, keeping the user's place."""
         selected = self.dialogs_list.GetSelection()
-        was_on_load_more = self.has_more_dialogs and selected == len(self.dialogs)
+        was_on_load_more = self.has_more_chat_rows() and selected == len(self.dialogs)
         first_new_index = len(self.dialogs)
         selected_id = self.dialogs[selected]["id"] if 0 <= selected < len(self.dialogs) else None
 
         view = self.views[self.view_index]
-        self.dialogs = [dialog for dialog in self.all_dialogs if view.matches(dialog)]
+        if view.is_contacts:
+            # As the chat each already is, where there is one: that knows what is unread or silenced.
+            self.dialogs = contacts_first_online(
+                [self.find_known_dialog(contact["id"]) or contact for contact in self.contacts]
+            )
+        else:
+            self.dialogs = [dialog for dialog in self.all_dialogs if view.matches(dialog)]
         items = [self.format_dialog(dialog) for dialog in self.dialogs]
-        if self.has_more_dialogs:
+        if self.has_more_chat_rows():
             items.append(self.i18n.get_string(MSG_LOAD_MORE_DIALOGS_KEY))
         self.dialogs_list.Set(items)
 
@@ -74,11 +83,20 @@ class ChatListMixin:
         elif items:
             self.dialogs_list.SetSelection(0)
 
+    def has_more_chat_rows(self):
+        """Whether the list ends with the row that loads more chats. Contacts come all at once."""
+        return self.has_more_dialogs and not self.showing_contacts()
+
+    def showing_contacts(self):
+        return self.views[self.view_index].is_contacts
+
     def show_folders(self, folders):
         self.views = build_views(self.i18n, folders)
-        # A folder may have been deleted from under the view that was showing it.
-        self.view_index = min(self.view_index, len(self.views) - 1)
         self.view_choice.Set([view.label for view in self.views])
+        if self.view_index >= len(self.views):
+            # The folder on show was deleted from under its view: back to every chat.
+            self.view_index = 0
+            self.render_dialogs()
         self.view_choice.SetSelection(self.view_index)
 
     def on_view_changed(self, event):
@@ -86,8 +104,33 @@ class ChatListMixin:
         # A different view is a different list: start it from the top.
         self.dialogs_list.SetSelection(wx.NOT_FOUND)
         self.render_dialogs()
+        if self.showing_contacts():
+            # Who is online changes by the minute: ask again on every visit, and speak once it is known.
+            self.set_status(MSG_LOADING_KEY)
+            self.telegram_manager.load_contacts(self.on_ui_thread(self.show_contacts))
+            return
         self.announce(self.i18n.get_string(MSG_VIEW_COUNT_FORMAT_KEY).format(
             view=self.views[self.view_index].label, count=len(self.dialogs)
+        ))
+
+    def show_contacts(self, contacts):
+        self.contacts = contacts
+        for contact in contacts:
+            known = self.find_known_dialog(contact["id"])
+            if known is not None:
+                # Just asked, so newer than what the chat list was told when it loaded.
+                known["status"] = contact["status"]
+        if not self.showing_contacts():
+            # The user has moved on to another view meanwhile.
+            return
+        self.set_status(STATUS_READY_KEY)
+        self.render_dialogs()
+        if not contacts:
+            self.notify(MSG_NO_CONTACTS_KEY)
+            return
+        self.announce(self.i18n.get_string(MSG_CONTACTS_COUNT_FORMAT_KEY).format(
+            view=self.views[self.view_index].label, count=len(contacts),
+            online=sum(1 for contact in contacts if is_online(contact))
         ))
 
     def load_more_dialogs(self):
@@ -97,15 +140,28 @@ class ChatListMixin:
     def format_dialog(self, dialog):
         """One row of the chat list: name, state, then the latest message whether read or not."""
         details = []
+        title = dialog["title"]
+        if self.showing_contacts():
+            # Here the row answers one question: is this person around?
+            details.append(self.status_text(dialog) or self.i18n.get_string(STATUS_OFFLINE_KEY))
+        elif not self.is_private_chat(dialog):
+            # A group and a person can be called the same: said next to the name, on the side the user chose.
+            is_channel = dialog["category"] == CATEGORY_BROADCASTS
+            kind = self.i18n.get_string(CHAT_KIND_CHANNEL if is_channel else CHAT_KIND_GROUP)
+            place = self.settings.get(SETTING_CHAT_KIND)
+            if place == CHAT_KIND_PLACE_AFTER:
+                details.append(kind)
+            elif place == CHAT_KIND_PLACE_BEFORE:
+                title = self.i18n.get_string(CHAT_KIND_BEFORE_FORMAT_KEY).format(kind=kind, title=title)
         if dialog["unread"]:
             details.append(self.i18n.get_string(DIALOG_UNREAD_COUNT_FORMAT_KEY).format(count=dialog["unread"]))
         elif dialog["marked_unread"]:
             details.append(self.i18n.get_string(DIALOG_MARKED_UNREAD_KEY))
         if dialog["pinned"]:
             details.append(self.i18n.get_string(DIALOG_PINNED_KEY))
-        preview = self.dialog_preview(dialog)
+        preview = "" if self.showing_contacts() else self.dialog_preview(dialog)
         return self.i18n.get_string(DIALOG_FORMAT_KEY).format(
-            title=dialog["title"],
+            title=title,
             details="".join("، " + detail for detail in details),
             preview=". " + preview if preview else ""
         )
@@ -114,7 +170,9 @@ class ChatListMixin:
         message = dialog["last_message"]
         if message is None:
             return ""
-        text = self.message_snippet(message)
+        # Whole, however long: a screen reader on the row reads the message without the chat being
+        # entered. A row is one line, so the message's line breaks become spaces.
+        text = " ".join(self.message_text(message).split())
         if message["outgoing"]:
             sender = self.i18n.get_string(SENDER_YOU_KEY)
         elif dialog["category"] == CATEGORY_GROUPS:
@@ -196,6 +254,12 @@ class ChatListMixin:
         if selected_id is not None:
             self.dialogs_list.SetSelection(self.find_dialog_index(selected_id))
 
+    def lift_dialog(self, dialog_id):
+        """A chat just written in is the most recent one: up it goes, as when a message arrives in it."""
+        dialog = self.find_known_dialog(dialog_id)
+        if dialog is not None:
+            self.move_dialog_to_top(self.find_dialog_index(dialog_id), dialog)
+
     def on_open_dialog(self, event):
         self.open_selected_dialog(True)
 
@@ -213,6 +277,9 @@ class ChatListMixin:
             if focus_messages:
                 self.messages_list.SetFocus()
             return
+        if self.find_known_dialog(dialog_id) is None:
+            # A contact never written to: from here on it is a chat like the others.
+            self.all_dialogs.insert(sum(1 for other in self.all_dialogs if other["pinned"]), self.dialogs[index])
         self.keep_draft()
         self.unread_on_open = self.dialogs[index]["unread"]
         self.current_dialog_id = dialog_id
@@ -486,6 +553,11 @@ class ChatListMixin:
 
     def on_contact_changed(self, result, dialog, category, message_key):
         dialog["category"] = category
+        self.contacts = [contact for contact in self.contacts if contact["id"] != dialog["id"]]
+        if category == CATEGORY_CONTACTS:
+            self.contacts.append(dialog)
+        if self.showing_contacts():
+            self.render_dialogs()
         self.announce(self.i18n.get_string(message_key).format(name=dialog["title"]))
 
     def toggle_blocked(self, dialog):

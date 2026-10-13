@@ -1,6 +1,11 @@
+import logging
+import os
+import threading
 import urllib.parse
 import webbrowser
 import wx
+from core.settings import SETTING_GEMINI_KEY
+from core.vision import VisionError, describe_image, image_mime_type
 from core.constants import (
     MESSAGE_VIEW_SCHEDULED, MSG_CONFIRM_CANCEL_SCHEDULED_KEY, MSG_SCHEDULED_CANCELLED_KEY,
     MSG_POLL_CLOSED_KEY, MSG_VOTED_KEY, MSG_CHOOSE_REACTION_KEY, REACTION_REMOVE_KEY,
@@ -12,8 +17,12 @@ from core.constants import (
     MSG_CANNOT_DELETE_SOME_KEY, MSG_DELETED_MANY_FORMAT_KEY, MSG_LINK_COPIED_KEY,
     MSG_CHOOSE_BUTTON_KEY, MSG_NO_BUTTONS_KEY, MSG_BUTTON_PRESSED_KEY, MSG_CONFIRM_OPEN_LINK_FORMAT_KEY,
     MSG_CHOOSE_LINK_KEY, MSG_NO_LINKS_KEY, TELEGRAM_LINK_HOSTS, MSG_DELETE_SCOPE_KEY, DELETE_FOR_ALL_KEY,
-    DELETE_FOR_ME_KEY, MSG_REPORT_COMMENT_KEY, MSG_REPORTED_KEY
+    DELETE_FOR_ME_KEY, MSG_REPORT_COMMENT_KEY, MSG_REPORTED_KEY, DESCRIBABLE_MEDIA, VISION_TEMP_DIR,
+    VISION_PROMPT_KEY, VISION_TITLE_KEY, MSG_DESCRIBING_KEY, MSG_NOT_AN_IMAGE_KEY, MSG_VISION_NO_KEY_KEY,
+    ERR_VISION_FAILED_KEY, MSG_NO_SENDER_TO_MESSAGE_KEY
 )
+
+logger = logging.getLogger(__name__)
 
 class MessageActionsMixin:
     """What can be done to an existing message.
@@ -393,3 +402,93 @@ class MessageActionsMixin:
         self.is_busy = False
         self.on_message_edited(dialog_id, message)
         self.notify(MSG_VOTED_KEY)
+
+    def on_describe_image_menu(self, event):
+        """Have the selected message's picture put into words by Gemini, on the user's own key."""
+        message = self.actionable_message()
+        if message is None or self.is_busy:
+            return
+        if message["media"] not in DESCRIBABLE_MEDIA:
+            self.notify(MSG_NOT_AN_IMAGE_KEY)
+            return
+        if not self.settings.get(SETTING_GEMINI_KEY).strip():
+            wx.MessageBox(
+                self.i18n.get_string(MSG_VISION_NO_KEY_KEY), self.i18n.get_string(APP_TITLE_KEY),
+                wx.OK | wx.ICON_INFORMATION, self
+            )
+            return
+        peer = self.peer(self.current_dialog_id)
+        cache_key = (peer, message["id"])
+        if cache_key in self.descriptions:
+            self.show_text(VISION_TITLE_KEY, self.descriptions[cache_key])
+            return
+        self.is_busy = True
+        # Said aloud: the answer takes a few seconds, and silence would read as nothing happening.
+        self.notify(MSG_DESCRIBING_KEY)
+        saved = self.downloaded.get(cache_key)
+        if saved and os.path.exists(saved):
+            self.describe_file(saved, cache_key, False)
+        else:
+            self.telegram_manager.download_media(
+                peer, message["id"], self.on_ui_thread(self.describe_file, cache_key, True), folder=VISION_TEMP_DIR
+            )
+
+    def describe_file(self, path, cache_key, is_temporary):
+        if image_mime_type(path) is None:
+            # A file, or a sticker that moves: only now, with it here, is that known.
+            self.discard(path, is_temporary)
+            self.is_busy = False
+            self.notify(MSG_NOT_AN_IMAGE_KEY)
+            return
+        api_key = self.settings.get(SETTING_GEMINI_KEY)
+        # In the interface language, so the answer comes in it too.
+        prompt = self.i18n.get_string(VISION_PROMPT_KEY)
+
+        def work():
+            try:
+                result, error_key = describe_image(path, api_key, prompt), None
+            except VisionError as error:
+                result, error_key = None, error.error_key
+            except Exception:
+                logger.exception("Describing a picture failed")
+                result, error_key = None, ERR_VISION_FAILED_KEY
+            self.discard(path, is_temporary)
+            wx.CallAfter(self.handle_result, self.show_description, result, error_key, cache_key)
+        threading.Thread(target=work, daemon=True).start()
+
+    def discard(self, path, is_temporary):
+        """Remove a picture that was fetched only to be described."""
+        if is_temporary:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+    def show_description(self, text, cache_key):
+        self.is_busy = False
+        self.set_status(STATUS_READY_KEY)
+        self.descriptions[cache_key] = text
+        self.show_text(VISION_TITLE_KEY, text)
+
+    def can_message_sender(self, message):
+        """Whether a message was written by another person in a chat that is not already theirs alone."""
+        chat = self.find_known_dialog(self.current_dialog_id)
+        in_shared_chat = self.in_comments() or (chat is not None and not self.is_private_chat(chat))
+        return in_shared_chat and message["sender_id"] is not None and not message["outgoing"]
+
+    def on_message_sender_menu(self, event):
+        """Leave the group for the private chat with whoever wrote the selected message."""
+        message = self.actionable_message()
+        if message is None or self.is_busy:
+            return
+        if not self.can_message_sender(message):
+            self.notify(MSG_NO_SENDER_TO_MESSAGE_KEY)
+            return
+        self.set_status(MSG_LOADING_KEY)
+        self.telegram_manager.open_sender(
+            self.peer(self.current_dialog_id), message["id"], self.on_ui_thread(self.open_sender_chat)
+        )
+
+    def open_sender_chat(self, chat):
+        self.set_status(STATUS_READY_KEY)
+        self.open_chat(chat)

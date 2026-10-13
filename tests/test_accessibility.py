@@ -121,7 +121,7 @@ class AccessibilityTest(WindowTestCase):
         # Every on/off setting has a box somewhere in the dialog. Every list setting has a drop-down,
         # the language one shown by its own name rather than through the shared choices dict.
         self.assertEqual(set(dialog.checkboxes), set(s.DEFAULTS))
-        self.assertEqual(set(dialog.choices), set(s.CHOICES) - {s.SETTING_LANGUAGE})
+        self.assertEqual(set(dialog.choices), set(s.CHOICES) - {s.SETTING_LANGUAGE, s.SETTING_PROXY_TYPE})
         self.assertEqual(dialog.language_choice.GetCount(), len(c.LANGUAGES))
 
     def test_next_unread_opens_it_and_says_when_there_is_none(self):

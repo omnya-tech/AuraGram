@@ -8,9 +8,12 @@ from core.settings import (
     SETTING_MARK_READ_ON_OPEN, SETTING_START_SOUND, SETTING_ANNOUNCE_INTERRUPT,
     SETTING_BRAILLE_MESSAGES, SETTING_SPEAK_FEEDBACK, SETTING_ANNOUNCE_CONNECTION, SETTING_SIMPLE_TAB,
     SETTING_SHOW_PREVIEW, SETTING_ANNOUNCE_WHEN, SETTING_ANNOUNCE_WHAT, SETTING_ANNOUNCE_TYPING,
-    SETTING_VOICE_SPEED, SETTING_MIC_DEVICE, SETTING_MIC_LEVEL, SETTING_NOISE, SETTING_LANGUAGE, CHOICES
+    SETTING_VOICE_SPEED, SETTING_MIC_DEVICE, SETTING_MIC_LEVEL, SETTING_NOISE, SETTING_LANGUAGE, CHOICES,
+    SETTING_CHECK_UPDATES, SETTING_GEMINI_KEY, SETTING_CHAT_KIND, SETTING_MESSAGE_STATS, SETTING_TIME_STYLE,
+    SETTING_RECORD_SOUND, SETTING_ENTER_SENDS
 )
 from ui.layout import prepare_window
+from ui.proxy_dialog import ProxyDialog
 from core.constants import (
     SOUNDS_DIR, SETTINGS_THEME_LABEL_KEY, SETTINGS_LARGE_TEXT_KEY, SETTINGS_KEEP_IN_BACKGROUND_KEY, SETTINGS_SENT_SOUND_KEY, SETTINGS_TITLE_KEY, SETTINGS_TAB_APP_KEY, SETTINGS_TAB_ACCOUNT_KEY,
     SETTINGS_APP_NOTE_KEY, SETTINGS_ACCOUNT_NOTE_KEY, SETTINGS_PLAY_SOUND_KEY,
@@ -42,7 +45,11 @@ from core.constants import (
     MSG_ACCOUNT_DELETED_KEY, SETTINGS_VOICE_SPEED_LABEL_KEY, SETTINGS_TAB_MICROPHONE_KEY, MIC_NOTE_KEY,
     MIC_DEVICE_LABEL_KEY, MIC_DEVICE_DEFAULT_KEY, MIC_LEVEL_LABEL_KEY, MIC_NOISE_LABEL_KEY, BTN_TEST_MIC_KEY,
     MSG_MIC_TEST_SPEAK_KEY, MSG_MIC_TEST_PLAYING_KEY, MSG_MIC_TEST_SILENT_KEY, MIC_LEVELS, NOISE_LEVELS,
-    MIC_TEST_MS, ERR_AUDIO_KEY, ERR_NO_AUDIO_SUPPORT_KEY, LANGUAGES, LANGUAGE_NAMES, SETTINGS_LANGUAGE_LABEL_KEY
+    MIC_TEST_MS, ERR_AUDIO_KEY, ERR_NO_AUDIO_SUPPORT_KEY, LANGUAGES, LANGUAGE_NAMES, SETTINGS_LANGUAGE_LABEL_KEY,
+    SETTINGS_CHECK_UPDATES_KEY, SETTINGS_TAB_SERVICES_KEY, BTN_PROXY_KEY, MSG_PROXY_SAVED_KEY,
+    SETTINGS_GEMINI_KEY_LABEL_KEY, SETTINGS_GEMINI_NOTE_KEY, SETTINGS_CHAT_KIND_LABEL_KEY,
+    SETTINGS_MESSAGE_STATS_LABEL_KEY, SETTINGS_TIME_STYLE_LABEL_KEY, SETTINGS_RECORD_SOUND_KEY,
+    SETTINGS_ENTER_SENDS_KEY
 )
 from core.speech import speak
 
@@ -52,6 +59,7 @@ PRIVACY_NAMES = ("last_seen", "phone", "photo", "invites", "calls", "forwards")
 APP_OPTIONS = (
     (SETTING_KEEP_IN_BACKGROUND, SETTINGS_KEEP_IN_BACKGROUND_KEY),
     (SETTING_MARK_READ_ON_OPEN, SETTINGS_MARK_READ_KEY),
+    (SETTING_CHECK_UPDATES, SETTINGS_CHECK_UPDATES_KEY),
 )
 # What the screen reader is told, beyond what it reads by itself as the user moves around.
 READER_OPTIONS = (
@@ -69,6 +77,7 @@ SOUND_OPTIONS = (
     (SETTING_PLAY_SOUND, SETTINGS_PLAY_SOUND_KEY),
     (SETTING_SENT_SOUND, SETTINGS_SENT_SOUND_KEY),
     (SETTING_START_SOUND, SETTINGS_START_SOUND_KEY),
+    (SETTING_RECORD_SOUND, SETTINGS_RECORD_SOUND_KEY),
 )
 PROFILE_FIELDS = (
     ("first_name", PROFILE_FIRST_NAME_KEY),
@@ -110,6 +119,7 @@ class SettingsDialog(wx.Dialog):
         notebook.AddPage(self.create_accessibility_page(notebook), i18n.get_string(SETTINGS_TAB_ACCESSIBILITY_KEY))
         notebook.AddPage(self.create_sounds_page(notebook), i18n.get_string(SETTINGS_TAB_SOUNDS_KEY))
         notebook.AddPage(self.create_microphone_page(notebook), i18n.get_string(SETTINGS_TAB_MICROPHONE_KEY))
+        notebook.AddPage(self.create_services_page(notebook), i18n.get_string(SETTINGS_TAB_SERVICES_KEY))
         notebook.AddPage(self.create_account_page(notebook), i18n.get_string(SETTINGS_TAB_ACCOUNT_KEY))
         notebook.AddPage(self.create_privacy_page(notebook), i18n.get_string(SETTINGS_TAB_PRIVACY_KEY))
         notebook.AddPage(self.create_sessions_page(notebook), i18n.get_string(SETTINGS_TAB_SESSIONS_KEY))
@@ -136,6 +146,10 @@ class SettingsDialog(wx.Dialog):
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(wx.StaticText(page, label=self.i18n.get_string(SETTINGS_APP_NOTE_KEY)), flag=wx.ALL, border=10)
         self.add_checkboxes(page, sizer, APP_OPTIONS)
+        # What the rows of the two lists say, and in what order: a screen reader reads a row from its start.
+        self.add_choice(page, sizer, SETTINGS_CHAT_KIND_LABEL_KEY, SETTING_CHAT_KIND)
+        self.add_choice(page, sizer, SETTINGS_MESSAGE_STATS_LABEL_KEY, SETTING_MESSAGE_STATS)
+        self.add_choice(page, sizer, SETTINGS_TIME_STYLE_LABEL_KEY, SETTING_TIME_STYLE)
         # The interface language. Each one is named in its own script; takes effect after a restart.
         sizer.Add(wx.StaticText(page, label=self.i18n.get_string(SETTINGS_LANGUAGE_LABEL_KEY)), flag=wx.LEFT|wx.RIGHT, border=10)
         self.language_choice = wx.Choice(page, choices=[LANGUAGE_NAMES[code] for code in LANGUAGES])
@@ -180,7 +194,9 @@ class SettingsDialog(wx.Dialog):
         self.add_checkboxes(box, group, READER_OPTIONS)
 
         box, group = self.add_group(page, sizer, ACCESS_GROUP_KEYBOARD_KEY)
-        self.add_checkboxes(box, group, ((SETTING_SIMPLE_TAB, SETTINGS_SIMPLE_TAB_KEY),))
+        self.add_checkboxes(box, group, (
+            (SETTING_SIMPLE_TAB, SETTINGS_SIMPLE_TAB_KEY), (SETTING_ENTER_SENDS, SETTINGS_ENTER_SENDS_KEY),
+        ))
 
         box, group = self.add_group(page, sizer, ACCESS_GROUP_VISION_KEY)
         self.add_checkboxes(box, group, VISION_OPTIONS)
@@ -299,6 +315,31 @@ class SettingsDialog(wx.Dialog):
         sizer.Add(self.mic_test_btn, flag=wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
         page.SetSizer(sizer)
         return page
+
+    def create_services_page(self, notebook):
+        """What the app reaches over the internet besides the account itself: the way to Telegram, and Gemini."""
+        page = wx.Panel(notebook)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        # Acts at once, from its own window: not part of what OK saves.
+        proxy_btn = wx.Button(page, label=self.i18n.get_string(BTN_PROXY_KEY))
+        proxy_btn.Bind(wx.EVT_BUTTON, self.on_proxy)
+        sizer.Add(proxy_btn, flag=wx.ALL, border=10)
+        sizer.Add(wx.StaticText(page, label=self.i18n.get_string(SETTINGS_GEMINI_KEY_LABEL_KEY)), flag=wx.LEFT|wx.RIGHT, border=10)
+        self.gemini_key_input = wx.TextCtrl(page, value=self.settings.get(SETTING_GEMINI_KEY))
+        sizer.Add(self.gemini_key_input, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
+        # A read-only field rather than a label, so a screen reader can go through it.
+        note = wx.TextCtrl(
+            page, value=self.i18n.get_string(SETTINGS_GEMINI_NOTE_KEY),
+            style=wx.TE_MULTILINE|wx.TE_READONLY, size=(-1, 110)
+        )
+        sizer.Add(note, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
+        page.SetSizer(sizer)
+        return page
+
+    def on_proxy(self, event):
+        with ProxyDialog(self, self.i18n, self.settings, self.telegram_manager) as proxy_dialog:
+            if proxy_dialog.ShowModal() == wx.ID_OK:
+                speak(self.i18n.get_string(MSG_PROXY_SAVED_KEY))
 
     def chosen(self, setting):
         """What a drop-down of the dialog is set to now, saved or not."""
@@ -681,6 +722,7 @@ class SettingsDialog(wx.Dialog):
         for setting, choice in self.choices.items():
             self.settings.set(setting, CHOICES[setting][0][choice.GetSelection()])
         self.settings.set(SETTING_MIC_DEVICE, self.mic_names[self.mic_choice.GetSelection()])
+        self.settings.set(SETTING_GEMINI_KEY, self.gemini_key_input.GetValue().strip())
         language = LANGUAGES[self.language_choice.GetSelection()]
         self.language_changed = language != self.settings.get(SETTING_LANGUAGE)
         self.settings.set(SETTING_LANGUAGE, language)

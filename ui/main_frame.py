@@ -1,10 +1,11 @@
 import os
+import threading
 import wx
-from core import audio
+from core import audio, diagnostics, updates
 from core.speech import speak
 from core.settings import (
     SETTING_KEEP_IN_BACKGROUND, SETTING_LARGE_TEXT, SETTING_THEME, SETTING_SPEAK_FEEDBACK,
-    SETTING_SIMPLE_TAB, SETTING_SHOW_PREVIEW
+    SETTING_SIMPLE_TAB, SETTING_SHOW_PREVIEW, SETTING_CHECK_UPDATES, SETTING_LANGUAGE, SETTING_ENTER_SENDS
 )
 from ui.themes import apply_theme, set_theme
 from ui.layout import OptionalButton, OptionalChoice, ReadOnlyText, is_on_a_screen, prepare_window, reading_font
@@ -41,7 +42,11 @@ from core.constants import (
     PROGRESS_LABEL_KEY, MSG_CHAT_CLOSED_KEY, MENU_SEND_AS_KEY, MENU_POST_STORY_KEY, MESSAGE_VIEW_TOPIC,
     GENERAL_TOPIC_ID, BTN_SEARCH_KEY, TOOLTIP_SEARCH_CHATS_KEY, TOOLTIP_SEARCH_MESSAGES_KEY, BTN_BACK_KEY,
     TOOLTIP_BACK_KEY, MENU_GO_TO_REPLY_KEY, MENU_GO_TO_DATE_KEY, MENU_SEARCH_ALL_KEY, MENU_SEND_SILENT_KEY,
-    MENU_FOLDERS_KEY, MENU_MARK_ALL_READ_KEY, MENU_VOICE_SPEED_KEY, MENU_REPORT_KEY, MENU_COPY_INVITE_KEY
+    MENU_FOLDERS_KEY, MENU_MARK_ALL_READ_KEY, MENU_VOICE_SPEED_KEY, MENU_REPORT_KEY, MENU_COPY_INVITE_KEY,
+    MENU_DESCRIBE_IMAGE_KEY, MENU_CHECK_UPDATES_KEY, MENU_PROBLEM_REPORT_KEY, MSG_UPDATE_AVAILABLE_FORMAT_KEY,
+    MSG_UP_TO_DATE_FORMAT_KEY, ERR_UPDATE_CHECK_KEY, MSG_PROBLEM_REPORT_PROMPT_KEY,
+    MSG_PROBLEM_REPORT_SAVED_FORMAT_KEY, ERR_PROBLEM_REPORT_KEY, REPORT_LANGUAGE_FORMAT, MENU_MESSAGE_SENDER_KEY,
+    MESSAGE_INPUT_HEIGHT
 )
 from ui.chat_list import ChatListMixin
 from ui.message_list import MessageListMixin
@@ -72,6 +77,8 @@ class MainFrame(
         self.all_dialogs = []
         self.dialogs = []
         self.views = build_views(i18n, [])
+        # The account's contacts, as last loaded for the view that lists them.
+        self.contacts = []
         self.view_index = 0
         self.current_dialog_id = None
         # Whether the window shows the one chat that was entered, rather than the list of chats.
@@ -107,6 +114,10 @@ class MainFrame(
         self.has_older = False
         # True while older messages or a media file are being fetched.
         self.is_busy = False
+        # (dialog id, message id) -> what Gemini said of that picture, so asking twice costs once.
+        self.descriptions = {}
+        # Whether this run has already looked for a newer release by itself.
+        self.updates_checked = False
         self.init_ui()
         self.Bind(wx.EVT_CLOSE, self.on_close)
         self.telegram_manager.set_message_listener(
@@ -160,8 +171,8 @@ class MainFrame(
         self.input_label = wx.StaticText(self.panel, label=self.i18n.get_string(MESSAGE_INPUT_LABEL_KEY))
         chat_box.Add(self.input_label, flag=wx.BOTTOM, border=5)
         input_box = wx.BoxSizer(wx.HORIZONTAL)
-        self.message_input = wx.TextCtrl(self.panel, style=wx.TE_PROCESS_ENTER)
-        self.message_input.Bind(wx.EVT_TEXT_ENTER, self.on_send_message)
+        # Several lines, so a message can have line breaks; which key sends is decided in on_char_hook.
+        self.message_input = wx.TextCtrl(self.panel, style=wx.TE_MULTILINE, size=(-1, MESSAGE_INPUT_HEIGHT))
         self.message_input.Bind(wx.EVT_TEXT, self.on_input_changed)
         input_box.Add(self.message_input, proportion=1, flag=wx.EXPAND|wx.RIGHT, border=10)
         self.send_btn = OptionalButton(self.panel, label=self.i18n.get_string(BTN_SEND_MESSAGE_KEY))
@@ -398,7 +409,7 @@ class MainFrame(
         key, time = chat["status"]
         text = self.i18n.get_string(key)
         if key == STATUS_LAST_SEEN_FORMAT_KEY:
-            text = text.format(time=time.astimezone().strftime(DATE_TIME_FORMAT))
+            text = text.format(time=self.time_text(time, True))
         return text
 
     def init_menu(self):
@@ -462,12 +473,14 @@ class MainFrame(
                 (MENU_REPLY_KEY, self.on_reply_menu),
                 (MENU_EDIT_KEY, self.on_edit_menu),
                 (MENU_FORWARD_KEY, self.on_forward_menu),
+                (MENU_MESSAGE_SENDER_KEY, self.on_message_sender_menu),
                 (MENU_REACT_KEY, self.on_react_menu),
                 (MENU_PIN_KEY, self.on_pin_menu),
                 (MENU_DELETE_KEY, self.on_delete_menu),
                 None,
                 (MENU_READ_MESSAGE_KEY, self.on_read_message_menu),
                 (MENU_TRANSLATE_KEY, self.on_translate_menu),
+                (MENU_DESCRIBE_IMAGE_KEY, self.on_describe_image_menu),
                 (MENU_COPY_KEY, self.on_copy_message),
                 (MENU_COPY_LINK_KEY, self.on_copy_link_menu),
                 (MENU_OPEN_MEDIA_KEY, self.on_activate_message),
@@ -505,6 +518,8 @@ class MainFrame(
             (MENU_HELP_KEY, (
                 (MENU_SHORTCUTS_KEY, self.on_shortcuts_menu, wx.ID_HELP),
                 (MENU_CONNECTION_KEY, self.on_connection_menu),
+                (MENU_CHECK_UPDATES_KEY, lambda event: self.check_for_updates(quiet=False)),
+                (MENU_PROBLEM_REPORT_KEY, self.on_problem_report_menu),
                 (MENU_ABOUT_KEY, self.on_about_menu, wx.ID_ABOUT),
             )),
         ):
@@ -533,6 +548,56 @@ class MainFrame(
         # Asked for by name, so it is spoken whatever the setting for passing remarks says.
         speak(text)
 
+    def check_updates_once(self):
+        """Look for a newer release, by itself and at most once a run, the first time the window is seen."""
+        if self.updates_checked or not self.settings.get(SETTING_CHECK_UPDATES) or not updates.is_configured():
+            return
+        self.updates_checked = True
+        self.check_for_updates(quiet=True)
+
+    def check_for_updates(self, quiet):
+        """Ask whether a newer release is out. `quiet` says nothing unless there is one."""
+        language = self.settings.get(SETTING_LANGUAGE)
+
+        def work():
+            release = updates.fetch_release(language)
+            wx.CallAfter(self.on_update_checked, release, quiet)
+        threading.Thread(target=work, daemon=True).start()
+
+    def on_update_checked(self, release, quiet):
+        if not self:
+            return
+        if release is None or not updates.is_newer(release["version"]):
+            if not quiet:
+                self.announce(
+                    self.i18n.get_string(ERR_UPDATE_CHECK_KEY) if release is None
+                    else self.i18n.get_string(MSG_UP_TO_DATE_FORMAT_KEY).format(current=APP_VERSION)
+                )
+            return
+        question = self.i18n.get_string(MSG_UPDATE_AVAILABLE_FORMAT_KEY).format(
+            version=release["version"], current=APP_VERSION, notes=release["notes"]
+        )
+        # Opened in the browser for the user to fetch: the program runs nothing it downloaded itself.
+        if self.confirm(question):
+            wx.LaunchDefaultBrowser(release["url"])
+
+    def on_problem_report_menu(self, event):
+        description = self.ask_text(MSG_PROBLEM_REPORT_PROMPT_KEY)
+        if description is None:
+            return
+        try:
+            path = diagnostics.write_report(DOWNLOADS_DIR, description, [
+                REPORT_LANGUAGE_FORMAT.format(language=self.settings.get(SETTING_LANGUAGE))
+            ])
+        except OSError:
+            self.show_error(ERR_PROBLEM_REPORT_KEY)
+            return
+        wx.MessageBox(
+            self.i18n.get_string(MSG_PROBLEM_REPORT_SAVED_FORMAT_KEY).format(path=path),
+            self.i18n.get_string(APP_TITLE_KEY), wx.OK | wx.ICON_INFORMATION, self
+        )
+        os.startfile(os.path.dirname(path))
+
     def on_settings_menu(self, event):
         with SettingsDialog(self, self.i18n, self.settings, self.telegram_manager) as settings_dialog:
             if settings_dialog.ShowModal() != wx.ID_OK and not settings_dialog.account_deleted:
@@ -542,6 +607,10 @@ class MainFrame(
                 wx.CallAfter(self.on_exit_menu, None)
                 return
             settings_dialog.apply_app_settings()
+            # What a row says, and in what order, may be among what was changed.
+            self.render_dialogs()
+            if self.messages:
+                self.render_messages(self.messages_list.GetSelection() - self.message_offset())
             self.apply_simplicity()
             self.apply_text_size()
             self.apply_colours()
@@ -660,6 +729,7 @@ class MainFrame(
         self.Iconize(False)
         self.Raise()
         self.on_brought_forward()
+        self.check_updates_once()
 
     def on_logout_menu(self, event):
         answer = wx.MessageBox(
@@ -724,12 +794,25 @@ class MainFrame(
             self.on_open_dialog(event)
         elif is_enter and focused is self.messages_list:
             self.on_activate_message(event)
+        elif is_enter and focused is self.message_input and not event.AltDown() \
+                and not (event.ControlDown() and event.ShiftDown()):
+            # With Alt, or with Ctrl and Shift together, it is one of the menu's own ways of sending.
+            if self.enter_sends(event):
+                self.on_send_message(event)
+            else:
+                self.message_input.WriteText("\n")
         elif event.ControlDown() and event.GetKeyCode() == ord("V") and focused is self.message_input \
                 and self.paste_files():
             # The clipboard held files or a picture, and they are on their way.
             pass
         elif event.GetKeyCode() != wx.WXK_ESCAPE or not self.on_escape():
             event.Skip()
+
+    def enter_sends(self, event):
+        """Whether this press of Enter in the message field sends the message, rather than breaking the line."""
+        if self.settings.get(SETTING_ENTER_SENDS):
+            return not event.ShiftDown() and not event.ControlDown()
+        return event.ControlDown()
 
     def on_escape(self):
         """Back out of the most recent thing in progress; False if there was nothing to cancel."""
