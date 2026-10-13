@@ -8,7 +8,9 @@ from core.settings import (
     SETTING_SIMPLE_TAB, SETTING_SHOW_PREVIEW, SETTING_CHECK_UPDATES, SETTING_LANGUAGE, SETTING_ENTER_SENDS
 )
 from ui.themes import apply_theme, set_theme
-from ui.layout import OptionalButton, OptionalChoice, ReadOnlyText, is_on_a_screen, prepare_window, reading_font
+from ui.layout import (
+    OptionalButton, OptionalChoice, ReadOnlyText, file_size, is_on_a_screen, prepare_window, reading_font
+)
 from ui.settings_dialog import SettingsDialog
 from core.chat_views import build_views
 from ui.text_dialog import TextDialog
@@ -43,7 +45,9 @@ from core.constants import (
     GENERAL_TOPIC_ID, BTN_SEARCH_KEY, TOOLTIP_SEARCH_CHATS_KEY, TOOLTIP_SEARCH_MESSAGES_KEY, BTN_BACK_KEY,
     TOOLTIP_BACK_KEY, MENU_GO_TO_REPLY_KEY, MENU_GO_TO_DATE_KEY, MENU_SEARCH_ALL_KEY, MENU_SEND_SILENT_KEY,
     MENU_FOLDERS_KEY, MENU_MARK_ALL_READ_KEY, MENU_VOICE_SPEED_KEY, MENU_REPORT_KEY, MENU_COPY_INVITE_KEY,
-    MENU_DESCRIBE_IMAGE_KEY, MENU_CHECK_UPDATES_KEY, MENU_PROBLEM_REPORT_KEY, MSG_UPDATE_AVAILABLE_FORMAT_KEY,
+    MENU_DESCRIBE_IMAGE_KEY, MENU_CHECK_UPDATES_KEY, MENU_PROBLEM_REPORT_KEY, MSG_UPDATE_CHOICE_FORMAT_KEY,
+    UPDATE_CHOICE_FORMAT_KEYS, UPDATE_CHOICE_PAGE_KEY, PACKAGE_FILE_FORMATS, MSG_UPDATE_DOWNLOADING_FORMAT_KEY,
+    MSG_UPDATE_BUSY_KEY, MSG_UPDATE_READY_FORMAT_KEY, MSG_UPDATE_KEPT_FORMAT_KEY, UPDATE_PROGRESS_STEP,
     MSG_UP_TO_DATE_FORMAT_KEY, ERR_UPDATE_CHECK_KEY, MSG_PROBLEM_REPORT_PROMPT_KEY,
     MSG_PROBLEM_REPORT_SAVED_FORMAT_KEY, ERR_PROBLEM_REPORT_KEY, REPORT_LANGUAGE_FORMAT, MENU_MESSAGE_SENDER_KEY,
     MESSAGE_INPUT_HEIGHT, MENU_LICENSE_KEY, LICENSE_TITLE_KEY, LICENSE_FILE_NAME, NOTICES_FILE_NAME, RESOURCE_DIR,
@@ -119,6 +123,9 @@ class MainFrame(
         self.descriptions = {}
         # Whether this run has already looked for a newer release by itself.
         self.updates_checked = False
+        # True while a newer release is coming down, and how far it has come.
+        self.update_downloading = False
+        self.update_percent = None
         self.init_ui()
         self.Bind(wx.EVT_CLOSE, self.on_close)
         self.telegram_manager.set_message_listener(
@@ -576,12 +583,76 @@ class MainFrame(
                     else self.i18n.get_string(MSG_UP_TO_DATE_FORMAT_KEY).format(current=APP_VERSION)
                 )
             return
-        question = self.i18n.get_string(MSG_UPDATE_AVAILABLE_FORMAT_KEY).format(
+        self.offer_update(release)
+
+    def offer_update(self, release):
+        """Say what is out, and let the user pick what to fetch: the small update, the whole installer, or neither."""
+        if self.update_downloading:
+            self.notify(MSG_UPDATE_BUSY_KEY)
+            return
+        text = self.i18n.get_string
+        # The small one first: it is what most people want. Only what this copy can install is offered.
+        kinds = [kind for kind in UPDATE_CHOICE_FORMAT_KEYS if kind in release["packages"]]
+        labels = [
+            text(UPDATE_CHOICE_FORMAT_KEYS[kind]).format(size=file_size(self.i18n, release["packages"][kind]["size"]))
+            for kind in kinds
+        ] + [text(UPDATE_CHOICE_PAGE_KEY)]
+        index = self.pick(text(MSG_UPDATE_CHOICE_FORMAT_KEY).format(
             version=release["version"], current=APP_VERSION, notes=release["notes"]
-        )
-        # Opened in the browser for the user to fetch: the program runs nothing it downloaded itself.
-        if self.confirm(question):
+        ), labels)
+        if index is None:
+            return
+        if index == len(kinds):
             wx.LaunchDefaultBrowser(release["url"])
+        else:
+            self.download_update(release, kinds[index])
+
+    def download_update(self, release, kind):
+        self.update_downloading = True
+        self.update_percent = None
+        target = os.path.join(DOWNLOADS_DIR, PACKAGE_FILE_FORMATS[kind].format(version=release["version"]))
+        package = release["packages"][kind]
+
+        def work():
+            try:
+                updates.download_package(
+                    package, target, lambda percent: wx.CallAfter(self.show_update_progress, percent)
+                )
+                error_key = None
+            except updates.DownloadError as error:
+                error_key = error.error_key
+            wx.CallAfter(self.on_update_downloaded, release, target, error_key)
+        self.show_update_progress(0)
+        threading.Thread(target=work, daemon=True).start()
+
+    def show_update_progress(self, percent):
+        if not self or not self.update_downloading or percent == self.update_percent:
+            return
+        self.update_percent = percent
+        text = self.i18n.get_string(MSG_UPDATE_DOWNLOADING_FORMAT_KEY).format(percent=percent)
+        # Spoken now and then, not at every percent: the chats stay usable meanwhile.
+        if percent % UPDATE_PROGRESS_STEP == 0 and percent < 100:
+            self.announce(text)
+        else:
+            self.SetStatusText(text)
+
+    def on_update_downloaded(self, release, path, error_key):
+        if not self:
+            return
+        self.update_downloading = False
+        self.set_status(STATUS_READY_KEY)
+        title = self.i18n.get_string(APP_TITLE_KEY)
+        if error_key:
+            wx.MessageBox(self.i18n.get_string(error_key), title, wx.OK | wx.ICON_ERROR, self)
+            return
+        if self.confirm(self.i18n.get_string(MSG_UPDATE_READY_FORMAT_KEY).format(version=release["version"])):
+            # Windows asks for permission, then the installer itself closes this program when it is ready to.
+            os.startfile(path)
+        else:
+            wx.MessageBox(
+                self.i18n.get_string(MSG_UPDATE_KEPT_FORMAT_KEY).format(path=path), title,
+                wx.OK | wx.ICON_INFORMATION, self
+            )
 
     def on_problem_report_menu(self, event):
         description = self.ask_text(MSG_PROBLEM_REPORT_PROMPT_KEY)

@@ -898,7 +898,6 @@
     "MSG_LANGUAGE_RESTART": "The app language will change when AuraGram is restarted.",
     "MENU_CHECK_UPDATES": "Check for a new version",
     "SETTINGS_CHECK_UPDATES": "Check for a new version when the program opens",
-    "MSG_UPDATE_AVAILABLE_FORMAT": "AuraGram {version} is out; you have {current}.\n{notes}\nOpen the download page in your browser?",
     "MSG_UP_TO_DATE_FORMAT": "You have the latest version: {current}",
     "ERR_UPDATE_CHECK": "Could not find out the latest version right now",
     "MENU_PROBLEM_REPORT": "Prepare a problem report for the developer...",
@@ -983,5 +982,15 @@
     "MENU_LICENSE": "Licence and components",
     "LICENSE_TITLE": "AuraGram licence",
     "LICENSE_NOTICE": "AuraGram is free, open-source software. Copyright (C) 2026 Omnya Technology.\n\nYou may use, copy, study, change and redistribute it under the terms of the GNU General Public License, version 3 or any later version. Whoever distributes a changed copy must publish its code under the same licence.\n\nAuraGram is distributed in the hope that it will be useful, but without any warranty. The full text of the licence is at the end of this window.\n\nAuraGram is an independent program: it is not made by Telegram and is not affiliated with it. It connects to Telegram directly or through a proxy you set, passes through no server of the developer's, and collects no data. Your session and settings stay on your computer, and a picture is sent to Google only when you ask for it to be described with your own key.",
-    "LICENSE_SOURCE_FORMAT": "Source code: {url}"
+    "LICENSE_SOURCE_FORMAT": "Source code: {url}",
+    "MSG_UPDATE_CHOICE_FORMAT": "AuraGram {version} is out; you have {current}.\n{notes}\nChoose what to download, or press Cancel to leave it for later:",
+    "UPDATE_CHOICE_UPDATE_FORMAT": "The update only, {size} (the quickest)",
+    "UPDATE_CHOICE_FULL_FORMAT": "The full version, {size}",
+    "UPDATE_CHOICE_PAGE": "Open the release page in the browser",
+    "MSG_UPDATE_DOWNLOADING_FORMAT": "Downloading the update: {percent}%",
+    "MSG_UPDATE_BUSY": "The update is already being downloaded",
+    "MSG_UPDATE_READY_FORMAT": "Version {version} has been downloaded and checked.\nInstall it now? AuraGram will close during the installation, and you can open it again afterwards.",
+    "MSG_UPDATE_KEPT_FORMAT": "The installer is saved here, for you to run whenever you like:\n{path}",
+    "ERR_UPDATE_DOWNLOAD": "The update could not be downloaded. Check your connection and try again.",
+    "ERR_UPDATE_VERIFY": "The file that came down does not match the announced release, so it was deleted and not installed. Try again, or get it from the release page."
 }

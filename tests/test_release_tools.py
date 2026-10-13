@@ -1,4 +1,5 @@
 """What a released program needs around the chats: a way past a block, news of updates, a trace of errors, picture descriptions."""
+import hashlib
 import json
 import logging
 import os
@@ -127,6 +128,24 @@ class ProxyWindowTest(WindowTestCase):
         self.assertFalse(reloaded.get(s.SETTING_CHECK_UPDATES))
 
 
+PAGE = "https://example.org/releases/tag/v99.0.0"
+CONTENT = b"installer bytes " * 1000
+
+
+def package(content=CONTENT, name="setup.exe", **changes):
+    described = {
+        "url": "https://example.org/download/" + name, "sha256": hashlib.sha256(content).hexdigest(), "size": len(content)
+    }
+    described.update(changes)
+    return described
+
+
+def release_file(**changes):
+    info = {"version": "99.0.0", "url": PAGE, "notes": {"ar": "جديد", "en": "new"}}
+    info.update(changes)
+    return json.dumps(info)
+
+
 class UpdateRulesTest(unittest.TestCase):
     def test_versions_compare_as_numbers(self):
         self.assertTrue(updates.is_newer("1.10.0", "1.9.3"))
@@ -136,15 +155,35 @@ class UpdateRulesTest(unittest.TestCase):
         self.assertFalse(updates.is_newer("soon", "1.0.0"))
 
     def test_a_release_file_is_read_with_notes_in_the_users_language(self):
-        data = json.dumps({"version": "9.0.0", "url": "https://example.org/setup.exe", "notes": {"ar": "جديد", "en": "new"}})
-        self.assertEqual(updates.read_release(data, "en"), {"version": "9.0.0", "url": "https://example.org/setup.exe", "notes": "new"})
-        self.assertEqual(updates.read_release(data, "ar")["notes"], "جديد")
+        release = updates.read_release(release_file(), "en")
+        self.assertEqual(release, {"version": "99.0.0", "url": PAGE, "notes": "new", "packages": {}})
+        self.assertEqual(updates.read_release(release_file(), "ar")["notes"], "جديد")
 
     def test_anything_odd_in_the_file_means_no_release(self):
-        for data in ("not json", "[]", json.dumps({"version": "x", "url": "https://a.b"}),
-                     json.dumps({"version": "9.0.0", "url": "http://example.org/setup.exe"}),
-                     json.dumps({"version": "9.0.0", "url": "file:///C:/setup.exe"})):
+        for data in ("not json", "[]", release_file(version="x"), release_file(url="http://example.org/page"),
+                     release_file(url="file:///C:/setup.exe")):
             self.assertIsNone(updates.read_release(data, "ar"), data)
+
+    def test_both_packages_are_offered_when_this_copy_can_take_them(self):
+        data = release_file(full=package(), update=dict(package(name="update.exe"), **{"from": "1.0.0"}))
+        packages = updates.read_release(data, "ar", installed="1.2.0")["packages"]
+        self.assertEqual(set(packages), {c.PACKAGE_FULL, c.PACKAGE_UPDATE})
+        self.assertEqual(packages[c.PACKAGE_FULL], package())
+
+    def test_small_package_is_kept_from_a_copy_too_old_for_it(self):
+        # Its libraries differ: only the whole installer would leave something that runs.
+        data = release_file(full=package(), update=dict(package(), **{"from": "1.5.0"}))
+        self.assertEqual(set(updates.read_release(data, "ar", installed="1.2.0")["packages"]), {c.PACKAGE_FULL})
+        # And one that does not say what it fits over fits over nothing.
+        data = release_file(update=package())
+        self.assertEqual(updates.read_release(data, "ar", installed="1.2.0")["packages"], {})
+
+    def test_a_package_that_cannot_be_checked_is_not_offered(self):
+        for broken in (package(url="http://example.org/setup.exe"), package(sha256="abc"), package(sha256=None),
+                       package(size=0), package(size="big"), package(size=c.UPDATE_MAX_BYTES + 1), "setup.exe"):
+            release = updates.read_release(release_file(full=broken), "ar")
+            # The release is still announced: its page can be opened in the browser.
+            self.assertEqual(release["packages"], {}, broken)
 
     def test_no_address_means_no_asking(self):
         with mock.patch.object(updates, "UPDATE_INFO_URL", ""), \
@@ -153,30 +192,151 @@ class UpdateRulesTest(unittest.TestCase):
             self.assertIsNone(updates.fetch_release("ar"))
 
 
+class DownloadTest(unittest.TestCase):
+    def setUp(self):
+        self.target = os.path.join(tempfile.mkdtemp(), "downloads", "AuraGram-Setup.exe")
+
+    def fetch(self, described, served=CONTENT, final_url=None, progress=None):
+        response = Response(served, final_url or described["url"])
+        with mock.patch.object(updates.urllib.request, "urlopen", lambda request, timeout: response):
+            updates.download_package(described, self.target, progress)
+
+    def left_behind(self):
+        folder = os.path.dirname(self.target)
+        return os.listdir(folder) if os.path.isdir(folder) else []
+
+    def test_a_package_that_is_what_was_announced_is_kept(self):
+        seen = []
+        with mock.patch.object(updates, "UPDATE_CHUNK_BYTES", 4000):
+            self.fetch(package(), progress=seen.append)
+        with open(self.target, "rb") as saved:
+            self.assertEqual(saved.read(), CONTENT)
+        self.assertEqual(self.left_behind(), ["AuraGram-Setup.exe"])
+        self.assertEqual(seen[-1], 100)
+        self.assertEqual(seen, sorted(set(seen)))
+
+    def refused(self, *args, **kwargs):
+        with self.assertRaises(updates.DownloadError) as caught:
+            self.fetch(*args, **kwargs)
+        # Nothing that failed the check is left where it could be run by mistake.
+        self.assertEqual(self.left_behind(), [])
+        return caught.exception.error_key
+
+    def test_a_file_that_differs_in_any_way_is_deleted(self):
+        self.assertEqual(self.refused(package(), served=CONTENT[:-1] + b"!"), c.ERR_UPDATE_VERIFY_KEY)
+        self.assertEqual(self.refused(package(), served=CONTENT[:-100]), c.ERR_UPDATE_VERIFY_KEY)
+        self.assertEqual(self.refused(package(), served=CONTENT + b"more"), c.ERR_UPDATE_VERIFY_KEY)
+
+    def test_an_address_that_hands_over_to_an_unchecked_one_is_refused(self):
+        self.assertEqual(self.refused(package(), final_url="http://example.org/setup.exe"), c.ERR_UPDATE_VERIFY_KEY)
+
+    def test_a_dropped_connection_is_a_failed_download_not_a_bad_file(self):
+        with mock.patch.object(updates.urllib.request, "urlopen", side_effect=urllib.error.URLError("offline")):
+            with self.assertRaises(updates.DownloadError) as caught:
+                updates.download_package(package(), self.target)
+        self.assertEqual(caught.exception.error_key, c.ERR_UPDATE_DOWNLOAD_KEY)
+        self.assertEqual(self.left_behind(), [])
+
+    def test_build_describes_a_file_the_way_the_program_checks_it(self):
+        os.makedirs(os.path.dirname(self.target))
+        with open(self.target, "wb") as built:
+            built.write(CONTENT)
+        described = updates.describe_file(self.target, "https://example.org/download/setup.exe")
+        self.assertEqual(described, package())
+        self.assertEqual(updates.read_package(described), described)
+
+
 class UpdateWindowTest(WindowTestCase):
     chats = [(ALI, 0, False)]
 
-    def check(self, release, quiet):
-        opened = []
-        with mock.patch.object(updates, "fetch_release", lambda language: release), \
-                mock.patch.object(wx, "LaunchDefaultBrowser", opened.append):
-            self.frame.check_for_updates(quiet=quiet)
-            pump(timeout=0.3)
-        return opened
+    def setUp(self):
+        super().setUp()
+        self.folder = tempfile.mkdtemp()
+        self.opened, self.started, self.fetched = [], [], []
+        self.failure = None
+        patches = [
+            mock.patch.object(ui.main_frame, "DOWNLOADS_DIR", self.folder),
+            mock.patch.object(wx, "LaunchDefaultBrowser", self.opened.append),
+            mock.patch.object(os, "startfile", self.started.append, create=True),
+            mock.patch.object(updates, "download_package", self.download),
+        ]
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
 
-    def test_a_newer_release_is_offered_and_opened_only_after_a_yes(self):
-        release = {"version": "99.0.0", "url": "https://example.org/setup.exe", "notes": "better"}
-        self.assertEqual(self.check(release, quiet=True), ["https://example.org/setup.exe"])
+    def download(self, described, target, on_progress=None):
+        self.fetched.append((described["url"], os.path.basename(target)))
+        for percent in (0, 10, 25, 50, 100):
+            on_progress(percent)
+        if self.failure:
+            raise updates.DownloadError(self.failure)
+
+    def release(self, **packages):
+        return {"version": "99.0.0", "url": PAGE, "notes": "better", "packages": packages}
+
+    def check(self, release, quiet=True):
+        with mock.patch.object(updates, "fetch_release", lambda language: release):
+            self.frame.check_for_updates(quiet=quiet)
+            pump(timeout=0.4)
+
+    def both(self):
+        return self.release(full=package(), update=package(name="update.exe", size=8 * 1024 * 1024))
+
+    def test_user_is_offered_the_update_alone_the_full_version_or_the_page(self):
+        FakeChooser.confirmed = False
+        self.check(self.both())
+        self.assertIn("99.0.0", FakeChooser.last_message)
+        self.assertIn("better", FakeChooser.last_message)
+        text = self.text
+        self.assertEqual(len(FakeChooser.last_choices), 3)
+        self.assertTrue(FakeChooser.last_choices[0].startswith(text(c.UPDATE_CHOICE_FORMAT_KEYS[c.PACKAGE_UPDATE])[:8]))
+        self.assertIn("8", FakeChooser.last_choices[0])
+        self.assertEqual(FakeChooser.last_choices[2], text(c.UPDATE_CHOICE_PAGE_KEY))
+        # Backing out fetches nothing and opens nothing.
+        self.assertEqual((self.fetched, self.opened, self.started), ([], [], []))
+
+    def test_chosen_update_is_downloaded_then_installed_only_after_a_yes(self):
+        FakeChooser.selection = 0
+        self.check(self.both())
+        self.assertEqual(self.fetched, [("https://example.org/download/update.exe", "AuraGram-Update-99.0.0.exe")])
+        self.assertEqual(self.started, [os.path.join(self.folder, "AuraGram-Update-99.0.0.exe")])
         self.assertIn("99.0.0", self.boxes[-1])
-        self.assertIn("better", self.boxes[-1])
+        self.assertFalse(self.frame.update_downloading)
+        # Progress was told at the quarters, not at every step.
+        told = [line for line in self.spoken if line.startswith(self.text(c.MSG_UPDATE_DOWNLOADING_FORMAT_KEY)[:6])]
+        self.assertEqual(len(told), 3)
+
+    def test_full_version_can_be_chosen_and_kept_for_later(self):
+        FakeChooser.selection = 1
         self.box_answer = wx.NO
-        self.assertEqual(self.check(release, quiet=True), [])
+        self.check(self.both())
+        self.assertEqual(self.fetched[0][1], "AuraGram-Setup-99.0.0.exe")
+        self.assertEqual(self.started, [])
+        self.assertIn(os.path.join(self.folder, "AuraGram-Setup-99.0.0.exe"), self.boxes[-1])
+
+    def test_only_what_this_copy_can_install_is_listed_and_the_page_always_is(self):
+        FakeChooser.selection = 1
+        self.check(self.release(full=package()))
+        self.assertEqual(len(FakeChooser.last_choices), 2)
+        self.assertEqual(self.opened, [PAGE])
+        self.assertEqual(self.fetched, [])
+        FakeChooser.selection = 0
+        self.check(self.release())
+        self.assertEqual(self.opened, [PAGE, PAGE])
+
+    def test_a_download_that_fails_its_check_is_reported_and_never_run(self):
+        self.failure = c.ERR_UPDATE_VERIFY_KEY
+        FakeChooser.selection = 0
+        self.check(self.both())
+        self.assertEqual(self.boxes[-1], self.text(c.ERR_UPDATE_VERIFY_KEY))
+        self.assertEqual(self.started, [])
+        self.assertFalse(self.frame.update_downloading)
 
     def test_no_news_is_said_only_when_asked_for(self):
-        same = {"version": c.APP_VERSION, "url": "https://example.org/setup.exe", "notes": ""}
+        same = dict(self.release(), version=c.APP_VERSION)
         self.spoken.clear()
-        self.assertEqual(self.check(same, quiet=True), [])
-        self.assertEqual(self.check(None, quiet=True), [])
+        self.check(same)
+        self.check(None)
         self.assertEqual((self.spoken, self.boxes), ([], []))
         self.check(same, quiet=False)
         self.assertEqual(self.spoken[-1], self.text(c.MSG_UP_TO_DATE_FORMAT_KEY).format(current=c.APP_VERSION))
@@ -194,6 +354,20 @@ class UpdateWindowTest(WindowTestCase):
             self.frame.check_updates_once()
             self.frame.check_updates_once()
             self.assertEqual(asked, [True])
+
+
+class InstallerScriptTest(unittest.TestCase):
+    def test_small_installer_brings_only_the_programs_own_files_and_needs_an_install(self):
+        with open(os.path.join(c.BASE_DIR, "installer.iss"), encoding="utf-8") as script_file:
+            script = script_file.read()
+        small = script[script.index("[Files]"):].split("#else")[0]
+        self.assertIn("#ifdef UpdateOnly", small)
+        for part in ("{#AppExe}", "locales", "assets", c.BUNDLED_CONFIG_NAME, c.LICENSE_FILE_NAME, c.NOTICES_FILE_NAME):
+            self.assertIn(part, small)
+        # Never the whole folder: that is what makes it small.
+        self.assertNotIn('dist\\{#AppName}\\*"', small)
+        self.assertIn("NeedsFullInstall", script)
+        self.assertEqual(script.count("#ifdef UpdateOnly") + script.count("#ifndef UpdateOnly"), script.count("#endif") - script.count("#ifndef App"))
 
 
 class DiagnosticsTest(unittest.TestCase):
@@ -266,8 +440,13 @@ class ProblemReportTest(WindowTestCase):
 
 
 class Response:
-    def __init__(self, body):
+    def __init__(self, body, url="https://example.org/"):
         self.body = body
+        self.url = url
+        self.position = 0
+
+    def geturl(self):
+        return self.url
 
     def __enter__(self):
         return self
@@ -275,8 +454,11 @@ class Response:
     def __exit__(self, *exc):
         return False
 
-    def read(self, *args):
-        return self.body
+    def read(self, size=None):
+        # In pieces when a size is asked for, as a real connection gives a large file.
+        end = len(self.body) if size is None else min(self.position + size, len(self.body))
+        piece, self.position = self.body[self.position:end], end
+        return piece
 
 
 def answer(text):

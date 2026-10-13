@@ -6,6 +6,8 @@
 Results:
     dist/AuraGram/AuraGram.exe          the program with everything it needs beside it
     dist/AuraGram-Setup-<version>.exe   the installer
+    dist/AuraGram-Update-<version>.exe  the small installer for those who already have AuraGram
+    dist/update.json                    what installed copies read to learn of this release
 
 Needs PyInstaller (pip install pyinstaller). The installer step needs Inno Setup 6
 (https://jrsoftware.org/isinfo.php) and is skipped with a notice if it is not found.
@@ -16,16 +18,24 @@ import shutil
 import subprocess
 import sys
 
+from core import updates
 from core.config import read_credentials, seal_credentials
 from core.constants import (
     APP_COPYRIGHT, APP_NAME, APP_PUBLISHER, APP_VERSION, BASE_DIR, BUNDLED_CONFIG_NAME, CHECK_FLAG,
-    CONFIG_FILE, LEGAL_FILE_NAMES
+    CONFIG_FILE, LEGAL_FILE_NAMES, PACKAGE_FILE_FORMATS, PACKAGE_FULL, PACKAGE_UPDATE, RELEASES_URL,
+    UPDATE_BASE_VERSION, UPDATE_INFO_FILE_NAME, LANGUAGES
 )
 
 DIST_DIR = os.path.join(BASE_DIR, "dist")
 WORK_DIR = os.path.join(BASE_DIR, "build")
 PROGRAM = os.path.join(DIST_DIR, APP_NAME, APP_NAME + ".exe")
-INSTALLER = os.path.join(DIST_DIR, "%s-Setup-%s.exe" % (APP_NAME, APP_VERSION))
+PACKAGES = {
+    kind: os.path.join(DIST_DIR, name.format(version=APP_VERSION)) for kind, name in PACKAGE_FILE_FORMATS.items()
+}
+INSTALLER = PACKAGES[PACKAGE_FULL]
+UPDATE_INFO_FILE = os.path.join(DIST_DIR, UPDATE_INFO_FILE_NAME)
+# Stands where an address goes until RELEASES_URL in core/constants.py is set.
+ADDRESS_TO_FILL_IN = "https://REPLACE-WITH-THE-RELEASES-ADDRESS"
 # Read-only files the program loads at run time.
 DATA_FOLDERS = ("locales", "assets")
 # Packages whose DLLs and data files PyInstaller does not find from the imports
@@ -167,11 +177,38 @@ def build_installer():
         print("Inno Setup 6 was not found, so no installer was made.")
         print("Install it from https://jrsoftware.org/isinfo.php and run this script again.")
         return False
-    run([
-        compiler, "/Qp", "/DAppVersion=" + APP_VERSION, "/DAppPublisher=" + APP_PUBLISHER,
-        "/DAppCopyright=" + APP_COPYRIGHT, os.path.join(BASE_DIR, "installer.iss")
-    ])
+    # The whole installer, then the small one that only brings an installed copy up to date.
+    for extra in ([], ["/DUpdateOnly=1"]):
+        run([
+            compiler, "/Qp", "/DAppVersion=" + APP_VERSION, "/DAppPublisher=" + APP_PUBLISHER,
+            "/DAppCopyright=" + APP_COPYRIGHT, *extra, os.path.join(BASE_DIR, "installer.iss")
+        ])
     return True
+
+
+def write_update_info():
+    """Describe this release for the copies already installed: what to fetch and how to know it came whole.
+
+    Upload the two installers to the release, write its notes into the file, and put
+    the file where UPDATE_INFO_URL points.
+    """
+    step("Writing " + UPDATE_INFO_FILE_NAME)
+    releases = RELEASES_URL.rstrip("/") or ADDRESS_TO_FILL_IN
+    tag = "v" + APP_VERSION
+    info = {
+        "version": APP_VERSION,
+        "url": "%s/tag/%s" % (releases, tag),
+        "notes": {language: "" for language in LANGUAGES},
+    }
+    for kind, path in PACKAGES.items():
+        info[kind] = updates.describe_file(path, "%s/download/%s/%s" % (releases, tag, os.path.basename(path)))
+    info[PACKAGE_UPDATE]["from"] = UPDATE_BASE_VERSION
+    with open(UPDATE_INFO_FILE, "w", encoding="utf-8") as info_file:
+        json.dump(info, info_file, ensure_ascii=False, indent=4)
+        info_file.write("\n")
+    if not RELEASES_URL:
+        print("NOTE: RELEASES_URL is not set in core/constants.py, so the addresses in the file")
+        print("      are placeholders. Set it, or write the real addresses in by hand.")
 
 
 def folder_size_mb(path):
@@ -187,11 +224,16 @@ def main():
     build_program()
     check_program()
     has_installer = build_installer()
+    if has_installer:
+        write_update_info()
 
     step("Done")
     print("Program:   %s  (folder is %.0f MB)" % (PROGRAM, folder_size_mb(os.path.dirname(PROGRAM))))
     if has_installer:
         print("Installer: %s  (%.0f MB)" % (INSTALLER, os.path.getsize(INSTALLER) / (1024 * 1024)))
+        update = PACKAGES[PACKAGE_UPDATE]
+        print("Update:    %s  (%.0f MB)" % (update, os.path.getsize(update) / (1024 * 1024)))
+        print("Release:   %s" % UPDATE_INFO_FILE)
 
 
 if __name__ == "__main__":

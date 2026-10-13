@@ -1146,9 +1146,40 @@ STEP_DONE = 4
 # in core/updates.py. Empty until there is one, and then the program never asks.
 UPDATE_INFO_URL = ""
 UPDATE_TIMEOUT_SECONDS = 10
+# Where releases are published, as "https://github.com/<owner>/<repository>/releases". build.py
+# makes the download addresses in update.json from it; empty, it leaves them for filling in by hand.
+RELEASES_URL = ""
+UPDATE_INFO_FILE_NAME = "update.json"
+# The two files a release offers: the whole installer, and a small one with only what changes
+# between versions. Each name is also its key in update.json.
+PACKAGE_FULL = "full"
+PACKAGE_UPDATE = "update"
+PACKAGE_FILE_FORMATS = {
+    PACKAGE_FULL: APP_NAME + "-Setup-{version}.exe",
+    PACKAGE_UPDATE: APP_NAME + "-Update-{version}.exe",
+}
+# The oldest version the small package can be installed over: the last one in which a library
+# was added or upgraded. Set it to the new version whenever a release changes its libraries.
+UPDATE_BASE_VERSION = "1.0.0"
+UPDATE_MAX_BYTES = 400 * 1024 * 1024
+UPDATE_CHUNK_BYTES = 256 * 1024
+UPDATE_DOWNLOAD_TIMEOUT_SECONDS = 30
+# How often the download's progress is spoken, in percent.
+UPDATE_PROGRESS_STEP = 25
+MSG_UPDATE_CHOICE_FORMAT_KEY = "MSG_UPDATE_CHOICE_FORMAT"
+UPDATE_CHOICE_FORMAT_KEYS = {
+    PACKAGE_UPDATE: "UPDATE_CHOICE_UPDATE_FORMAT",
+    PACKAGE_FULL: "UPDATE_CHOICE_FULL_FORMAT",
+}
+UPDATE_CHOICE_PAGE_KEY = "UPDATE_CHOICE_PAGE"
+MSG_UPDATE_DOWNLOADING_FORMAT_KEY = "MSG_UPDATE_DOWNLOADING_FORMAT"
+MSG_UPDATE_BUSY_KEY = "MSG_UPDATE_BUSY"
+MSG_UPDATE_READY_FORMAT_KEY = "MSG_UPDATE_READY_FORMAT"
+MSG_UPDATE_KEPT_FORMAT_KEY = "MSG_UPDATE_KEPT_FORMAT"
+ERR_UPDATE_DOWNLOAD_KEY = "ERR_UPDATE_DOWNLOAD"
+ERR_UPDATE_VERIFY_KEY = "ERR_UPDATE_VERIFY"
 MENU_CHECK_UPDATES_KEY = "MENU_CHECK_UPDATES"
 SETTINGS_CHECK_UPDATES_KEY = "SETTINGS_CHECK_UPDATES"
-MSG_UPDATE_AVAILABLE_FORMAT_KEY = "MSG_UPDATE_AVAILABLE_FORMAT"
 MSG_UP_TO_DATE_FORMAT_KEY = "MSG_UP_TO_DATE_FORMAT"
 ERR_UPDATE_CHECK_KEY = "ERR_UPDATE_CHECK"
 
