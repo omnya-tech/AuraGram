@@ -1030,7 +1030,8 @@
     "MSG_IN_BACKGROUND": "AuraGram is running in the background. Open it from its icon near the clock.",
     "SHORTCUTS_HELP_LINE_FORMAT": "{shortcut}: {command}",
     "SHORTCUTS_HELP_ANYWHERE": "From any program",
-    "MSG_SHARE_TO": "Choose the chat to send the files to:",
+    "MSG_SHARE_TO": "Tick the chat or chats to send the files to (Space ticks):",
     "MSG_SHARE_BUSY": "Another file is being sent or fetched now. Send these again when it is done.",
-    "MSG_SHARE_NO_CHAT": "There is no chat you can write in to send the files to"
+    "MSG_SHARE_NO_CHAT": "There is no chat you can write in to send the files to",
+    "MSG_SHARED_TO_CHATS_FORMAT": "The files were sent to {count} chats"
 }

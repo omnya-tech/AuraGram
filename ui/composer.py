@@ -8,7 +8,7 @@ from core.settings import SETTING_SENT_SOUND
 from core.schedule import parse_send_time
 from ui.layout import file_kind, file_size
 from core.constants import (
-    SOUND_SENT, MSG_SHARE_TO_KEY, MSG_SHARE_BUSY_KEY, MSG_SHARE_NO_CHAT_KEY,
+    SOUND_SENT, MSG_SHARE_TO_KEY, MSG_SHARE_BUSY_KEY, MSG_SHARE_NO_CHAT_KEY, MSG_SHARED_TO_CHATS_FORMAT_KEY,
     MSG_POLL_QUESTION_PROMPT_KEY, MSG_POLL_OPTIONS_PROMPT_KEY, MSG_POLL_SENT_KEY,
     ERR_POLL_OPTIONS_KEY, POLL_MIN_OPTIONS, POLL_MAX_OPTIONS, MSG_SCHEDULE_PROMPT_KEY,
     MSG_SCHEDULED_FORMAT_KEY, MSG_NOTHING_TO_SCHEDULE_KEY, ERR_BAD_TIME_KEY, REPLY_LABEL_FORMAT_KEY,
@@ -139,7 +139,7 @@ class ComposerMixin:
         self.send_paths(paths)
 
     def share_files(self, paths):
-        """Files handed over from outside the app, by Windows' "Send to" menu: ask which chat they are for, then send as usual."""
+        """Files handed over from outside the app, by Windows' "Send to" menu: ask which chats they are for, then send as usual."""
         if not self:
             return
         paths, self.shared_paths = self.shared_paths + paths, []
@@ -156,21 +156,46 @@ class ComposerMixin:
         if not chats:
             self.notify(MSG_SHARE_NO_CHAT_KEY)
             return
-        target = self.choose_chat(MSG_SHARE_TO_KEY, chats)
-        if target is not None:
-            self.send_paths(paths, target["id"])
+        chosen = self.pick_many(self.i18n.get_string(MSG_SHARE_TO_KEY), [chat["title"] for chat in chats], [])
+        if not chosen:
+            return
+        how = self.ask_how_to_send(paths)
+        if how is not None:
+            self.is_busy = True
+            self.send_to_chats(paths, *how, [chats[index]["id"] for index in chosen])
 
-    def send_paths(self, paths, dialog_id=None):
-        """Send files as one message, after asking what goes with them; cancelling either question sends nothing.
+    def send_to_chats(self, paths, caption, as_documents, dialog_ids, position=0):
+        """Send the same files to one chat after another. Each gets them as they are: not as an
+        answer, and not under the post or in the topic that may be open."""
+        self.set_status(MSG_UPLOADING_KEY)
+        self.telegram_manager.send_files(
+            dialog_ids[position], paths, caption, as_documents,
+            self.on_ui_thread(self.on_sent_to_chat, paths, caption, as_documents, dialog_ids, position),
+            on_progress=self.progress_reporter(MSG_UPLOAD_PROGRESS_FORMAT_KEY)
+        )
 
-        They go to the open chat, as an answer if one was being written, unless another chat is named."""
+    def on_sent_to_chat(self, result, paths, caption, as_documents, dialog_ids, position):
+        if position + 1 < len(dialog_ids):
+            self.send_to_chats(paths, caption, as_documents, dialog_ids, position + 1)
+        elif len(dialog_ids) == 1:
+            self.on_files_sent(result, dialog_ids[0], len(paths))
+        else:
+            self.is_busy = False
+            self.hide_progress()
+            self.announce(self.i18n.get_string(MSG_SHARED_TO_CHATS_FORMAT_KEY).format(count=len(dialog_ids)))
+            # The last one written in ends up on top, as it would by hand.
+            for dialog_id in dialog_ids:
+                self.refresh_after_sending(dialog_id)
+
+    def ask_how_to_send(self, paths):
+        """What goes with files about to be sent, as (caption, whether as plain files); None if the user backs out."""
         # Said before anything is sent: what each file is and how big, so a wrong pick is caught here.
         with wx.TextEntryDialog(
             self, self.describe_paths(paths) + "\n\n" + self.i18n.get_string(MSG_CAPTION_PROMPT_KEY),
             self.i18n.get_string(APP_TITLE_KEY)
         ) as caption_dialog:
             if caption_dialog.ShowModal() != wx.ID_OK:
-                return
+                return None
             caption = caption_dialog.GetValue().strip()
         as_documents = False
         if any(os.path.splitext(path)[1].lower() in PHOTO_VIDEO_EXTENSIONS for path in paths):
@@ -179,19 +204,21 @@ class ComposerMixin:
                 [self.i18n.get_string(SEND_AS_MEDIA_KEY), self.i18n.get_string(SEND_AS_FILES_KEY)]
             ) as kind_dialog:
                 if kind_dialog.ShowModal() != wx.ID_OK:
-                    return
+                    return None
                 as_documents = kind_dialog.GetSelection() == 1
+        return caption, as_documents
+
+    def send_paths(self, paths):
+        """Send files to the open chat as one message, after asking what goes with them; cancelling either question sends nothing."""
+        how = self.ask_how_to_send(paths)
+        if how is None:
+            return
         self.is_busy = True
         self.set_status(MSG_UPLOADING_KEY)
-        if dialog_id is None:
-            dialog_id = self.current_dialog_id
-            peer, reply_to = self.peer(dialog_id), self.take_reply()
-        else:
-            # A chat chosen by name gets the files as they are: not under the post or in the topic that may be open.
-            peer, reply_to = dialog_id, None
+        dialog_id = self.current_dialog_id
         self.telegram_manager.send_files(
-            peer, paths, caption, as_documents,
-            self.on_ui_thread(self.on_files_sent, dialog_id, len(paths)), reply_to=reply_to,
+            self.peer(dialog_id), paths, *how,
+            self.on_ui_thread(self.on_files_sent, dialog_id, len(paths)), reply_to=self.take_reply(),
             on_progress=self.progress_reporter(MSG_UPLOAD_PROGRESS_FORMAT_KEY)
         )
 
