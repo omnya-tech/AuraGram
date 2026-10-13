@@ -992,5 +992,9 @@
     "MSG_UPDATE_READY_FORMAT": "Version {version} has been downloaded and checked.\nInstall it now? AuraGram will close during the installation, and you can open it again afterwards.",
     "MSG_UPDATE_KEPT_FORMAT": "The installer is saved here, for you to run whenever you like:\n{path}",
     "ERR_UPDATE_DOWNLOAD": "The update could not be downloaded. Check your connection and try again.",
-    "ERR_UPDATE_VERIFY": "The file that came down does not match the announced release, so it was deleted and not installed. Try again, or get it from the release page."
+    "ERR_UPDATE_VERIFY": "The file that came down does not match the announced release, so it was deleted and not installed. Try again, or get it from the release page.",
+    "MSG_LOADING_MORE_DIALOGS": "Loading more chats...",
+    "MSG_MORE_DIALOGS_PROGRESS_FORMAT": "Loading chats: {percent}%",
+    "MSG_MORE_DIALOGS_LOADED_FORMAT": "{count} more chats loaded",
+    "MSG_NO_MORE_DIALOGS": "There are no more chats to load"
 }

@@ -96,6 +96,8 @@ class MainFrame(
         self.typing_timer = None
         self.dialogs_limit = DIALOGS_LIMIT
         self.has_more_dialogs = False
+        # While more of the chat list is being fetched: how many chats there were before; None otherwise.
+        self.loading_more_from = None
         self.reply_to = None
         self.editing = None
         # chat id -> text typed there but not sent; kept only while the app is open.
@@ -847,6 +849,10 @@ class MainFrame(
     def show_error(self, error_key):
         self.set_status(STATUS_READY_KEY)
         self.is_busy = False
+        if self.loading_more_from is not None:
+            # The page that was asked for never came: ask again from where the list stands.
+            self.loading_more_from = None
+            self.dialogs_limit -= DIALOGS_LIMIT
         self.hide_progress()
         self.enable_chat(self.current_dialog_id is not None)
         wx.MessageBox(

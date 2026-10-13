@@ -211,8 +211,9 @@ class TelegramManager(threading.Thread):
     def send_password(self, password):
         asyncio.run_coroutine_threadsafe(self._send_password_async(password), self.loop)
 
-    def load_dialogs(self, on_result, limit=DIALOGS_LIMIT):
-        self._request(on_result, self._load_dialogs_async, limit)
+    def load_dialogs(self, on_result, limit=DIALOGS_LIMIT, on_progress=None):
+        """The first `limit` chats of the account. on_progress(percent) is called from this thread as they come."""
+        self._request(on_result, self._load_dialogs_async, limit, self._percent_reporter(on_progress))
 
     def load_messages(self, dialog_id, on_result, before_id=None, mark_read=True):
         """Loads the latest page of a chat, or the page before message `before_id`."""
@@ -738,13 +739,18 @@ class TelegramManager(threading.Thread):
         else:
             on_result(result, None)
 
-    async def _load_dialogs_async(self, limit):
+    async def _load_dialogs_async(self, limit, report=None):
         try:
             self.default_muted = {kind for kind, enabled in (await self._load_notify_async()).items() if not enabled}
         except RPCError:
             # The chat list matters more than knowing which kinds of chat are silent by default.
             pass
-        dialogs = await self.client.get_dialogs(limit=limit)
+        dialogs = []
+        async for dialog in self.client.iter_dialogs(limit=limit):
+            dialogs.append(dialog)
+            # Telegram hands them over a page at a time: only then is there something new to tell.
+            if report is not None and len(dialogs) % DIALOGS_LIMIT == 0:
+                report(len(dialogs), limit)
         # update(), not replace: chats learned from live messages may not be in this page.
         self.entities.update({dialog.id: dialog.input_entity for dialog in dialogs})
         return [

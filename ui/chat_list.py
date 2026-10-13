@@ -31,7 +31,8 @@ from core.constants import (
     MSG_FOLDERS_SAVED_KEY, FIRST_FOLDER_ID, FOLDER_CATEGORIES, MSG_CONFIRM_MARK_ALL_READ_FORMAT_KEY,
     MSG_ALL_READ_KEY, MSG_NOTHING_UNREAD_KEY, MSG_INVITE_COPIED_KEY, MSG_CONTACTS_COUNT_FORMAT_KEY,
     STATUS_OFFLINE_KEY, CHAT_KIND_GROUP, CHAT_KIND_CHANNEL, CHAT_KIND_PLACE_AFTER, CHAT_KIND_PLACE_BEFORE,
-    CHAT_KIND_BEFORE_FORMAT_KEY
+    CHAT_KIND_BEFORE_FORMAT_KEY, MSG_LOADING_MORE_DIALOGS_KEY, MSG_MORE_DIALOGS_PROGRESS_FORMAT_KEY,
+    MSG_MORE_DIALOGS_LOADED_FORMAT_KEY, MSG_NO_MORE_DIALOGS_KEY
 )
 
 class ChatListMixin:
@@ -52,8 +53,16 @@ class ChatListMixin:
                 self.drafts.setdefault(dialog["id"], dialog["draft"])
         # A full page means Telegram most likely has more chats after it.
         self.has_more_dialogs = len(dialogs) == self.dialogs_limit
+        loaded_from, self.loading_more_from = self.loading_more_from, None
         self.render_dialogs()
         self.set_status(STATUS_READY_KEY)
+        if loaded_from is not None:
+            # Asked for by the user, so its end is told wherever they are in the list by now.
+            added = len(dialogs) - loaded_from
+            if added > 0:
+                self.announce(self.i18n.get_string(MSG_MORE_DIALOGS_LOADED_FORMAT_KEY).format(count=added))
+            else:
+                self.notify(MSG_NO_MORE_DIALOGS_KEY)
 
     def render_dialogs(self):
         """Refill the chat list with the chats of the current view, keeping the user's place."""
@@ -134,8 +143,27 @@ class ChatListMixin:
         ))
 
     def load_more_dialogs(self):
+        if self.loading_more_from is not None:
+            # Already on its way: a second Enter must not ask for yet another page.
+            return
         self.dialogs_limit += DIALOGS_LIMIT
-        self.load_dialogs()
+        self.loading_more_from = len(self.all_dialogs)
+        self.notify(MSG_LOADING_MORE_DIALOGS_KEY)
+        self.telegram_manager.load_dialogs(
+            self.on_ui_thread(self.show_dialogs), self.dialogs_limit,
+            on_progress=lambda percent: wx.CallAfter(self.tell_more_dialogs_progress, percent)
+        )
+
+    def on_load_more_row(self):
+        """Whether the user is standing on the row that loads more chats."""
+        return self.has_more_chat_rows() and self.dialogs_list.GetSelection() == len(self.dialogs)
+
+    def tell_more_dialogs_progress(self, percent):
+        # Only for someone waiting on that very row: one step away, they are reading
+        # a chat, and the count must not talk over it. The end is announced by itself.
+        if not self or self.loading_more_from is None or percent >= 100 or not self.on_load_more_row():
+            return
+        self.announce(self.i18n.get_string(MSG_MORE_DIALOGS_PROGRESS_FORMAT_KEY).format(percent=percent))
 
     def format_dialog(self, dialog):
         """One row of the chat list: name, state, then the latest message whether read or not."""

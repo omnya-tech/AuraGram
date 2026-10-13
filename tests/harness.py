@@ -175,6 +175,10 @@ class FakeTelegramClient:
     async def is_user_authorized(self):
         return True
 
+    async def iter_dialogs(self, limit):
+        for dialog in await self.get_dialogs(limit):
+            yield dialog
+
     async def get_dialogs(self, limit):
         return [
             Record(
@@ -185,7 +189,7 @@ class FakeTelegramClient:
                 # The chat list previews the newest message of each chat.
                 message=(self.history.get(telegram_client.get_peer_id(entity)) or [None])[-1]
             )
-            for entity, unread, archived in self.chats
+            for entity, unread, archived in self.chats[:limit]
         ]
 
     async def edit_folder(self, entity, folder):

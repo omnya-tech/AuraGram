@@ -1290,3 +1290,9 @@ SOURCE_CODE_URL = ""
 # What Telegram lists this program as among the account's devices, beside its version.
 CLIENT_DEVICE_MODEL = "PC"
 CLIENT_SYSTEM_FORMAT = "Windows {release}"
+
+# Loading more of the chat list: said when asked for, as it goes, and when it is done.
+MSG_LOADING_MORE_DIALOGS_KEY = "MSG_LOADING_MORE_DIALOGS"
+MSG_MORE_DIALOGS_PROGRESS_FORMAT_KEY = "MSG_MORE_DIALOGS_PROGRESS_FORMAT"
+MSG_MORE_DIALOGS_LOADED_FORMAT_KEY = "MSG_MORE_DIALOGS_LOADED_FORMAT"
+MSG_NO_MORE_DIALOGS_KEY = "MSG_NO_MORE_DIALOGS"
