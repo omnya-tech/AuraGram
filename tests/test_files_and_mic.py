@@ -155,6 +155,20 @@ class CleaningTest(unittest.TestCase):
         self.assertLessEqual(numpy.abs(raised.astype(int)).max(), audio.LOUDEST)
         self.assertGreater(numpy.corrcoef(raised, loud)[0, 1], 0.9999)
 
+    def test_one_loud_moment_does_not_hold_the_whole_recording_down(self):
+        voice = (numpy.sin(numpy.arange(RATE) / 20) * 3000).astype("int16")
+        voice[100] = 30000
+        raised = audio.set_level(voice, 3.5)
+        # The voice comes up by all that was asked, and the tap stays within what 16 bits hold.
+        self.assertAlmostEqual(numpy.percentile(numpy.abs(raised.astype(int)), 99), 3000 * 3.5, delta=150)
+        self.assertLessEqual(numpy.abs(raised.astype(int)).max(), audio.LOUDEST)
+
+    def test_levels_run_from_quietest_to_loudest_and_keep_the_old_names(self):
+        factors = [factor for factor in c.MIC_LEVELS.values() if factor is not None]
+        self.assertEqual(factors, sorted(factors))
+        for name in ("MIC_LEVEL_LOW", "MIC_LEVEL_NORMAL", "MIC_LEVEL_HIGH", "MIC_LEVEL_AUTO"):
+            self.assertIn(name, c.MIC_LEVELS)
+
     def test_automatic_level_fills_the_room_but_does_not_blow_up_near_silence(self):
         quiet = (numpy.sin(numpy.arange(RATE) / 20) * 8000).astype("int16")
         self.assertAlmostEqual(numpy.abs(audio.set_level(quiet, None)).max(), audio.LOUDEST * audio.AUTO_LEVEL_PEAK, delta=50)

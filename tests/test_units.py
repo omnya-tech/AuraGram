@@ -75,9 +75,9 @@ class FolderRulesTest(unittest.TestCase):
 
     def test_each_folder_becomes_a_view_named_after_it(self):
         views = build_views(I18NManager("ar"), [dict(folder(categories={"bots"}), id=2, title="Robots")])
-        self.assertEqual(len(views), 5)
-        self.assertIn("Robots", views[4].label)
-        self.assertTrue(views[4].matches(chat(1, "bots")))
+        self.assertEqual(len(views), 7)
+        self.assertIn("Robots", views[6].label)
+        self.assertTrue(views[6].matches(chat(1, "bots")))
 
 
 class VersionTest(unittest.TestCase):
@@ -302,9 +302,15 @@ class CredentialsTest(unittest.TestCase):
         self.assertEqual(load_credentials(), (0, ""))
 
     def pack(self, api_id, api_hash):
-        from core.config import seal_credentials
+        """Stand in for the private part a build packs the pair with: here it keeps them as they are."""
+        from unittest import mock
+        import core.config as config
         with open(self.bundled, "wb") as file:
-            file.write(seal_credentials(api_id, api_hash))
+            file.write(b"packed")
+        part = type("Part", (), {"unseal": staticmethod(lambda data: (api_id, api_hash) if data == b"packed" else None)})
+        patch = mock.patch.object(config, "_private_part", lambda: part)
+        patch.start()
+        self.addCleanup(patch.stop)
 
     def test_values_packed_into_the_program_mean_it_never_asks(self):
         from core.config import load_credentials
@@ -318,29 +324,20 @@ class CredentialsTest(unittest.TestCase):
         self.write(self.path, 111, self.OTHER_HASH)
         self.assertEqual(load_credentials(), (777, self.HASH))
 
-    def test_packed_file_shows_neither_value_to_whoever_opens_it(self):
-        from core.config import seal_credentials
-        sealed = seal_credentials(987654321, self.HASH)
-        for visible in (b"987654321", self.HASH.encode(), b"API", bytes.fromhex(self.HASH)):
-            self.assertNotIn(visible, sealed)
-        # Nor does it look the same twice, so two builds cannot be compared to find it.
-        self.assertNotEqual(sealed, seal_credentials(987654321, self.HASH))
-
-    def test_packed_file_that_was_touched_is_treated_as_missing(self):
-        from core.config import load_credentials, read_sealed, seal_credentials
-        sealed = bytearray(seal_credentials(777, self.HASH))
-        for position in (0, 20, len(sealed) - 1):
-            damaged = bytearray(sealed)
-            damaged[position] ^= 1
-            with open(self.bundled, "wb") as file:
-                file.write(damaged)
-            self.assertEqual(read_sealed(self.bundled), (0, ""), position)
-        with open(self.bundled, "wb") as file:
-            file.write(sealed[:10])
-        self.assertEqual(read_sealed(self.bundled), (0, ""))
-        # Then the user's own file is what counts, as when nothing was packed.
+    def test_packed_values_that_cannot_be_right_are_not_used(self):
+        from core.config import load_credentials
+        self.pack(777, "short")
         self.write(self.path, 111, self.OTHER_HASH)
         self.assertEqual(load_credentials(), (111, self.OTHER_HASH))
+
+    def test_without_the_private_part_nothing_packed_is_read_and_the_user_is_asked(self):
+        from unittest import mock
+        import core.config as config
+        with open(self.bundled, "wb") as file:
+            file.write(b"packed")
+        with mock.patch.object(config, "_private_part", lambda: None):
+            self.assertEqual(config.load_credentials(), (0, ""))
+            self.assertIsNone(config.pack_credentials(777, self.HASH))
 
     def test_plain_file_put_in_place_of_the_packed_one_is_not_read(self):
         from core.config import load_credentials
@@ -444,6 +441,38 @@ class LocaleTest(unittest.TestCase):
             ignored = file.read()
         for pattern in ("config.json", "*.session", "settings.json", "downloads/"):
             self.assertIn(pattern, ignored)
+
+
+class UploadProgressTest(unittest.TestCase):
+    """How far files are on their way up, over all the files of an album."""
+
+    def reports(self, sizes, calls):
+        import tempfile
+        from core.telegram_client import TelegramManager
+        folder = tempfile.mkdtemp()
+        paths = []
+        for index, size in enumerate(sizes):
+            path = os.path.join(folder, str(index))
+            with open(path, "wb") as file:
+                file.write(b"x" * size)
+            paths.append(path)
+        seen = []
+        report = TelegramManager._upload_reporter(None, seen.append, paths)
+        for done, total in calls:
+            report(done, total)
+        return [(progress["percent"], progress["file"], progress["done"], progress["total"]) for progress in seen]
+
+    def test_bytes_and_files_add_up_over_the_album(self):
+        self.assertEqual(
+            self.reports([100, 300], [(50, 100), (100, 100), (150, 300), (300, 300)]),
+            [(12, 1, 50, 400), (25, 1, 100, 400), (62, 2, 250, 400), (100, 2, 400, 400)]
+        )
+
+    def test_the_next_file_starting_from_nothing_is_counted_as_the_next(self):
+        self.assertEqual(
+            self.reports([100, 300], [(0, 100), (100, 100), (0, 300), (300, 300)]),
+            [(0, 1, 0, 400), (25, 1, 100, 400), (100, 2, 400, 400)]
+        )
 
 
 if __name__ == "__main__":

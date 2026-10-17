@@ -182,18 +182,28 @@ class ViewTabs(wx.Panel):
     def on_click(self, event):
         self.choose(self.buttons.index(event.GetEventObject()))
 
+    def sideways_step(self, key):
+        """1 for the tab after, -1 for the one before, for left or right; 0 for any other key."""
+        # Left and right go the way the eyes see them, which in a right-to-left window is the other way round.
+        mirrored = self.GetLayoutDirection() == wx.Layout_RightToLeft
+        if key in (self.LEFT_KEYS if mirrored else self.RIGHT_KEYS):
+            return 1
+        if key in (self.RIGHT_KEYS if mirrored else self.LEFT_KEYS):
+            return -1
+        return 0
+
     def handle_key(self, event, focused):
         """Move to the neighbouring tab for an arrow pressed on one of the tabs; False if the key was not for here."""
         if focused not in self.buttons or event.HasAnyModifiers():
             return False
         key = event.GetKeyCode()
-        # Left and right go the way the eyes see them, which in a right-to-left window is the other way round.
-        mirrored = self.GetLayoutDirection() == wx.Layout_RightToLeft
-        if key in self.NEXT_KEYS or key in (self.LEFT_KEYS if mirrored else self.RIGHT_KEYS):
+        if key in self.NEXT_KEYS:
             step = 1
-        elif key in self.PREVIOUS_KEYS or key in (self.RIGHT_KEYS if mirrored else self.LEFT_KEYS):
+        elif key in self.PREVIOUS_KEYS:
             step = -1
         else:
+            step = self.sideways_step(key)
+        if not step:
             return False
         self.choose((self.selection + step) % len(self.buttons))
         self.buttons[self.selection].SetFocus()

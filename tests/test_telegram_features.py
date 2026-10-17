@@ -84,10 +84,11 @@ class ConversationSignalsTest(WindowTestCase):
             self.frame.messages_list.GetName(), self.text(c.MESSAGES_OF_LABEL_FORMAT_KEY).format(chat="Helper")
         )
 
-    def test_typing_shows_in_the_status_bar_and_is_spoken_only_if_asked(self):
+    def test_typing_shows_in_the_status_bar_and_is_spoken_unless_turned_off(self):
         self.open_chat(0)
         typing = self.text(c.MSG_TYPING_FORMAT_KEY).format(chat="Ali")
         event = Record(status=None, typing=True, is_private=True, chat_id=1)
+        self.frame.settings.set(s.SETTING_ANNOUNCE_TYPING, False)
         self.fire("UserUpdate", event)
         self.assertTrue(pump(lambda: self.frame.GetStatusBar().GetStatusText() == typing))
         self.assertNotIn(typing, self.spoken)
@@ -103,6 +104,43 @@ class ConversationSignalsTest(WindowTestCase):
 
         self.frame.clear_typing(typing)
         self.assertEqual(self.frame.GetStatusBar().GetStatusText(), "")
+
+    def test_recording_and_sending_a_file_are_said_too(self):
+        self.open_chat(0)
+        for event, key in (
+            (Record(status=None, recording=True, audio=True, is_private=True, chat_id=1), "MSG_RECORDING_VOICE_FORMAT"),
+            (Record(status=None, recording=True, round=True, is_private=True, chat_id=1), "MSG_RECORDING_VIDEO_FORMAT"),
+            (Record(status=None, uploading=True, document=True, is_private=True, chat_id=1), "MSG_SENDING_FILE_FORMAT"),
+        ):
+            said = self.text(key).format(chat="Ali")
+            self.fire("UserUpdate", event)
+            self.assertTrue(pump(lambda: said in self.spoken), key)
+
+    def test_stopping_clears_what_the_status_bar_said(self):
+        self.open_chat(0)
+        typing = self.text(c.MSG_TYPING_FORMAT_KEY).format(chat="Ali")
+        self.fire("UserUpdate", Record(status=None, typing=True, is_private=True, chat_id=1))
+        self.assertTrue(pump(lambda: self.frame.GetStatusBar().GetStatusText() == typing))
+        self.fire("UserUpdate", Record(status=None, cancel=True, is_private=True, chat_id=1))
+        self.assertTrue(pump(lambda: self.frame.GetStatusBar().GetStatusText() == ""))
+
+    def test_a_cancel_leaves_other_news_on_the_status_bar(self):
+        self.open_chat(0)
+        self.frame.SetStatusText("something else")
+        self.fire("UserUpdate", Record(status=None, cancel=True, is_private=True, chat_id=1))
+        pump(timeout=0.2)
+        self.assertEqual(self.frame.GetStatusBar().GetStatusText(), "something else")
+
+    def test_in_a_group_the_member_is_named(self):
+        self.open_chat(0)
+
+        async def get_user():
+            return make_user(9, "Mona")
+        # A group's member typing, told as if in the open chat so the window shows it.
+        event = Record(status=None, typing=True, is_private=False, chat_id=1, get_user=get_user)
+        self.fire("UserUpdate", event)
+        said = self.text(c.MSG_TYPING_FORMAT_KEY).format(chat="Mona")
+        self.assertTrue(pump(lambda: said in self.spoken))
 
     def test_typing_in_another_chat_is_ignored(self):
         self.open_chat(1)

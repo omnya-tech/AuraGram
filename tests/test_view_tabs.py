@@ -10,10 +10,12 @@ from tests.harness import FakeTelegramClient, WindowTestCase, make_channel, make
 
 ALI = make_user(1, "Ali")
 OLD = make_channel(40, "Old")
+NEWS = make_channel(41, "Team news")
+FRIENDS = make_channel(42, "Friends", group=True)
 
 
 class ViewTabsTest(WindowTestCase):
-    chats = [(ALI, 1, False), (OLD, 0, True)]
+    chats = [(ALI, 1, False), (OLD, 0, True), (NEWS, 0, False), (FRIENDS, 0, False)]
 
     def tabs(self):
         return self.frame.view_tabs
@@ -43,32 +45,33 @@ class ViewTabsTest(WindowTestCase):
 
     def test_every_view_is_a_tab_in_sight_with_the_current_one_pressed(self):
         self.assertEqual(self.labels(), [self.text(key) for key in (
-            c.VIEW_ALL_KEY, c.VIEW_UNREAD_KEY, c.VIEW_ARCHIVE_KEY, c.VIEW_CONTACTS_KEY
+            c.VIEW_ALL_KEY, c.VIEW_UNREAD_KEY, c.VIEW_ARCHIVE_KEY, c.VIEW_CHANNELS_KEY, c.VIEW_GROUPS_KEY,
+            c.VIEW_CONTACTS_KEY
         )])
-        self.assertEqual(self.pressed(), [True, False, False, False])
+        self.assertEqual(self.pressed(), [True, False, False, False, False, False])
         self.assertTrue(self.tabs().IsShown())
         weights = [button.GetFont().GetWeight() for button in self.tabs().buttons]
-        self.assertEqual(weights, [wx.FONTWEIGHT_BOLD] + [wx.FONTWEIGHT_NORMAL] * 3)
+        self.assertEqual(weights, [wx.FONTWEIGHT_BOLD] + [wx.FONTWEIGHT_NORMAL] * 5)
 
     def test_one_click_goes_to_a_view_and_says_what_is_in_it(self):
         self.click(2)
         self.assertEqual(self.frame.view_index, 2)
-        self.assertEqual(self.pressed(), [False, False, True, False])
+        self.assertEqual(self.pressed(), [False, False, True, False, False, False])
         self.assertEqual([dialog["title"] for dialog in self.frame.dialogs], ["Old"])
         self.assertIn(self.text(c.VIEW_ARCHIVE_KEY), self.spoken[-1])
 
     def test_clicking_the_current_tab_leaves_it_pressed_and_reloads_nothing(self):
         self.spoken.clear()
         self.click(0)
-        self.assertEqual(self.pressed(), [True, False, False, False])
+        self.assertEqual(self.pressed(), [True, False, False, False, False, False])
         self.assertEqual(self.spoken, [])
 
     def test_keyboard_shortcut_moves_the_pressed_tab_too(self):
         self.frame.cycle_view(1)
-        self.assertEqual(self.pressed(), [False, True, False, False])
+        self.assertEqual(self.pressed(), [False, True, False, False, False, False])
         self.frame.cycle_view(-1)
         self.frame.cycle_view(-1)
-        self.assertEqual(self.pressed(), [False, False, False, True])
+        self.assertEqual(self.pressed(), [False, False, False, False, False, True])
 
     def test_arrows_on_a_tab_go_to_its_neighbours_the_way_they_look(self):
         # Arabic reads right to left: the next tab is to the left.
@@ -81,6 +84,21 @@ class ViewTabsTest(WindowTestCase):
         self.press(wx.WXK_UP)
         self.press(wx.WXK_UP)
         self.assertEqual(self.frame.view_index, len(self.frame.views) - 1)
+
+    def test_channels_and_groups_each_have_a_tab_of_their_own(self):
+        self.click(3)
+        self.assertEqual([dialog["title"] for dialog in self.frame.dialogs], ["Team news"])
+        self.click(4)
+        self.assertEqual([dialog["title"] for dialog in self.frame.dialogs], ["Friends"])
+
+    def test_left_and_right_in_the_chat_list_go_to_the_tab_beside(self):
+        # Arabic reads right to left: the next tab is to the left.
+        self.assertTrue(self.press(wx.WXK_LEFT, focused=self.frame.dialogs_list))
+        self.assertEqual(self.frame.view_index, 1)
+        self.press(wx.WXK_RIGHT, focused=self.frame.dialogs_list)
+        self.press(wx.WXK_RIGHT, focused=self.frame.dialogs_list)
+        self.assertEqual(self.frame.view_index, len(self.frame.views) - 1)
+        self.assertIn(self.text(c.VIEW_CONTACTS_KEY), self.frame.views[self.frame.view_index].label)
 
     def test_arrows_elsewhere_and_shortcuts_with_modifiers_are_not_the_tabs_business(self):
         self.assertFalse(self.tabs().handle_key(self.key(wx.WXK_LEFT), self.frame.dialogs_list))
@@ -100,10 +118,10 @@ class ViewTabsTest(WindowTestCase):
         self.frame.settings.set(s.SETTING_SIMPLE_TAB, False)
         self.frame.apply_simplicity()
         stops = [button.AcceptsFocusFromKeyboard() for button in self.tabs().buttons]
-        self.assertEqual(stops, [True, False, False, False])
+        self.assertEqual(stops, [True, False, False, False, False, False])
         self.frame.cycle_view(1)
         stops = [button.AcceptsFocusFromKeyboard() for button in self.tabs().buttons]
-        self.assertEqual(stops, [False, True, False, False])
+        self.assertEqual(stops, [False, True, False, False, False, False])
 
     def test_folders_get_tabs_of_their_own_and_keep_the_choice_made(self):
         self.frame.cycle_view(1)
@@ -112,11 +130,11 @@ class ViewTabsTest(WindowTestCase):
             pinned_peers=[], include_peers=[], exclude_peers=[]
         )]
         self.manager.load_folders(self.frame.on_ui_thread(self.frame.show_folders))
-        self.assertTrue(pump(lambda: len(self.tabs().buttons) == 5))
-        self.assertIn("Work", self.labels()[4])
-        self.assertEqual(self.pressed(), [False, True, False, False, False])
+        self.assertTrue(pump(lambda: len(self.tabs().buttons) == 7))
+        self.assertIn("Work", self.labels()[6])
+        self.assertEqual(self.pressed(), [False, True, False, False, False, False, False])
         # Made after the settings were applied, the new tabs follow them all the same.
-        self.assertFalse(self.tabs().buttons[4].AcceptsFocusFromKeyboard())
+        self.assertFalse(self.tabs().buttons[6].AcceptsFocusFromKeyboard())
 
     def test_tabs_leave_the_screen_with_the_list_of_chats(self):
         self.frame.dialogs_list.SetSelection(0)

@@ -25,6 +25,11 @@ LOW_CUT_HZ = 80
 # The share of the loudest possible that "as loud as it goes" aims for, and the most a quiet recording is raised.
 AUTO_LEVEL_PEAK = 0.9
 AUTO_LEVEL_MAX_GAIN = 8.0
+# How much of a recording may be louder than what its level is measured by: a tap or a cough
+# that stands far above the voice is not allowed to hold the whole recording down.
+LEVEL_PEAK_PERCENTILE = 99.9
+# Above this share of the loudest a sample can be, what is left is bent smoothly under it rather than cut.
+LIMIT_KNEE = 0.9
 
 
 def decode(path, speed=1.0):
@@ -116,15 +121,31 @@ def set_level(samples, factor):
     """Make a recording louder or quieter by `factor`, never past the point where it would clip.
 
     `factor` None raises it as far as it goes, within reason for a recording that is nearly silent.
+    The room there is is measured on the voice, not on its single loudest moment, and the few
+    moments louder still are bent under the limit rather than cut off.
     """
-    peak = int(numpy.abs(samples.astype("int32")).max()) if len(samples) else 0
+    magnitude = numpy.abs(samples.astype("float32"))
+    peak = float(numpy.percentile(magnitude, LEVEL_PEAK_PERCENTILE)) if len(samples) else 0.0
     if peak == 0:
         return samples
     most = LOUDEST / peak
     if factor is None:
         factor = min(most * AUTO_LEVEL_PEAK, AUTO_LEVEL_MAX_GAIN)
     factor = min(factor, most)
-    return (samples.astype("float32") * factor).astype(SAMPLE_FORMAT)
+    return limit(samples.astype("float32") * factor).astype(SAMPLE_FORMAT)
+
+
+def limit(samples):
+    """Keep every sample within what 16 bits hold: those past the knee are bent under the limit, smoothly."""
+    knee = LOUDEST * LIMIT_KNEE
+    room = LOUDEST - knee
+    over = numpy.abs(samples) > knee
+    if not over.any():
+        return samples
+    bent = samples.copy()
+    excess = numpy.abs(samples[over]) - knee
+    bent[over] = numpy.sign(samples[over]) * (knee + room * numpy.tanh(excess / room))
+    return bent
 
 
 def prepare_voice(samples, level, reduction_db):

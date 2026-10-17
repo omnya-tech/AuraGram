@@ -5,6 +5,7 @@ from unittest import mock
 import wx
 
 import core.constants as c
+from ui.layout import file_size
 from tests.harness import FakeChooser, FakeTelegramClient, WindowTestCase, make_message, make_user, pump
 
 ALI = make_user(1, "Ali")
@@ -36,16 +37,27 @@ class ChatToolsTest(WindowTestCase):
         self.assertFalse(self.frame.progress_gauge.IsShown())
         FakeChooser.values = [""]
         self.frame.send_paths(["report.pdf"])
-        # Held half way: the bar is up and the status bar says how far.
-        half = self.text(c.MSG_UPLOAD_PROGRESS_FORMAT_KEY).format(percent=50)
+        rows = self.frame.messages_list.GetCount()
+        # Held half way: the bar is up, and the status bar and a row at the end of the chat say how far.
+        half = self.text(c.UPLOAD_ROW_FORMAT_KEY).format(
+            name="report.pdf", done=file_size(self.frame.i18n, 100), total=file_size(self.frame.i18n, 200), percent=50
+        )
         self.assertTrue(pump(lambda: self.status() == half))
         self.assertTrue(self.frame.progress_gauge.IsShown())
         self.assertEqual(self.frame.progress_gauge.GetValue(), 50)
+        self.assertEqual(self.frame.messages_list.GetString(rows - 1), half)
+        self.assertEqual(rows, len(self.frame.messages) + 1)
+        # The row is not a message: Enter on it opens nothing.
+        self.frame.messages_list.SetSelection(rows - 1)
+        self.assertIsNone(self.frame.selected_message())
+        self.frame.on_activate_message(None)
 
         self.manager.loop.call_soon_threadsafe(gate.set)
         self.assertTrue(pump(lambda: self.calls("send_file") and not self.frame.is_busy))
         self.assertFalse(self.frame.progress_gauge.IsShown())
         self.assertEqual(self.frame.progress_gauge.GetValue(), 0)
+        self.assertTrue(pump(lambda: self.frame.messages_list.GetCount() == len(self.frame.messages)))
+        self.assertNotIn(half, self.frame.messages_list.GetStrings())
 
     def test_late_report_does_not_bring_the_bar_back(self):
         self.open_chat(0)

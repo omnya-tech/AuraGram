@@ -1,27 +1,55 @@
+import sys
+from core import share
+from core.constants import CHECK_FLAG, QUIT_FLAG
+from ui.background import ask_running_copy_to_show, ask_running_copy_to_take_files, running_copy_window
+
+def hand_over_to_running_copy(arguments):
+    """Bring forward the copy already running, handing it any files to send; False if none is running.
+
+    Done before anything heavy is loaded: a click on the desktop icon while the program
+    waits in the background then answers at once, instead of after loading Telegram and audio.
+    """
+    if CHECK_FLAG in arguments or QUIT_FLAG in arguments or not running_copy_window():
+        return False
+    paths = share.files_among(arguments)
+    if paths:
+        share.leave(paths)
+        return ask_running_copy_to_take_files()
+    return ask_running_copy_to_show()
+
+if __name__ == '__main__' and hand_over_to_running_copy(sys.argv[1:]):
+    sys.exit(0)
+
 import logging
 import logging.handlers
-import sys
+import threading
 import wx
-from core.config import load_credentials, read_sealed, save_credentials
+from core.config import load_credentials, read_bundled, save_credentials
 from core.constants import (
-    APP_NAME, DEFAULT_LANG, STEP_DONE, BACKGROUND_FLAG, CHECK_FLAG, QUIT_FLAG,
+    APP_NAME, DEFAULT_LANG, STEP_DONE, BACKGROUND_FLAG,
     QUIT_WAIT_SECONDS, CONNECT_CHECK_SECONDS, BUNDLED_CONFIG_FILE, LOG_FILE, LOG_MAX_BYTES, APP_VERSION, IS_FROZEN,
-    SHORTCUT_SHOW_WINDOW, SOUND_START, MSG_UNEXPECTED_ERROR_KEY
+    SHORTCUT_SHOW_WINDOW, SOUND_START, MSG_UNEXPECTED_ERROR_KEY, MAIN_FRAME_PRELOAD_MS
 )
 from core.i18n import I18NManager
-from core import diagnostics, proxy, share, shortcuts, sounds
+from core import diagnostics, proxy, shortcuts, sounds
 from core.settings import SETTING_ANNOUNCE_CONNECTION, SETTING_START_SOUND, SETTING_THEME, SETTING_LANGUAGE, Settings
 from core.speech import speak
 from ui.layout import use_interface_language
 from ui.themes import set_theme
 from core.telegram_client import TelegramManager
 from ui.api_setup_dialog import ApiSetupDialog
-from ui.background import (
-    BackgroundWindow, ask_running_copy_to_quit, ask_running_copy_to_show, ask_running_copy_to_take_files,
-    connection_news_key
-)
+from ui.background import BackgroundWindow, ask_running_copy_to_quit, connection_news_key
 from ui.login_frame import LoginFrame
-from ui.main_frame import MainFrame
+
+def load_audio():
+    from core import audio
+    return audio
+
+def load_main_frame():
+    """The main window's class. It and all it needs (audio, every dialog) are loaded beside the
+    connection to Telegram rather than before it, so the first window is up sooner."""
+    from ui.main_frame import MainFrame
+    return MainFrame
 
 class MainApplication(wx.App):
     def OnInit(self):
@@ -66,6 +94,11 @@ class MainApplication(wx.App):
         self.show_login()
         # Started only now: its callback needs the app and the frame to exist.
         self.telegram_manager.start()
+        # While Telegram answers: the audio libraries on a thread of their own (they have nothing
+        # to do with wx), the main window's code once the first window has been drawn. A second
+        # import of the same module waits for the first to finish, so neither can come too early.
+        threading.Thread(target=load_audio, daemon=True).start()
+        wx.CallLater(MAIN_FRAME_PRELOAD_MS, load_main_frame)
         return True
 
     def ensure_credentials(self):
@@ -95,7 +128,7 @@ class MainApplication(wx.App):
             return
         if step == STEP_DONE:
             # Open the main window first so the app never has zero windows.
-            self.main_frame = MainFrame(
+            self.main_frame = load_main_frame()(
                 self.i18n, self.telegram_manager, self.settings, self.log_out, self.quit,
                 self.background.set_hotkey
             )
@@ -200,7 +233,7 @@ def self_check():
         problems += 2
     if not speech.is_available():
         problems += 4
-    if not read_sealed(BUNDLED_CONFIG_FILE)[0]:
+    if not read_bundled(BUNDLED_CONFIG_FILE)[0]:
         problems += 8
     elif not can_reach_telegram():
         problems += 16

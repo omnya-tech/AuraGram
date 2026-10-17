@@ -8,7 +8,7 @@ from core.settings import (
 from core.constants import (
     EVENT_NEW_MESSAGE, EVENT_MESSAGE_EDITED, EVENT_MESSAGES_DELETED, ANNOUNCE_FORMAT_KEY,
     SOUND_MESSAGE, SOUND_MESSAGE_IN_CHAT, ANNOUNCE_WHEN_FOREGROUND, ANNOUNCE_WHEN_BACKGROUND,
-    ANNOUNCE_WHAT_SENDER, ANNOUNCE_WHAT_WHOLE, ANNOUNCE_SENDER_FORMAT_KEY, EVENT_MESSAGES_READ, EVENT_USER_STATUS, EVENT_TYPING,
+    ANNOUNCE_WHAT_SENDER, ANNOUNCE_WHAT_WHOLE, ANNOUNCE_SENDER_FORMAT_KEY, EVENT_MESSAGES_READ, EVENT_USER_STATUS, EVENT_TYPING, TYPING_ACTION_TYPING, TYPING_ACTION_CANCEL, TYPING_ACTION_KEYS,
     MSG_TYPING_FORMAT_KEY, TYPING_SHOWN_MS, EVENT_DRAFT
 )
 
@@ -34,6 +34,9 @@ class LiveUpdatesMixin:
 
     def on_new_message(self, chat, message):
         dialog_id = chat["id"]
+        if not message["outgoing"]:
+            # What they were typing has arrived.
+            self.clear_typing_row(dialog_id)
         index = self.find_dialog_index(dialog_id)
         # Prefer the chat as already loaded: it knows its unread count and mute state.
         dialog = self.find_known_dialog(dialog_id) or chat
@@ -45,7 +48,7 @@ class LiveUpdatesMixin:
             if self.settings.get(SETTING_PLAY_SOUND):
                 # A quiet tick for the chat being read, the full chime for anything else.
                 is_being_read = is_current and is_on_screen and self.IsActive()
-                sounds.play(SOUND_MESSAGE_IN_CHAT if is_being_read else SOUND_MESSAGE)
+                sounds.play(SOUND_MESSAGE_IN_CHAT if is_being_read else self.message_tone(dialog_id))
             # In the open chat the sender is what matters; elsewhere, which chat it came from.
             self.report_message(message["sender"] if is_current else dialog["title"], message)
 
@@ -133,11 +136,20 @@ class LiveUpdatesMixin:
         else:
             self.drafts.pop(dialog_id, None)
 
-    def on_typing(self, dialog_id):
+    def on_typing(self, dialog_id, action=TYPING_ACTION_TYPING, name=None):
         dialog = self.find_known_dialog(dialog_id)
-        if dialog is None or dialog_id != self.current_dialog_id:
+        if dialog is None:
             return
-        text = self.i18n.get_string(MSG_TYPING_FORMAT_KEY).format(chat=dialog["title"])
+        self.show_typing_row(dialog, action, name)
+        if dialog_id != self.current_dialog_id:
+            return
+        if action == TYPING_ACTION_CANCEL:
+            # They stopped: what the status bar said is no longer true.
+            self.clear_typing(self.GetStatusBar().GetStatusText(), only_typing=True)
+            return
+        # In a group, the member's name; in a private chat, the chat is the person.
+        text = self.i18n.get_string(TYPING_ACTION_KEYS[action]).format(chat=name or dialog["title"])
+        self.typing_texts.add(text)
         # Telegram repeats this every few seconds while the typing goes on: say it once.
         if self.GetStatusBar().GetStatusText() != text and self.settings.get(SETTING_ANNOUNCE_TYPING):
             speak(text)
@@ -146,10 +158,38 @@ class LiveUpdatesMixin:
             self.typing_timer.Stop()
         self.typing_timer = wx.CallLater(TYPING_SHOWN_MS, self.clear_typing, text)
 
-    def clear_typing(self, text):
+    def show_typing_row(self, dialog, action, name):
+        """Put what someone is doing on the chat's row in the list, for as long as Telegram keeps saying so."""
+        if action == TYPING_ACTION_CANCEL:
+            self.clear_typing_row(dialog["id"])
+            return
+        text = self.i18n.get_string(TYPING_ACTION_KEYS[action]).format(chat=name or dialog["title"])
+        timer = self.typing_row_timers.pop(dialog["id"], None)
+        if timer:
+            timer.Stop()
+        self.typing_row_timers[dialog["id"]] = wx.CallLater(TYPING_SHOWN_MS, self.clear_typing_row, dialog["id"])
+        if self.typing_in.get(dialog["id"]) != text:
+            self.typing_in[dialog["id"]] = text
+            self.refresh_dialog_row(dialog)
+
+    def clear_typing_row(self, dialog_id):
+        if not self:
+            return
+        timer = self.typing_row_timers.pop(dialog_id, None)
+        if timer:
+            timer.Stop()
+        if self.typing_in.pop(dialog_id, None) is not None:
+            dialog = self.find_known_dialog(dialog_id)
+            if dialog is not None:
+                self.refresh_dialog_row(dialog)
+
+    def clear_typing(self, text, only_typing=False):
         # Only if nothing else has taken the status bar since.
-        if self and self.GetStatusBar().GetStatusText() == text:
-            self.SetStatusText("")
+        if not self or self.GetStatusBar().GetStatusText() != text:
+            return
+        if only_typing and text not in self.typing_texts:
+            return
+        self.SetStatusText("")
 
     def on_messages_deleted(self, dialog_id, message_ids):
         if dialog_id is None:

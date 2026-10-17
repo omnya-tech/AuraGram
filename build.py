@@ -19,7 +19,7 @@ import subprocess
 import sys
 
 from core import updates
-from core.config import read_credentials, seal_credentials
+from core.config import pack_credentials, read_credentials
 from core.constants import (
     APP_COPYRIGHT, APP_NAME, APP_PUBLISHER, APP_VERSION, BASE_DIR, BUNDLED_CONFIG_NAME, CHECK_FLAG,
     CONFIG_FILE, LEGAL_FILE_NAMES, PACKAGE_FILE_FORMATS, PACKAGE_FULL, PACKAGE_UPDATE, RELEASES_URL,
@@ -77,11 +77,6 @@ SELF_CHECK_PROBLEMS = (
     (16, "the built program could not connect to Telegram (no internet now, or a wrong API id)"),
 )
 BUNDLED_CONFIG_BUILD_FILE = os.path.join(WORK_DIR, BUNDLED_CONFIG_NAME)
-# The secret half of the seal on the API id and hash: made anew by every build, compiled into
-# that build's program, and kept out of git. See _build_secret in core/config.py.
-SEAL_MODULE = "core._seal"
-SEAL_MODULE_FILE = os.path.join(BASE_DIR, "core", "_seal.py")
-SEAL_SECRET_BYTES = 32
 
 
 def step(title):
@@ -115,22 +110,25 @@ def write_bundled_config():
     """Prepare the API id and hash that go inside the program, taken from this project's config.json.
 
     Only those two values are packed: never the session file, which is a login to
-    one person's account. Returns False if the project has no usable config.json.
+    one person's account. Returns the modules the program must take along for them,
+    or None if nothing is packed: no usable config.json, or no private part to pack with.
     """
     api_id, api_hash = read_credentials(CONFIG_FILE)
     if not api_id:
         print("NOTE: no valid config.json in the project, so the built program will ask")
         print("      every user for an API id and hash on first run.")
-        return False
+        return None
     os.makedirs(WORK_DIR, exist_ok=True)
-    secret = os.urandom(SEAL_SECRET_BYTES)
-    with open(SEAL_MODULE_FILE, "w", encoding="utf-8") as seal_file:
-        seal_file.write("# Made by build.py for one build. Never commit this file.\nSECRET = %r\n" % secret)
-    # Sealed: a search through the installed files finds neither value.
+    packed = pack_credentials(api_id, api_hash)
+    if packed is None:
+        print("NOTE: this copy of the code cannot pack an API id and hash into the program,")
+        print("      so the built program will ask every user for their own on first run.")
+        return None
+    data, modules = packed
     with open(BUNDLED_CONFIG_BUILD_FILE, "wb") as config_file:
-        config_file.write(seal_credentials(api_id, api_hash, secret))
-    print("Packing this project's API id and hash into the program, sealed.")
-    return True
+        config_file.write(data)
+    print("Packing this project's API id and hash into the program.")
+    return modules
 
 
 def build_program():
@@ -157,8 +155,11 @@ def build_program():
     # The terms of use and the notices, for the Help menu to show.
     for name in LEGAL_FILE_NAMES:
         command += ["--add-data", os.path.join(BASE_DIR, name) + os.pathsep + "."]
-    if write_bundled_config():
-        command += ["--add-data", BUNDLED_CONFIG_BUILD_FILE + os.pathsep + ".", "--hidden-import", SEAL_MODULE]
+    modules = write_bundled_config()
+    if modules is not None:
+        command += ["--add-data", BUNDLED_CONFIG_BUILD_FILE + os.pathsep + "."]
+        for module in modules:
+            command += ["--hidden-import", module]
     for package in COLLECTED_PACKAGES:
         command += ["--collect-all", package]
     run(command)

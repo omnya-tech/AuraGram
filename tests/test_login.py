@@ -191,6 +191,32 @@ class LoginTest(unittest.TestCase):
         self.assertTrue(self.frame.resend_btn.IsShown())
         self.assertEqual(self.frame.resend_btn.GetLabel(), self.text("BTN_RESEND_SMS"))
 
+    # The code goes off once its last digit is typed; no Enter is needed.
+    def sign_ins(self):
+        return [call for call in FakeLoginClient.calls if call[0] == "sign_in"]
+
+    def test_the_last_digit_sends_the_code(self):
+        self.enter_phone()
+        self.frame.code_input.SetValue("1234")
+        pump(timeout=0.1)
+        self.assertEqual(self.sign_ins(), [])
+        self.frame.code_input.SetValue("12345")
+        self.assertTrue(pump(lambda: self.steps[-1] == c.STEP_DONE))
+        self.assertEqual(self.sign_ins()[0][2], "12345")
+
+    def test_a_pasted_code_with_a_dash_goes_as_its_digits(self):
+        self.enter_phone()
+        self.frame.code_input.SetValue("123-45")
+        self.assertTrue(pump(lambda: self.steps[-1] == c.STEP_DONE))
+        self.assertEqual(self.sign_ins()[0][2], "12345")
+
+    def test_a_wrong_code_can_be_typed_again(self):
+        self.enter_phone()
+        self.frame.code_input.SetValue("99999")
+        self.assertTrue(pump(lambda: self.errors))
+        self.frame.code_input.SetValue("12345")
+        self.assertTrue(pump(lambda: self.steps[-1] == c.STEP_DONE))
+
 
 if __name__ == "__main__":
     unittest.main()

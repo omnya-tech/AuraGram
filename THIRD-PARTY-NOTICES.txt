@@ -1,7 +1,8 @@
 ﻿AuraGram - software made by others
 
 AuraGram itself is free software under the GNU General Public License, version 3 or later
-(see the file LICENSE). It is built with, and its installed copy contains, the components
+(see the file LICENSE), except one small unpublished part that keeps the official copy's own
+Telegram keys inside it. It is built with, and its installed copy contains, the components
 below. Each stays under its own licence; the full text of each is at the address given.
 
 Python 3.11 - Python Software Foundation Licence

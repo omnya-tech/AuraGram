@@ -651,29 +651,19 @@ class ReleasePapersTest(WindowTestCase):
         self.assertTrue(made["system_version"].startswith("Windows"))
 
 
-class BuildSecretTest(unittest.TestCase):
-    """The code is public; what unseals a built program's API id and hash must not be in it."""
+class PrivatePartTest(unittest.TestCase):
+    """How a build packs the API id and hash is not published: those files stay out of the repository."""
 
-    HASH = "0123456789abcdef0123456789abcdef"
-
-    def sealed_file(self, secret):
-        from core.config import seal_credentials
-        path = os.path.join(tempfile.mkdtemp(), "packed")
-        with open(path, "wb") as packed:
-            packed.write(seal_credentials(777, self.HASH, secret))
-        return path
-
-    def test_a_build_seals_with_its_own_secret_and_only_that_program_can_read_it(self):
-        import core.config as config
-        path = self.sealed_file(b"this build's secret")
-        with mock.patch.object(config, "_build_secret", lambda: b"this build's secret"):
-            self.assertEqual(config.read_sealed(path), (777, self.HASH))
-        # The published code alone, or another build, reads nothing from it.
-        with mock.patch.object(config, "_build_secret", lambda: b""):
-            self.assertEqual(config.read_sealed(path), (0, ""))
-        with mock.patch.object(config, "_build_secret", lambda: b"another build's secret"):
-            self.assertEqual(config.read_sealed(path), (0, ""))
-
-    def test_the_secret_is_kept_out_of_the_repository(self):
+    def test_the_private_files_are_kept_out_of_the_repository(self):
         with open(os.path.join(c.BASE_DIR, ".gitignore"), encoding="utf-8") as ignore_file:
-            self.assertIn("core/_seal.py", ignore_file.read().splitlines())
+            ignored = ignore_file.read().splitlines()
+        for path in ("core/_seal.py", "core/_sealing.py", "tests/test_private_sealing.py", "protect.py", "config.json"):
+            self.assertIn(path, ignored)
+
+    def test_a_build_without_the_private_part_packs_nothing(self):
+        import build
+        import core.config as config
+        with mock.patch.object(config, "_private_part", lambda: None), \
+                mock.patch.object(build, "pack_credentials", config.pack_credentials), \
+                mock.patch.object(build, "read_credentials", lambda path: (777, "0123456789abcdef0123456789abcdef")):
+            self.assertIsNone(build.write_bundled_config())

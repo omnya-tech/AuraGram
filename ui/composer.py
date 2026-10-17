@@ -20,7 +20,9 @@ from core.constants import (
     MSG_STICKER_SENT_KEY, MSG_CHOOSE_CONTACT_TO_SEND_KEY, MSG_CONTACT_SENT_KEY, MSG_NO_CONTACTS_KEY,
     MSG_LOCATION_PROMPT_KEY, ERR_BAD_LOCATION_KEY, MSG_LOCATION_SENT_KEY, MSG_CHOOSE_MEMBER_KEY,
     MSG_MENTION_GROUPS_ONLY_KEY, MENTION_USERNAME_FORMAT, MENTION_LINK_FORMAT, CATEGORY_GROUPS,
-    MSG_UPLOAD_PROGRESS_FORMAT_KEY, MSG_STORY_CAPTION_PROMPT_KEY, MSG_STORY_AUDIENCE_KEY, STORY_AUDIENCES,
+    MSG_NO_UPLOAD_KEY, MSG_CANCEL_UPLOAD_CONFIRM_KEY, MSG_UPLOAD_CANCELLED_KEY,
+    MSG_UPLOAD_PROGRESS_FORMAT_KEY, UPLOAD_ROW_STARTING_FORMAT_KEY, UPLOAD_ROW_FORMAT_KEY, UPLOAD_ROW_FILES_FORMAT_KEY,
+    MSG_STORY_CAPTION_PROMPT_KEY, MSG_STORY_AUDIENCE_KEY, STORY_AUDIENCES,
     MSG_STORY_POSTED_KEY, MSG_SENDING_FILES_FORMAT_KEY, FILE_LABEL_SEPARATOR_KEY, MSG_CHOOSE_PHOTO_KEY, PHOTO_FILES_KEY, PHOTO_FILE_PATTERNS, MSG_CHOOSE_SEND_AS_KEY, MSG_SEND_AS_SAVED_FORMAT_KEY, MSG_NO_SEND_AS_KEY
 )
 
@@ -168,13 +170,86 @@ class ComposerMixin:
         """Send the same files to one chat after another. Each gets them as they are: not as an
         answer, and not under the post or in the topic that may be open."""
         self.set_status(MSG_UPLOADING_KEY)
-        self.telegram_manager.send_files(
+        on_progress = self.start_upload(dialog_ids[position], paths)
+        self.upload["request"] = self.telegram_manager.send_files(
             dialog_ids[position], paths, caption, as_documents,
             self.on_ui_thread(self.on_sent_to_chat, paths, caption, as_documents, dialog_ids, position),
-            on_progress=self.progress_reporter(MSG_UPLOAD_PROGRESS_FORMAT_KEY)
+            on_progress=on_progress
         )
 
+    def start_upload(self, dialog_id, paths):
+        """Stand for the files at the end of their chat while they go up; what to hand the
+        transfer so the row, the bar and the status bar follow it."""
+        names = [os.path.basename(path) for path in paths]
+        self.upload = {"dialog_id": dialog_id, "names": names, "text": self.i18n.get_string(
+            UPLOAD_ROW_STARTING_FORMAT_KEY
+        ).format(name=self.i18n.get_string(FILE_LABEL_SEPARATOR_KEY).join(names))}
+        self.show_upload_row()
+        return lambda progress: wx.CallAfter(self.show_upload_progress, progress)
+
+    def show_upload_progress(self, progress):
+        if not self or self.upload is None:
+            return
+        self.show_progress(MSG_UPLOAD_PROGRESS_FORMAT_KEY, progress["percent"])
+        name = self.upload["names"][min(progress["file"], len(self.upload["names"])) - 1]
+        key = UPLOAD_ROW_FILES_FORMAT_KEY if progress["files"] > 1 else UPLOAD_ROW_FORMAT_KEY
+        self.upload["text"] = self.i18n.get_string(key).format(
+            name=name, file=progress["file"], files=progress["files"], percent=progress["percent"],
+            done=file_size(self.i18n, progress["done"]), total=file_size(self.i18n, progress["total"])
+        )
+        # The status bar says it all, in place of the bare percent.
+        self.SetStatusText(self.upload["text"])
+        self.show_upload_row()
+
+    def upload_row(self):
+        """What the last row of the message list says while files go up to the open chat; None otherwise."""
+        if self.upload is None or self.upload["dialog_id"] != self.current_dialog_id or self.message_view is not None:
+            return None
+        return self.upload["text"]
+
+    def upload_row_shown(self):
+        return self.messages_list.GetCount() > len(self.messages) + self.message_offset()
+
+    def show_upload_row(self):
+        text = self.upload_row()
+        if text is None:
+            return
+        if self.upload_row_shown():
+            self.messages_list.SetString(self.messages_list.GetCount() - 1, text)
+        else:
+            self.messages_list.Append(text)
+
+    def on_cancel_upload_menu(self, event):
+        if self.upload is None:
+            self.notify(MSG_NO_UPLOAD_KEY)
+            return
+        if self.confirm(self.i18n.get_string(MSG_CANCEL_UPLOAD_CONFIRM_KEY)):
+            self.cancel_upload()
+
+    def cancel_upload(self):
+        """Stop the files going up, and every chat still waiting for them. Telegram keeps nothing of them."""
+        if self.upload is None:
+            return
+        request = self.upload.get("request")
+        if request is not None:
+            request.cancel()
+        self.end_upload()
+        self.is_busy = False
+        self.hide_progress()
+        self.set_status(STATUS_READY_KEY)
+        self.enable_chat(self.current_dialog_id is not None)
+        self.notify(MSG_UPLOAD_CANCELLED_KEY)
+
+    def end_upload(self):
+        """The files are sent, or failed: their row goes, and the chat shows what really arrived."""
+        if self.upload is None:
+            return
+        self.upload = None
+        if self.upload_row_shown():
+            self.messages_list.Delete(self.messages_list.GetCount() - 1)
+
     def on_sent_to_chat(self, result, paths, caption, as_documents, dialog_ids, position):
+        self.end_upload()
         if position + 1 < len(dialog_ids):
             self.send_to_chats(paths, caption, as_documents, dialog_ids, position + 1)
         elif len(dialog_ids) == 1:
@@ -216,10 +291,11 @@ class ComposerMixin:
         self.is_busy = True
         self.set_status(MSG_UPLOADING_KEY)
         dialog_id = self.current_dialog_id
-        self.telegram_manager.send_files(
+        on_progress = self.start_upload(dialog_id, paths)
+        self.upload["request"] = self.telegram_manager.send_files(
             self.peer(dialog_id), paths, *how,
             self.on_ui_thread(self.on_files_sent, dialog_id, len(paths)), reply_to=self.take_reply(),
-            on_progress=self.progress_reporter(MSG_UPLOAD_PROGRESS_FORMAT_KEY)
+            on_progress=on_progress
         )
 
     def describe_paths(self, paths):
@@ -242,6 +318,7 @@ class ComposerMixin:
         return reply_to or self.thread_root()
 
     def on_files_sent(self, result, dialog_id, count):
+        self.end_upload()
         if count == 1:
             self.on_file_sent(result, dialog_id)
         else:

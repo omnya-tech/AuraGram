@@ -30,6 +30,7 @@ from core.constants import (
     ERR_CODE_INVALID_KEY, ERR_CODE_EXPIRED_KEY, ERR_PHONE_INVALID_KEY,
     ERR_PASSWORD_INVALID_KEY, ERR_FLOOD_KEY, ERR_CONNECTION_KEY, ERR_GENERAL_KEY,
     ERR_LOGOUT_KEY, MEDIA_KINDS, DOWNLOADS_DIR, MUTE_FOREVER, ERR_NO_PERMISSION_KEY,
+    CHAT_FILES_LIMIT, DOWNLOADABLE_MEDIA, CHAT_EXPORT_LIMIT, CHAT_EXPORT_PAGE,
     CHAT_KIND_USER, CHAT_KIND_GROUP, CHAT_KIND_SUPERGROUP, CHAT_KIND_CHANNEL,
     MEMBER_ROLE_OWNER, MEMBER_ROLE_ADMIN, MEMBERS_LIMIT,
     MEMBER_ACTION_KICK, MEMBER_ACTION_BAN, MEMBER_ACTION_PROMOTE, MEMBER_ACTION_DEMOTE,
@@ -44,7 +45,8 @@ from core.constants import (
     ERR_NO_OTHER_DELIVERY_KEY, ERR_VOICE_FORBIDDEN_KEY, ERR_API_INVALID_KEY,
     EVENT_NEW_MESSAGE, EVENT_MESSAGE_EDITED, EVENT_MESSAGES_DELETED,
     CONNECTION_ONLINE, CONNECTION_OFFLINE, CONNECTION_WATCH_SECONDS, CONNECTION_PING_TIMEOUT_SECONDS,
-    EVENT_MESSAGES_READ, EVENT_USER_STATUS, EVENT_TYPING, USER_STATUS_KEYS, SAVED_MESSAGES_PEER,
+    EVENT_MESSAGES_READ, EVENT_USER_STATUS, EVENT_TYPING, USER_STATUS_KEYS, TYPING_ACTION_CANCEL,
+    TYPING_ACTION_TYPING, TYPING_ACTION_VOICE, TYPING_ACTION_VIDEO, TYPING_ACTION_UPLOAD, SAVED_MESSAGES_PEER,
     BLOCKED_LIMIT, GLOBAL_SEARCH_LIMIT, ERR_NO_PHONE_KEY, MAP_LINK_FORMAT, TOPICS_LIMIT, AUDIENCE_LIMIT,
     ERR_USERNAME_TAKEN_KEY, ERR_USERNAME_INVALID_KEY, ERR_PHOTO_INVALID_KEY, NOTIFY_USERS, NOTIFY_GROUPS,
     NOTIFY_CHANNELS, ERR_PREHISTORY_HIDDEN_KEY, ERR_DISCUSSION_LINK_KEY, ERR_NO_INVITE_LINK_KEY, TYPING_SEND_SECONDS, ERR_EMAIL_UNCONFIRMED_KEY, ERR_PHONE_TAKEN_KEY, DELETE_ACCOUNT_REASON, EVENT_DRAFT,
@@ -83,6 +85,11 @@ MESSAGE_VIEW_FILTERS = {
     MESSAGE_VIEW_LINKS: types.InputMessagesFilterUrl,
     MESSAGE_VIEW_MENTIONS: types.InputMessagesFilterMyMentions,
 }
+# What the download manager looks through for a chat's files: every kind that can be saved.
+CHAT_FILE_FILTERS = (
+    types.InputMessagesFilterPhotoVideo, types.InputMessagesFilterDocument, types.InputMessagesFilterMusic,
+    types.InputMessagesFilterVoice, types.InputMessagesFilterRoundVideo, types.InputMessagesFilterGif,
+)
 ADMIN_LOG_ACTION_PREFIX = "ChannelAdminLogEventAction"
 
 # Every member permission Telethon's edit_permissions sets. The ones the app
@@ -131,6 +138,8 @@ class TelegramManager(threading.Thread):
         # Locale keys describing the login code: how it was sent, and the next way on offer.
         self.code_delivery = CODE_DELIVERY_OTHER_KEY
         self.next_code_delivery = None
+        # How many digits the login code has, when Telegram says; None otherwise.
+        self.code_length = None
         self.entities = {}
         # Members of the chat whose member list was loaded last.
         self.member_entities = {}
@@ -628,11 +637,39 @@ class TelegramManager(threading.Thread):
 
     def send_files(self, dialog_id, paths, caption, as_documents, on_result, reply_to=None, on_progress=None):
         """Send one or more files as one message; several pictures or videos become an album.
-        on_progress(percent) is called from this thread as each file goes up."""
-        self._request(
+        on_progress(progress) is called from this thread as the files go up, with progress
+        {"percent", "done", "total", "file", "files"}: bytes up and in all over every file,
+        and which file of how many is on its way (counted from 1). Returns what cancels the sending."""
+        return self._request(
             on_result, self._send_files_async, dialog_id, paths, caption, as_documents, reply_to,
-            self._percent_reporter(on_progress)
+            self._upload_reporter(on_progress, paths)
         )
+
+    def _upload_reporter(self, on_progress, paths):
+        """Turn Telethon's "bytes so far of this file" into the progress of all the files together,
+        each whole percent reported once. Telethon sends the files of an album one after another,
+        in the order given: a report after one file is whole, or a count that drops, is the next file's."""
+        if on_progress is None:
+            return None
+        sizes = [os.path.getsize(path) if os.path.isfile(path) else 0 for path in paths]
+        state = {"file": 0, "last": (0, 0), "percent": None}
+
+        def report(done, total):
+            last_done, last_total = state["last"]
+            finished = last_total and last_done >= last_total and (done, total) != state["last"]
+            if (finished or done < last_done) and state["file"] + 1 < len(sizes):
+                state["file"] += 1
+            state["last"] = (done, total)
+            index = state["file"]
+            # Telethon knows the size of the file it is sending better than the disk did a moment ago.
+            sizes[index] = total or sizes[index]
+            everything = sum(sizes)
+            sent = sum(sizes[:index]) + min(done, sizes[index])
+            percent = int(sent * 100 / everything) if everything else 0
+            if percent != state["percent"]:
+                state["percent"] = percent
+                on_progress({"percent": percent, "done": sent, "total": everything, "file": index + 1, "files": len(sizes)})
+        return report
 
     def load_sticker_sets(self, on_result):
         """The result is the installed sticker sets as [{"id", "title"}]."""
@@ -654,6 +691,16 @@ class TelegramManager(threading.Thread):
         point = types.InputMediaGeoPoint(types.InputGeoPoint(lat=latitude, long=longitude))
         self._request(on_result, self._send_media_async, dialog_id, lambda: point, reply_to)
 
+    def export_messages(self, dialog_id, on_result, on_progress=None):
+        """Every message of a chat, as far back as CHAT_EXPORT_LIMIT, oldest first.
+        on_progress(count) is called from this thread as each batch of them comes in."""
+        self._request(on_result, self._export_messages_async, dialog_id, on_progress)
+
+    def load_chat_files(self, dialog_id, on_result):
+        """Every message of a chat with a file that can be downloaded, as far back as
+        CHAT_FILES_LIMIT of each kind, oldest first."""
+        self._request(on_result, self._load_chat_files_async, dialog_id)
+
     def search_messages(self, dialog_id, query, on_result):
         """Finds the latest messages of a chat that contain `query`."""
         self._request(on_result, self._search_messages_async, dialog_id, query)
@@ -669,7 +716,8 @@ class TelegramManager(threading.Thread):
         EVENT_MESSAGES_DELETED, dialog_id, message_ids  (dialog_id is None outside channels)
         EVENT_MESSAGES_READ, dialog_id, max_id  (the other side read our messages up to that one)
         EVENT_USER_STATUS, user_id, status  (status as in a chat's "status")
-        EVENT_TYPING, dialog_id  (the other person in a private chat is typing)
+        EVENT_TYPING, dialog_id, action, name  (someone in that chat is typing, recording or sending a file:
+            one of the TYPING_ACTION_* names; `name` is who, in a group, and None in a private chat)
         EVENT_DRAFT, dialog_id, text  (what is left unsent in a chat changed on another device)
         """
         self.message_listener = listener
@@ -680,8 +728,11 @@ class TelegramManager(threading.Thread):
         self.connection_listener = listener
 
     def _request(self, on_result, coroutine_function, *args):
-        """Run a data request; on_result(result, error_key) is called from this thread."""
-        asyncio.run_coroutine_threadsafe(
+        """Run a data request; on_result(result, error_key) is called from this thread.
+
+        Returns the request as a future: cancelling it stops the request where it is, and then
+        on_result is never called."""
+        return asyncio.run_coroutine_threadsafe(
             self._run_request(on_result, coroutine_function, *args), self.loop
         )
 
@@ -1781,6 +1832,33 @@ class TelegramManager(threading.Thread):
         )
         return [self._describe_message(message, message.sender) for message in reversed(messages)]
 
+    async def _export_messages_async(self, dialog_id, on_progress):
+        entity = self.entities[dialog_id]
+        found = []
+        oldest = 0
+        while len(found) < CHAT_EXPORT_LIMIT:
+            page = await self.client.get_messages(entity, limit=CHAT_EXPORT_PAGE, max_id=oldest)
+            if not page:
+                break
+            found.extend(self._describe_message(message, message.sender) for message in page)
+            oldest = page[-1].id
+            if on_progress is not None:
+                on_progress(len(found))
+            if len(page) < CHAT_EXPORT_PAGE:
+                break
+        # Telegram gives the newest first; a file is read from the start.
+        return list(reversed(found))
+
+    async def _load_chat_files_async(self, dialog_id):
+        entity = self.entities[dialog_id]
+        found = {}
+        # Telegram finds each kind of file on its own; one message can turn up under two of them.
+        for kind in CHAT_FILE_FILTERS:
+            for message in await self.client.get_messages(entity, limit=CHAT_FILES_LIMIT, filter=kind):
+                found.setdefault(message.id, message)
+        described = [self._describe_message(found[message_id], found[message_id].sender) for message_id in sorted(found)]
+        return [message for message in described if message["media"] in DOWNLOADABLE_MEDIA and message["file"]]
+
     async def _download_media_async(self, dialog_id, message_id, folder, report):
         message = await self.client.get_messages(self.entities[dialog_id], ids=message_id)
         os.makedirs(folder, exist_ok=True)
@@ -1933,8 +2011,31 @@ class TelegramManager(threading.Thread):
             return
         if event.status is not None:
             self.message_listener(EVENT_USER_STATUS, event.user_id, self._describe_status(event.status))
-        elif event.typing and event.is_private:
-            self.message_listener(EVENT_TYPING, event.chat_id)
+        else:
+            action = self._typing_action(event)
+            if action is None:
+                return
+            name = None
+            if not event.is_private:
+                # In a group, which of its members it is; Telethon usually has them already.
+                try:
+                    name = get_display_name(await event.get_user())
+                except Exception:
+                    logger.info("Could not tell who is typing", exc_info=True)
+            self.message_listener(EVENT_TYPING, event.chat_id, action, name)
+
+    @staticmethod
+    def _typing_action(event):
+        """Which TYPING_ACTION_* a user update is; None for anything else (playing a game, choosing a sticker)."""
+        if getattr(event, "cancel", False):
+            return TYPING_ACTION_CANCEL
+        if getattr(event, "typing", False):
+            return TYPING_ACTION_TYPING
+        if getattr(event, "recording", False):
+            return TYPING_ACTION_VOICE if getattr(event, "audio", False) else TYPING_ACTION_VIDEO
+        if getattr(event, "uploading", False):
+            return TYPING_ACTION_UPLOAD
+        return None
 
     async def _on_draft(self, update):
         if self.message_listener is not None:
@@ -2218,6 +2319,7 @@ class TelegramManager(threading.Thread):
         self.code_delivery = CODE_DELIVERY_KEYS.get(type(sent_code.type).__name__, CODE_DELIVERY_OTHER_KEY)
         # None when Telegram offers no further way for this number.
         self.next_code_delivery = NEXT_CODE_DELIVERY_KEYS.get(type(sent_code.next_type).__name__)
+        self.code_length = getattr(sent_code.type, "length", None) or None
 
     async def _resend_code_async(self):
         try:

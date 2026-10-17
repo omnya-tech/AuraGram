@@ -1,6 +1,10 @@
 from core.constants import (
-    VIEW_ALL_KEY, VIEW_UNREAD_KEY, VIEW_ARCHIVE_KEY, VIEW_FOLDER_FORMAT_KEY, VIEW_CONTACTS_KEY, STATUS_ONLINE_KEY
+    VIEW_ALL_KEY, VIEW_UNREAD_KEY, VIEW_ARCHIVE_KEY, VIEW_FOLDER_FORMAT_KEY, VIEW_CONTACTS_KEY, STATUS_ONLINE_KEY,
+    VIEW_CHANNELS_KEY, VIEW_GROUPS_KEY, CATEGORY_BROADCASTS, CATEGORY_GROUPS
 )
+
+# Where the archive is among the views: the one place an archived chat can be found.
+ARCHIVE_VIEW = 2
 
 class ChatView:
     """One way of narrowing the chat list: a name and a test for which chats belong."""
@@ -42,6 +46,8 @@ def build_views(i18n, folders):
         ChatView(i18n.get_string(VIEW_ALL_KEY), lambda chat: not chat["archived"]),
         ChatView(i18n.get_string(VIEW_UNREAD_KEY), lambda chat: bool(chat["unread"]) and not chat["archived"]),
         ChatView(i18n.get_string(VIEW_ARCHIVE_KEY), lambda chat: chat["archived"]),
+        ChatView(i18n.get_string(VIEW_CHANNELS_KEY), lambda chat: chat["category"] == CATEGORY_BROADCASTS and not chat["archived"]),
+        ChatView(i18n.get_string(VIEW_GROUPS_KEY), lambda chat: chat["category"] == CATEGORY_GROUPS and not chat["archived"]),
         # No chat belongs to it by any rule: its rows come from the contact list.
         ChatView(i18n.get_string(VIEW_CONTACTS_KEY), lambda chat: False, is_contacts=True),
     ]

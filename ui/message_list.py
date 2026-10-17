@@ -1,6 +1,7 @@
 import datetime
 import os
 import wx
+from core.speech import speak
 from core import audio
 from core.settings import SETTING_MARK_READ_ON_OPEN, SETTING_MESSAGE_STATS, SETTING_TIME_STYLE
 from ui.layout import duration_text, file_kind, file_size
@@ -19,9 +20,11 @@ from core.constants import (
     MSG_SEARCH_NO_RESULTS_KEY, MSG_SEARCH_CLOSED_KEY, MEDIA_VOICE, MESSAGES_LIMIT,
     MSG_LOAD_OLDER_KEY, MSG_DOWNLOADING_KEY, DOWNLOADABLE_MEDIA, SAFE_OPEN_EXTENSIONS,
     SNIPPET_LENGTH, REPLY_PREFIX_FORMAT_KEY, APP_TITLE_KEY, MESSAGE_FORMAT_KEY, SENDER_YOU_KEY,
+    MESSAGE_NO_SENDER_FORMAT_KEY, MESSAGE_NO_SENDER_NO_TIME_FORMAT, CATEGORY_BROADCASTS,
     MSG_NO_TEXT_KEY, MSG_LOADING_KEY, STATUS_READY_KEY, TIME_FORMAT, DATE_TIME_FORMAT,
     MEDIA_FORMAT_KEY, MESSAGE_READ_FORMAT_KEY, MESSAGE_UNREAD_FORMAT_KEY, BUTTONS_FORMAT_KEY, CONTEXT_BUTTONS_KEY,
-    CONTEXT_OPEN_LINK_KEY, MESSAGE_VIEW_COMMENTS, MESSAGE_VIEW_TOPIC, COMMENTS_FORMAT_KEY, CONTEXT_COMMENTS_KEY,
+    CONTEXT_OPEN_LINK_KEY, CONTEXT_MESSAGE_STATS_KEY, MSG_NO_MESSAGE_STATS_KEY, AUDIENCE_FORWARDS_FORMAT_KEY,
+    MESSAGE_VIEW_COMMENTS, MESSAGE_VIEW_TOPIC, COMMENTS_FORMAT_KEY, CONTEXT_COMMENTS_KEY,
     MSG_NO_COMMENTS_KEY, COMMENTS_TITLE_FORMAT_KEY, MSG_NOT_FORUM_KEY, MSG_CHOOSE_TOPIC_KEY,
     TOPIC_CHOICE_FORMAT_KEY, TOPIC_TITLE_FORMAT_KEY, MSG_THREAD_OPENED_FORMAT_KEY, THREAD_LABEL_FORMAT_KEY,
     AUDIENCE_TITLE_KEY, AUDIENCE_READERS_FORMAT_KEY, AUDIENCE_NO_READERS_KEY, AUDIENCE_READERS_UNKNOWN_KEY,
@@ -191,6 +194,9 @@ class MessageListMixin:
         items = [self.format_message(message) for message in self.messages]
         if self.has_older:
             items.insert(0, self.i18n.get_string(MSG_LOAD_OLDER_KEY))
+        if self.upload_row() is not None:
+            # Files still on their way up to this chat, after everything already in it.
+            items.append(self.upload_row())
         self.messages_list.Set(items)
         if self.messages:
             self.messages_list.SetSelection(selected_message_index + self.message_offset())
@@ -220,10 +226,15 @@ class MessageListMixin:
             return
         if any(shown["id"] == message["id"] for shown in self.messages):
             return
-        self.messages.append(message)
-        count = self.messages_list.GetCount()
+        # Rows of messages, not counting the one for files still going up.
+        count = len(self.messages) + self.message_offset()
         was_at_end = self.messages_list.GetSelection() in (wx.NOT_FOUND, count - 1)
-        self.messages_list.Append(self.format_message(message))
+        shown = self.upload_row_shown()
+        self.messages.append(message)
+        if shown:
+            self.messages_list.Insert(self.format_message(message), count)
+        else:
+            self.messages_list.Append(self.format_message(message))
         # Follow the conversation only if the user is not reading older messages.
         if was_at_end:
             self.messages_list.SetSelection(count)
@@ -284,7 +295,12 @@ class MessageListMixin:
         # Enter while a voice note plays stops it, like a play/stop button.
         if self.stop_playback():
             return
-        message = self.messages[index - self.message_offset()]
+        message = self.selected_message()
+        if message is None:
+            # The row of files still going up: nothing to open yet, but they can be stopped.
+            if self.upload_row_shown():
+                self.on_cancel_upload_menu(event)
+            return
         if message["poll"]:
             self.on_vote_menu(event)
         elif message["media"] in DOWNLOADABLE_MEDIA:
@@ -336,6 +352,8 @@ class MessageListMixin:
             entries.append((CONTEXT_OPEN_LINK_KEY, self.on_open_link_menu))
         if message["comments"] is not None:
             entries.append((CONTEXT_COMMENTS_KEY, self.on_comments_menu))
+        if self.message_stats(message):
+            entries.append((CONTEXT_MESSAGE_STATS_KEY, self.on_message_stats_menu))
         if has_media:
             entries.append((CONTEXT_OPEN_MEDIA_KEY, self.on_activate_message))
             entries.append((CONTEXT_SAVE_AS_KEY, self.on_save_as_menu))
@@ -587,6 +605,22 @@ class MessageListMixin:
             group["peer_id"], story["id"], self.on_ui_thread(self.open_media, cache_key, story["media"])
         )
 
+    def on_message_stats_menu(self, event):
+        """Say the selected message's numbers at once, without going through its whole row."""
+        message = self.actionable_message()
+        if message is None:
+            return
+        stats = self.message_stats(message)
+        if message["forwards"]:
+            forwards = self.i18n.get_string(AUDIENCE_FORWARDS_FORMAT_KEY).format(count=message["forwards"])
+            stats = STATS_SEPARATOR.join(filter(None, (stats, forwards)))
+        if stats:
+            # Asked for by name, so it is spoken whatever the setting for passing remarks says.
+            self.SetStatusText(stats)
+            speak(stats)
+        else:
+            self.notify(MSG_NO_MESSAGE_STATS_KEY)
+
     def on_audience_menu(self, event):
         message = self.actionable_message()
         if message is None or self.is_busy:
@@ -625,6 +659,12 @@ class MessageListMixin:
         if message["outgoing"]:
             return self.i18n.get_string(SENDER_YOU_KEY)
         return message["sender"]
+
+    def is_channel_post(self, message):
+        """Whether the message is the open channel speaking as itself, so its row need not name it."""
+        chat = self.current_dialog()
+        # Posted by its admins, this account among them, it is still the channel that speaks.
+        return chat.get("category") == CATEGORY_BROADCASTS and message["sender_id"] is None             and (message["outgoing"] or message["sender"] in (chat.get("title"), ""))
 
     def poll_text(self, poll):
         options = []
@@ -752,7 +792,11 @@ class MessageListMixin:
         if message["pinned"]:
             text = self.i18n.get_string(PINNED_FORMAT_KEY).format(text=text)
         no_time = self.settings.get(SETTING_TIME_STYLE) == TIME_STYLE_NONE
-        line = (MESSAGE_NO_TIME_FORMAT if no_time else self.i18n.get_string(MESSAGE_FORMAT_KEY)).format(
+        if self.is_channel_post(message):
+            row_format = MESSAGE_NO_SENDER_NO_TIME_FORMAT if no_time else self.i18n.get_string(MESSAGE_NO_SENDER_FORMAT_KEY)
+        else:
+            row_format = MESSAGE_NO_TIME_FORMAT if no_time else self.i18n.get_string(MESSAGE_FORMAT_KEY)
+        line = row_format.format(
             sender=self.sender_name(message),
             # A row is one line: the list would drop the line breaks and glue the
             # words on either side together, so turn them into spaces first.

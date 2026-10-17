@@ -8,7 +8,7 @@ from core.settings import (
     SETTING_MARK_READ_ON_OPEN, SETTING_START_SOUND, SETTING_ANNOUNCE_INTERRUPT,
     SETTING_BRAILLE_MESSAGES, SETTING_SPEAK_FEEDBACK, SETTING_ANNOUNCE_CONNECTION, SETTING_SIMPLE_TAB,
     SETTING_SHOW_PREVIEW, SETTING_ANNOUNCE_WHEN, SETTING_ANNOUNCE_WHAT, SETTING_ANNOUNCE_TYPING,
-    SETTING_VOICE_SPEED, SETTING_MIC_DEVICE, SETTING_MIC_LEVEL, SETTING_NOISE, SETTING_LANGUAGE, CHOICES,
+    SETTING_VOICE_SPEED, SETTING_SOUND_VOLUME, SETTING_MIC_DEVICE, SETTING_MIC_LEVEL, SETTING_NOISE, SETTING_LANGUAGE, CHOICES,
     SETTING_CHECK_UPDATES, SETTING_GEMINI_KEY, SETTING_CHAT_KIND, SETTING_MESSAGE_STATS, SETTING_TIME_STYLE,
     SETTING_RECORD_SOUND, SETTING_ENTER_SENDS
 )
@@ -43,7 +43,7 @@ from core.constants import (
     MSG_TWO_STEP_EMAIL_KEY, MSG_TWO_STEP_EMAIL_CODE_KEY, BTN_CHANGE_PHONE_KEY, MSG_NEW_PHONE_PROMPT_KEY,
     MSG_NEW_PHONE_CODE_KEY, MSG_PHONE_CHANGED_KEY, BTN_DELETE_ACCOUNT_KEY, MSG_CONFIRM_DELETE_ACCOUNT_KEY,
     MSG_DELETE_ACCOUNT_WORD_KEY, DELETE_ACCOUNT_WORD_KEY, MSG_DELETE_ACCOUNT_CANCELLED_KEY,
-    MSG_ACCOUNT_DELETED_KEY, SETTINGS_VOICE_SPEED_LABEL_KEY, SETTINGS_TAB_MICROPHONE_KEY, MIC_NOTE_KEY,
+    MSG_ACCOUNT_DELETED_KEY, SETTINGS_VOICE_SPEED_LABEL_KEY, SOUND_VOLUME_LABEL_KEY, SOUND_VOLUMES, SETTINGS_TAB_MICROPHONE_KEY, MIC_NOTE_KEY,
     MIC_DEVICE_LABEL_KEY, MIC_DEVICE_DEFAULT_KEY, MIC_LEVEL_LABEL_KEY, MIC_NOISE_LABEL_KEY, BTN_TEST_MIC_KEY,
     MSG_MIC_TEST_SPEAK_KEY, MSG_MIC_TEST_PLAYING_KEY, MSG_MIC_TEST_SILENT_KEY, MIC_LEVELS, NOISE_LEVELS,
     MIC_TEST_MS, ERR_AUDIO_KEY, ERR_NO_AUDIO_SUPPORT_KEY, LANGUAGES, LANGUAGE_NAMES, SETTINGS_LANGUAGE_LABEL_KEY,
@@ -354,6 +354,7 @@ class SettingsDialog(wx.Dialog):
         note = wx.StaticText(page, label=self.i18n.get_string(SOUNDS_NOTE_KEY if audio.AVAILABLE else SOUNDS_WAV_NOTE_KEY))
         note.Wrap(460)
         self.add_checkboxes(page, sizer, SOUND_OPTIONS)
+        self.add_choice(page, sizer, SOUND_VOLUME_LABEL_KEY, SETTING_SOUND_VOLUME)
         self.add_choice(page, sizer, SETTINGS_VOICE_SPEED_LABEL_KEY, SETTING_VOICE_SPEED)
         sizer.Add(note, flag=wx.ALL, border=10)
         sizer.Add(wx.StaticText(page, label=self.i18n.get_string(SOUNDS_LABEL_KEY)), flag=wx.LEFT|wx.RIGHT, border=10)
@@ -415,13 +416,15 @@ class SettingsDialog(wx.Dialog):
 
     def on_test_sound(self, event):
         name = self.selected_sound()
+        # Heard at the volume chosen here, though it is not saved yet.
+        volume = SOUND_VOLUMES[self.chosen(SETTING_SOUND_VOLUME)]
         if self.sound_changes.get(name) is not None:
-            sounds.play_file(self.sound_changes[name])
+            sounds.play_file(self.sound_changes[name], volume)
         elif name in self.sound_changes:
             # Going back to the bundled tone, though the user's file is still in place until saving.
-            sounds.play_file(os.path.join(SOUNDS_DIR, name + ".wav"))
+            sounds.play_file(os.path.join(SOUNDS_DIR, name + ".wav"), volume)
         else:
-            sounds.play(name)
+            sounds.play_file(sounds.path_of(name), volume)
 
     def on_default_sound(self, event):
         name = self.selected_sound()
@@ -872,6 +875,7 @@ class SettingsDialog(wx.Dialog):
         self.settings.set(SETTING_LANGUAGE, language)
         shortcuts.store(self.settings, self.shortcut_table)
         self.settings.save()
+        sounds.set_volume(SOUND_VOLUMES[self.settings.get(SETTING_SOUND_VOLUME)])
         for name, draft in self.sound_changes.items():
             if draft is None:
                 sounds.clear_custom(name)

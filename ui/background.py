@@ -14,13 +14,18 @@ WM_HOTKEY = 0x0312
 WM_CLOSE = 0x0010
 ASFW_ANY = -1
 
+def running_copy_window():
+    """The hidden window of a copy of the program already running; 0 if there is none."""
+    return ctypes.windll.user32.FindWindowW(None, BACKGROUND_WINDOW_TITLE)
+
+
 def ask_running_copy_to_show(request=SHOW_HOTKEY_ID):
     """From a second copy of the program: bring the first one's window forward.
 
     Returns False if the first copy's hidden window could not be found.
     """
     user32 = ctypes.windll.user32
-    window = user32.FindWindowW(None, BACKGROUND_WINDOW_TITLE)
+    window = running_copy_window()
     if not window:
         return False
     # Windows lets only the foreground program hand the foreground to another.

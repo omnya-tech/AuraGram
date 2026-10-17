@@ -1,12 +1,12 @@
 import os
 import threading
 import wx
-from core import audio, diagnostics, key_conflicts, shortcuts, updates
+from core import audio, diagnostics, key_conflicts, shortcuts, sounds, updates
 from core.speech import speak
 from core.settings import (
     SETTING_KEEP_IN_BACKGROUND, SETTING_LARGE_TEXT, SETTING_THEME, SETTING_SPEAK_FEEDBACK,
     SETTING_SIMPLE_TAB, SETTING_SHOW_PREVIEW, SETTING_CHECK_UPDATES, SETTING_LANGUAGE, SETTING_ENTER_SENDS,
-    SHORTCUT_CONFLICTS_TOLD
+    SHORTCUT_CONFLICTS_TOLD, SETTING_SOUND_VOLUME
 )
 from ui.themes import apply_theme, set_theme
 from ui.layout import (
@@ -42,7 +42,7 @@ from core.constants import (
     MESSAGES_OF_LABEL_STATUS_FORMAT_KEY, STATUS_LAST_SEEN_FORMAT_KEY, DATE_TIME_FORMAT,
     MENU_ADD_CONTACT_KEY, MENU_BLOCKED_KEY, MENU_CHAT_CONTACT_KEY, MENU_CHAT_BLOCK_KEY, MENU_CHAT_JOIN_KEY,
     MENU_GLOBAL_SEARCH_KEY, MENU_OPEN_LINK_KEY, MENU_SEND_STICKER_KEY, MENU_SEND_CONTACT_KEY,
-    MENU_SEND_LOCATION_KEY, MENU_MENTION_KEY, MENU_COMMENTS_KEY, MENU_TOPICS_KEY, MENU_AUDIENCE_KEY,
+    MENU_SEND_LOCATION_KEY, MENU_MENTION_KEY, MENU_COMMENTS_KEY, MENU_TOPICS_KEY, MENU_AUDIENCE_KEY, MENU_MESSAGE_STATS_KEY,
     MESSAGE_VIEW_COMMENTS, MENU_TRANSLATE_KEY, MENU_STORIES_KEY, BTN_ATTACH_KEY, TOOLTIP_ATTACH_KEY,
     PROGRESS_LABEL_KEY, MSG_CHAT_CLOSED_KEY, MENU_SEND_AS_KEY, MENU_POST_STORY_KEY, MESSAGE_VIEW_TOPIC,
     GENERAL_TOPIC_ID, BTN_SEARCH_KEY, TOOLTIP_SEARCH_CHATS_KEY, TOOLTIP_SEARCH_MESSAGES_KEY, BTN_BACK_KEY,
@@ -54,7 +54,9 @@ from core.constants import (
     MSG_UP_TO_DATE_FORMAT_KEY, ERR_UPDATE_CHECK_KEY, MSG_PROBLEM_REPORT_PROMPT_KEY,
     MSG_PROBLEM_REPORT_SAVED_FORMAT_KEY, ERR_PROBLEM_REPORT_KEY, REPORT_LANGUAGE_FORMAT, MENU_MESSAGE_SENDER_KEY,
     MESSAGE_INPUT_HEIGHT, MENU_LICENSE_KEY, LICENSE_TITLE_KEY, LICENSE_FILE_NAME, NOTICES_FILE_NAME, RESOURCE_DIR,
-    LICENSE_NOTICE_KEY, LICENSE_SOURCE_FORMAT_KEY, SOURCE_CODE_URL
+    LICENSE_NOTICE_KEY, LICENSE_SOURCE_FORMAT_KEY, SOURCE_CODE_URL, SOUND_VOLUMES,
+    MENU_DOWNLOAD_FILES_KEY, MENU_DOWNLOAD_STATUS_KEY, MENU_CANCEL_DOWNLOADS_KEY, MENU_EXPORT_CHAT_KEY,
+    MENU_CHAT_TONE_KEY, MENU_REMIND_KEY, MENU_REMINDERS_KEY, MENU_CANCEL_UPLOAD_KEY
 )
 from ui.chat_list import ChatListMixin
 from ui.message_list import MessageListMixin
@@ -62,10 +64,13 @@ from ui.composer import ComposerMixin
 from ui.message_actions import MessageActionsMixin
 from ui.voice import VoiceMixin
 from ui.live_updates import LiveUpdatesMixin
+from ui.downloads import DownloadsMixin
+from ui.chat_extras import ChatExtrasMixin
+from ui.reminders import RemindersMixin
 
 class MainFrame(
     ChatListMixin, MessageListMixin, ComposerMixin, MessageActionsMixin,
-    VoiceMixin, LiveUpdatesMixin, wx.Frame
+    VoiceMixin, LiveUpdatesMixin, DownloadsMixin, ChatExtrasMixin, RemindersMixin, wx.Frame
 ):
     """The main window: builds the widgets and menus, holds the state every part
     shares, and offers the helpers the mixins rely on (status, errors, results)."""
@@ -107,6 +112,8 @@ class MainFrame(
         # A message to go to once the chat being opened has loaded.
         self.pending_jump = None
         self.typing_timer = None
+        # Every "typing", "recording" text shown so far, to tell them from other news on the status bar.
+        self.typing_texts = set()
         self.dialogs_limit = DIALOGS_LIMIT
         self.has_more_dialogs = False
         # While more of the chat list is being fetched: how many chats there were before; None otherwise.
@@ -141,7 +148,15 @@ class MainFrame(
         # True while a newer release is coming down, and how far it has come.
         self.update_downloading = False
         self.update_percent = None
+        # Files going up to a chat: {"dialog_id", "names", "text"}; None while nothing is.
+        self.upload = None
+        sounds.set_volume(SOUND_VOLUMES[settings.get(SETTING_SOUND_VOLUME)])
+        self.init_downloads()
+        # chat id -> what someone there is doing ("typing", "recording"), shown on its row for a while.
+        self.typing_in = {}
+        self.typing_row_timers = {}
         self.init_ui()
+        self.init_reminders()
         self.Bind(wx.EVT_CLOSE, self.on_close)
         self.telegram_manager.set_message_listener(
             lambda *args: wx.CallAfter(self.on_telegram_event, *args)
@@ -447,6 +462,9 @@ class MainFrame(
             (MENU_FILE_KEY, (
                 (MENU_SETTINGS_KEY, self.on_settings_menu, wx.ID_PREFERENCES),
                 (MENU_OPEN_DOWNLOADS_KEY, self.on_open_downloads_menu),
+                (MENU_DOWNLOAD_FILES_KEY, self.on_download_files_menu),
+                (MENU_DOWNLOAD_STATUS_KEY, self.on_download_status_menu),
+                (MENU_CANCEL_DOWNLOADS_KEY, self.on_cancel_downloads_menu),
                 (MENU_LOGOUT_KEY, self.on_logout_menu),
                 None,
                 (MENU_EXIT_KEY, self.on_exit_menu, wx.ID_EXIT),
@@ -464,9 +482,11 @@ class MainFrame(
                 None,
                 (MENU_CHAT_INFO_KEY, lambda event: on_chat(self.show_chat_info)),
                 (MENU_COPY_INVITE_KEY, lambda event: on_chat(self.copy_invite_link)),
+                (MENU_EXPORT_CHAT_KEY, lambda event: on_chat(self.on_export_chat)),
                 (MENU_CHAT_READ_KEY, lambda event: on_chat(self.toggle_dialog_read)),
                 (MENU_CHAT_PIN_KEY, lambda event: on_chat(lambda chat: self.set_chat_pinned(chat, not chat["pinned"]))),
                 (MENU_CHAT_MUTE_KEY, lambda event: on_chat(self.toggle_dialog_muted)),
+                (MENU_CHAT_TONE_KEY, lambda event: on_chat(self.on_chat_tone)),
                 (MENU_CHAT_ARCHIVE_KEY, lambda event: on_chat(lambda chat: self.set_chat_archived(chat, not chat["archived"]))),
                 (MENU_CHAT_JOIN_KEY, lambda event: on_chat(self.join_dialog)),
                 (MENU_CHAT_CONTACT_KEY, lambda event: on_chat(self.toggle_contact)),
@@ -516,11 +536,15 @@ class MainFrame(
                 (MENU_OPEN_LINK_KEY, self.on_open_link_menu),
                 (MENU_COMMENTS_KEY, self.on_comments_menu),
                 (MENU_AUDIENCE_KEY, self.on_audience_menu),
+                (MENU_MESSAGE_STATS_KEY, self.on_message_stats_menu),
                 (MENU_VOICE_SPEED_KEY, self.on_voice_speed_menu),
                 (MENU_REPORT_KEY, self.on_report_menu),
                 None,
                 (MENU_MARK_KEY, self.on_mark_menu),
                 (MENU_UNMARK_ALL_KEY, self.on_unmark_all_menu),
+                None,
+                (MENU_REMIND_KEY, self.on_remind_menu),
+                (MENU_REMINDERS_KEY, self.on_reminders_menu),
             )),
             (MENU_SEND_KEY, (
                 (MENU_SEND_FILE_KEY, self.on_send_file_menu),
@@ -534,6 +558,8 @@ class MainFrame(
                 None,
                 (MENU_MENTION_KEY, self.on_mention_menu),
                 (MENU_SEND_AS_KEY, self.on_send_as_menu),
+                None,
+                (MENU_CANCEL_UPLOAD_KEY, self.on_cancel_upload_menu),
             )),
             (MENU_SEARCH_KEY, (
                 (MENU_FIND_KEY, self.on_find_menu),
@@ -937,6 +963,7 @@ class MainFrame(
             self.loading_more_from = None
             self.dialogs_limit -= DIALOGS_LIMIT
         self.hide_progress()
+        self.end_upload()
         self.enable_chat(self.current_dialog_id is not None)
         wx.MessageBox(
             self.i18n.get_string(error_key), self.i18n.get_string(APP_TITLE_KEY),
@@ -961,10 +988,17 @@ class MainFrame(
         is_enter = event.GetKeyCode() in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER)
         focused = wx.Window.FindFocus()
         sideways = event.GetKeyCode() in (wx.WXK_LEFT, wx.WXK_RIGHT, wx.WXK_NUMPAD_LEFT, wx.WXK_NUMPAD_RIGHT)
-        if sideways and focused in (self.dialogs_list, self.messages_list) and not event.HasAnyModifiers():
-            # In the lists only up and down move. Windows would make left and right do the
-            # same; they are kept free here for what they may be given to do later.
-            pass
+        if sideways and focused is self.dialogs_list and not event.HasAnyModifiers():
+            # Up and down move through the chats; left and right go to the tab beside the current one,
+            # without leaving the list.
+            self.cycle_view(self.view_tabs.sideways_step(event.GetKeyCode()))
+        elif sideways and focused is self.messages_list and not event.HasAnyModifiers():
+            # Up and down move through the messages. Forward (left, in a right-to-left window) goes
+            # into the post's comments; back says its numbers.
+            if self.view_tabs.sideways_step(event.GetKeyCode()) > 0:
+                self.on_comments_menu(event)
+            else:
+                self.on_message_stats_menu(event)
         elif self.view_tabs.handle_key(event, focused):
             # An arrow on one of the view tabs went to its neighbour.
             pass

@@ -17,7 +17,7 @@ BASMA.status = types.UserStatusOnline(expires=None)
 ZAKI = make_user(9, "Zaki")
 STRANGER = make_user(5, "Stranger", contact=False)
 
-CONTACTS_VIEW = 3
+CONTACTS_VIEW = 5
 
 
 class ContactsViewTest(WindowTestCase):

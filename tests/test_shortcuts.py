@@ -79,19 +79,19 @@ class StoredShortcutsTest(unittest.TestCase):
         settings = s.Settings()
         table = shortcuts.current(settings)
         self.assertEqual(table, shortcuts.defaults())
-        table[c.MENU_REPLY_KEY] = "Ctrl+Alt+P"
+        table[c.MENU_REPLY_KEY] = "Ctrl+Alt+F7"
         table[c.MENU_EDIT_KEY] = ""
         shortcuts.store(settings, table)
         settings.save()
         saved = s.Settings()
-        self.assertEqual(saved.get(s.SETTING_SHORTCUTS), {c.MENU_REPLY_KEY: "Ctrl+Alt+P", c.MENU_EDIT_KEY: ""})
-        self.assertEqual(shortcuts.current(saved)[c.MENU_REPLY_KEY], "Ctrl+Alt+P")
+        self.assertEqual(saved.get(s.SETTING_SHORTCUTS), {c.MENU_REPLY_KEY: "Ctrl+Alt+F7", c.MENU_EDIT_KEY: ""})
+        self.assertEqual(shortcuts.current(saved)[c.MENU_REPLY_KEY], "Ctrl+Alt+F7")
         self.assertEqual(shortcuts.current(saved)[c.MENU_EDIT_KEY], "")
         self.assertEqual(shortcuts.current(saved)[c.MENU_PIN_KEY], "Ctrl+T")
 
     def test_a_command_that_is_gone_or_a_damaged_entry_is_passed_over(self):
         settings = s.Settings()
-        settings.set(s.SETTING_SHORTCUTS, {"MENU_OF_LONG_AGO": "Ctrl+Alt+P", c.MENU_REPLY_KEY: "nonsense"})
+        settings.set(s.SETTING_SHORTCUTS, {"MENU_OF_LONG_AGO": "Ctrl+Alt+F7", c.MENU_REPLY_KEY: "nonsense"})
         table = shortcuts.current(settings)
         self.assertNotIn("MENU_OF_LONG_AGO", table)
         self.assertEqual(table[c.MENU_REPLY_KEY], "")
@@ -185,16 +185,16 @@ class ShortcutsWindowTest(WindowTestCase):
     def test_a_changed_shortcut_reaches_the_menu_and_stays_after_a_restart(self):
         dialog = self.settings_dialog()
         self.select(dialog, c.MENU_REPLY_KEY)
-        with mock.patch.object(dialog, "ask_shortcut", lambda command: "Ctrl+Alt+P"):
+        with mock.patch.object(dialog, "ask_shortcut", lambda command: "Ctrl+Alt+F7"):
             dialog.on_change_shortcut(None)
-        self.assertIn("Ctrl+Alt+P", self.row(dialog, c.MENU_REPLY_KEY))
-        self.assertIn("Ctrl+Alt+P", self.spoken[-1])
+        self.assertIn("Ctrl+Alt+F7", self.row(dialog, c.MENU_REPLY_KEY))
+        self.assertIn("Ctrl+Alt+F7", self.spoken[-1])
         # Nothing changes outside the dialog until it is accepted.
         self.assertEqual(self.menu_accelerators()[c.MENU_REPLY_KEY], "Ctrl+R")
         dialog.apply_app_settings()
         self.frame.apply_shortcuts()
-        self.assertEqual(self.menu_accelerators()[c.MENU_REPLY_KEY], "Ctrl+Alt+P")
-        self.assertEqual(shortcuts.current(s.Settings())[c.MENU_REPLY_KEY], "Ctrl+Alt+P")
+        self.assertEqual(self.menu_accelerators()[c.MENU_REPLY_KEY], "Ctrl+Alt+F7")
+        self.assertEqual(shortcuts.current(s.Settings())[c.MENU_REPLY_KEY], "Ctrl+Alt+F7")
 
     def test_a_shortcut_another_command_has_is_moved_only_if_the_user_agrees(self):
         dialog = self.settings_dialog()
@@ -215,23 +215,23 @@ class ShortcutsWindowTest(WindowTestCase):
     def test_a_shortcut_another_program_holds_brings_a_message_to_change_it(self):
         dialog = self.settings_dialog()
         self.select(dialog, c.MENU_REPLY_KEY)
-        pressed = ["Ctrl+Alt+N", "Ctrl+Alt+P"]
-        held = {"Ctrl+Alt+N": "Reader"}
+        pressed = ["Ctrl+Alt+F6", "Ctrl+Alt+F7"]
+        held = {"Ctrl+Alt+F6": "Reader"}
         find = lambda texts: {text: held[text] for text in texts if text in held}
         # Yes to "choose another": the user is asked again, and the second one is free.
         with mock.patch.object(key_conflicts, "find", find), \
                 mock.patch.object(dialog, "ask_shortcut", lambda command: pressed.pop(0)):
             dialog.on_change_shortcut(None)
         self.assertEqual(len(self.boxes), 1)
-        self.assertIn("Ctrl+Alt+N", self.boxes[0])
+        self.assertIn("Ctrl+Alt+F6", self.boxes[0])
         self.assertIn("Reader", self.boxes[0])
-        self.assertEqual(dialog.shortcut_table[c.MENU_REPLY_KEY], "Ctrl+Alt+P")
+        self.assertEqual(dialog.shortcut_table[c.MENU_REPLY_KEY], "Ctrl+Alt+F7")
         # No: it is kept all the same, and its row says who else has it.
         self.box_answer = wx.NO
         with mock.patch.object(key_conflicts, "find", find), \
-                mock.patch.object(dialog, "ask_shortcut", lambda command: "Ctrl+Alt+N"):
+                mock.patch.object(dialog, "ask_shortcut", lambda command: "Ctrl+Alt+F6"):
             dialog.on_change_shortcut(None)
-        self.assertEqual(dialog.shortcut_table[c.MENU_REPLY_KEY], "Ctrl+Alt+N")
+        self.assertEqual(dialog.shortcut_table[c.MENU_REPLY_KEY], "Ctrl+Alt+F6")
         self.assertIn("Reader", self.row(dialog, c.MENU_REPLY_KEY))
 
     def test_shortcuts_already_there_are_looked_for_in_windows_too(self):
@@ -267,14 +267,14 @@ class ShortcutsWindowTest(WindowTestCase):
     def test_a_command_left_without_a_shortcut_shows_none_in_the_menu_or_the_help(self):
         table = shortcuts.defaults()
         table[c.MENU_REPLY_KEY] = ""
-        table[c.MENU_EDIT_KEY] = "Ctrl+Alt+P"
+        table[c.MENU_EDIT_KEY] = "Ctrl+Alt+F7"
         shortcuts.store(self.frame.settings, table)
         self.frame.apply_shortcuts()
         self.assertEqual(self.frame.menu_items[c.MENU_REPLY_KEY].GetItemLabel(), self.text(c.MENU_REPLY_KEY))
         self.assertIsNone(self.frame.menu_items[c.MENU_REPLY_KEY].GetAccel())
         text = self.frame.shortcuts_text()
         self.assertIn(self.text(c.SHORTCUTS_HELP_LINE_FORMAT_KEY).format(
-            shortcut="Ctrl+Alt+P", command=self.text(c.MENU_EDIT_KEY)
+            shortcut="Ctrl+Alt+F7", command=self.text(c.MENU_EDIT_KEY)
         ), text)
         self.assertNotIn(self.text(c.MENU_REPLY_KEY), text)
         self.assertIn(c.SHOW_HOTKEY_TEXT, text)

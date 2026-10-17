@@ -39,7 +39,7 @@ class CustomSoundsTest(WindowTestCase):
         self.previewed = []
         for patch in (
             mock.patch.object(sounds, "USER_SOUNDS_DIR", os.path.join(self.folder, "mine")),
-            mock.patch.object(sounds, "play_file", self.previewed.append),
+            mock.patch.object(sounds, "play_file", lambda path, volume=None: self.previewed.append(path)),
         ):
             patch.start()
             self.addCleanup(patch.stop)

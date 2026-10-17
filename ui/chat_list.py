@@ -3,7 +3,7 @@ from core.speech import speak
 from core.settings import SETTING_CHAT_KIND
 from ui.chat_picker_dialog import ChatPickerDialog
 from ui.chat_info_dialog import ChatInfoDialog
-from core.chat_views import build_views, contacts_first_online, is_online
+from core.chat_views import ARCHIVE_VIEW, build_views, contacts_first_online, is_online
 from core.constants import (
     CATEGORY_GROUPS, CATEGORY_BROADCASTS, CONTEXT_LEAVE_KEY, CONTEXT_DELETE_CHAT_KEY,
     MSG_CONFIRM_LEAVE_KEY, MSG_CONFIRM_DELETE_CHAT_KEY, MSG_LEFT_KEY, MSG_VIEW_COUNT_FORMAT_KEY,
@@ -173,6 +173,9 @@ class ChatListMixin:
         """One row of the chat list: name, state, then the latest message whether read or not."""
         details = []
         title = dialog["title"]
+        if dialog["id"] in self.typing_in:
+            # First after the name: it is news, and it lasts only seconds.
+            details.append(self.typing_in[dialog["id"]])
         if self.showing_contacts():
             # Here the row answers one question: is this person around?
             details.append(self.status_text(dialog) or self.i18n.get_string(STATUS_OFFLINE_KEY))
@@ -357,8 +360,8 @@ class ChatListMixin:
         index = self.find_dialog_index(known["id"])
         if index == wx.NOT_FOUND:
             # Archived chats are in no view but the archive.
-            self.view_index = 2
-            self.view_tabs.SetSelection(2)
+            self.view_index = ARCHIVE_VIEW
+            self.view_tabs.SetSelection(ARCHIVE_VIEW)
             self.render_dialogs()
             index = self.find_dialog_index(known["id"])
         self.dialogs_list.SetSelection(index)

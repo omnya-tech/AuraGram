@@ -35,6 +35,8 @@ class LoginFrame(wx.Frame):
         self.code_input = self.add_step(
             STEP_CODE, MSG_CODE_SENT_KEY, CODE_LABEL_KEY, BTN_SEND_CODE_KEY, self.on_send_code
         )
+        # Sent by itself once the last digit is in, as Telegram's own apps do.
+        self.code_input.Bind(wx.EVT_TEXT, self.on_code_typed)
         self.resend_btn = self.add_step_button(STEP_CODE, BTN_RESEND_OTHER_KEY, self.on_resend_code)
         self.password_input = self.add_step(
             STEP_PASSWORD, MSG_PASSWORD_NEEDED_KEY, PASSWORD_LABEL_KEY, BTN_SEND_PASSWORD_KEY,
@@ -135,6 +137,15 @@ class LoginFrame(wx.Frame):
 
     def on_send_code(self, event):
         self.submit(self.code_input, self.telegram_manager.send_code)
+
+    def on_code_typed(self, event):
+        """Send the code as soon as it has as many digits as Telegram said it would."""
+        length = self.telegram_manager.code_length
+        digits = "".join(char for char in self.code_input.GetValue() if char.isdigit())
+        if length and len(digits) == length and not self.is_processing:
+            # Pasted with spaces or a dash in it, it is still the same code.
+            self.set_busy()
+            self.telegram_manager.send_code(digits)
 
     def on_resend_code(self, event):
         if self.is_processing:
