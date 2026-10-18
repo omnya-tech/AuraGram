@@ -505,6 +505,39 @@ class VisionRulesTest(unittest.TestCase):
         self.assertEqual(self.failure(self.http_error(500)), c.ERR_VISION_FAILED_KEY)
         self.assertEqual(self.failure(urllib.error.URLError("offline")), c.ERR_CONNECTION_KEY)
 
+    def test_a_retired_model_gives_way_to_the_next(self):
+        asked = []
+
+        def urlopen(request, timeout):
+            asked.append(request.full_url)
+            if len(asked) == 1:
+                raise self.http_error(404, b'{"error": {"message": "model not found"}}')
+            return Response(answer("A dog."))
+        with mock.patch.object(vision.urllib.request, "urlopen", urlopen), self.assertLogs("core.vision", "WARNING"):
+            self.assertEqual(vision.describe_image(self.path, "key", "Describe"), "A dog.")
+        self.assertIn(c.GEMINI_MODELS[0] + ":", asked[0])
+        self.assertIn(c.GEMINI_MODELS[1] + ":", asked[1])
+
+    def test_when_every_model_is_gone_it_says_so(self):
+        with self.assertLogs("core.vision", "WARNING"):
+            self.assertEqual(self.failure(self.http_error(404)), c.ERR_VISION_FAILED_KEY)
+
+    def test_a_key_is_tried_without_sending_a_picture(self):
+        sent = []
+
+        def urlopen(request, timeout):
+            sent.append(request)
+            return Response(b'{"models": []}')
+        with mock.patch.object(vision.urllib.request, "urlopen", urlopen):
+            vision.check_key(" my-key ")
+        self.assertEqual(sent[0].full_url, c.GEMINI_MODELS_URL)
+        self.assertIsNone(sent[0].data)
+        self.assertEqual(sent[0].get_header("X-goog-api-key"), "my-key")
+        with mock.patch.object(vision.urllib.request, "urlopen", side_effect=self.http_error(403)),                 self.assertLogs("core.vision", "WARNING"):
+            with self.assertRaises(vision.VisionError) as caught:
+                vision.check_key("bad")
+        self.assertEqual(caught.exception.error_key, c.ERR_VISION_KEY_KEY)
+
     def test_an_answer_without_words_is_a_refusal(self):
         for body in (b"{}", b"not json", json.dumps({"candidates": [{"finishReason": "SAFETY"}]}).encode(), answer("  ")):
             with mock.patch.object(vision.urllib.request, "urlopen", lambda request, timeout, body=body: Response(body)):

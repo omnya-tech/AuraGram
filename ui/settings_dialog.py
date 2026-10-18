@@ -1,8 +1,9 @@
 import os
 import shutil
 import tempfile
+import threading
 import wx
-from core import audio, key_conflicts, shortcuts, sounds
+from core import audio, key_conflicts, shortcuts, sounds, vision
 from core.settings import (
     SETTING_THEME, SETTING_LARGE_TEXT, SETTING_KEEP_IN_BACKGROUND, SETTING_SENT_SOUND, SETTING_PLAY_SOUND, SETTING_ANNOUNCE_MESSAGES,
     SETTING_MARK_READ_ON_OPEN, SETTING_START_SOUND, SETTING_ANNOUNCE_INTERRUPT,
@@ -55,7 +56,8 @@ from core.constants import (
     MSG_MIC_TEST_SPEAK_KEY, MSG_MIC_TEST_PLAYING_KEY, MSG_MIC_TEST_SILENT_KEY, MIC_LEVELS, NOISE_LEVELS,
     MIC_TEST_MS, ERR_AUDIO_KEY, ERR_NO_AUDIO_SUPPORT_KEY, LANGUAGES, LANGUAGE_NAMES, SETTINGS_LANGUAGE_LABEL_KEY,
     SETTINGS_CHECK_UPDATES_KEY, SETTINGS_TAB_SERVICES_KEY, BTN_PROXY_KEY, MSG_PROXY_SAVED_KEY,
-    SETTINGS_GEMINI_KEY_LABEL_KEY, SETTINGS_GEMINI_NOTE_KEY, SETTINGS_CHAT_KIND_LABEL_KEY,
+    SETTINGS_GEMINI_KEY_LABEL_KEY, SETTINGS_GEMINI_NOTE_KEY, BTN_TEST_GEMINI_KEY, MSG_GEMINI_KEY_OK_KEY,
+    MSG_GEMINI_KEY_EMPTY_KEY, MSG_GEMINI_KEY_TESTING_KEY, SETTINGS_CHAT_KIND_LABEL_KEY,
     SETTINGS_MESSAGE_STATS_LABEL_KEY, SETTINGS_TIME_STYLE_LABEL_KEY, SETTINGS_RECORD_SOUND_KEY,
     SETTINGS_ENTER_SENDS_KEY, SETTINGS_TAB_SHORTCUTS_KEY, SHORTCUTS_NOTE_KEY, SHORTCUTS_LIST_LABEL_KEY,
     SHORTCUT_ROW_FORMAT_KEY, SHORTCUT_ROW_CONFLICT_FORMAT_KEY, SHORTCUT_NONE_KEY, BTN_SHORTCUT_CHANGE_KEY,
@@ -535,6 +537,9 @@ class SettingsDialog(wx.Dialog):
         sizer.Add(wx.StaticText(page, label=self.i18n.get_string(SETTINGS_GEMINI_KEY_LABEL_KEY)), flag=wx.LEFT|wx.RIGHT, border=10)
         self.gemini_key_input = wx.TextCtrl(page, value=self.settings.get(SETTING_GEMINI_KEY))
         sizer.Add(self.gemini_key_input, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
+        self.gemini_test_btn = wx.Button(page, label=self.i18n.get_string(BTN_TEST_GEMINI_KEY))
+        self.gemini_test_btn.Bind(wx.EVT_BUTTON, self.on_test_gemini_key)
+        sizer.Add(self.gemini_test_btn, flag=wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
         # A read-only field rather than a label, so a screen reader can go through it.
         note = wx.TextCtrl(
             page, value=self.i18n.get_string(SETTINGS_GEMINI_NOTE_KEY),
@@ -543,6 +548,30 @@ class SettingsDialog(wx.Dialog):
         sizer.Add(note, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
         page.SetSizer(sizer)
         return page
+
+    def on_test_gemini_key(self, event):
+        """Ask Gemini whether it takes the key as typed, before it is saved; the answer is spoken."""
+        api_key = self.gemini_key_input.GetValue().strip()
+        if not api_key:
+            speak(self.i18n.get_string(MSG_GEMINI_KEY_EMPTY_KEY))
+            return
+        self.gemini_test_btn.Disable()
+        speak(self.i18n.get_string(MSG_GEMINI_KEY_TESTING_KEY))
+
+        def work():
+            try:
+                vision.check_key(api_key)
+                answer_key = MSG_GEMINI_KEY_OK_KEY
+            except vision.VisionError as error:
+                answer_key = error.error_key
+            wx.CallAfter(self.on_gemini_key_tested, answer_key)
+        threading.Thread(target=work, daemon=True).start()
+
+    def on_gemini_key_tested(self, answer_key):
+        if not self:
+            return
+        self.gemini_test_btn.Enable()
+        speak(self.i18n.get_string(answer_key))
 
     def on_proxy(self, event):
         with ProxyDialog(self, self.i18n, self.settings, self.telegram_manager) as proxy_dialog:

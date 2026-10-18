@@ -1178,6 +1178,17 @@ GLOBAL_SEARCH_TITLE_KEY = "GLOBAL_SEARCH_TITLE"
 GLOBAL_SEARCH_LABEL_KEY = "GLOBAL_SEARCH_LABEL"
 GLOBAL_SEARCH_RESULTS_LABEL_KEY = "GLOBAL_SEARCH_RESULTS_LABEL"
 BTN_OPEN_KEY = "BTN_OPEN"
+# The rows of buttons for the mouse, on the chat list and inside a chat.
+BTN_NEW_CHAT_KEY = "BTN_NEW_CHAT"
+BTN_GLOBAL_SEARCH_KEY = "BTN_GLOBAL_SEARCH"
+BTN_DOWNLOAD_FILES_KEY = "BTN_DOWNLOAD_FILES"
+BTN_CHAT_INFO_KEY = "BTN_CHAT_INFO"
+BTN_MORE_ACTIONS_KEY = "BTN_MORE_ACTIONS"
+BTN_PLAY_KEY = "BTN_PLAY"
+BTN_COMMENTS_KEY = "BTN_COMMENTS"
+BTN_REMIND_KEY = "BTN_REMIND"
+MSG_NOTHING_TO_PLAY_KEY = "MSG_NOTHING_TO_PLAY"
+TOOLTIP_COMMAND_FORMAT_KEY = "TOOLTIP_COMMAND_FORMAT"
 BTN_JOIN_KEY = "BTN_JOIN"
 BTN_MORE_RESULTS_KEY = "BTN_MORE_RESULTS"
 MSG_GLOBAL_SEARCH_COUNT_FORMAT_KEY = "MSG_GLOBAL_SEARCH_COUNT_FORMAT"
@@ -1392,8 +1403,16 @@ ERR_PROXY_FAKE_TLS_KEY = "ERR_PROXY_FAKE_TLS"
 SETTINGS_TAB_SERVICES_KEY = "SETTINGS_TAB_SERVICES"
 
 # Describing pictures with Google's Gemini, on the user's own API key.
-GEMINI_MODEL = "gemini-3.8-flash"
+# Asked in this order: Google retires models now and then, and the next one still answers.
+GEMINI_MODELS = ("gemini-3.8-flash", "gemini-3.6-flash", "gemini-2.5-flash")
+GEMINI_MODEL = GEMINI_MODELS[0]
 GEMINI_ENDPOINT_FORMAT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+# Where a key is tried without sending any picture: the list of models it may use.
+GEMINI_MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+BTN_TEST_GEMINI_KEY = "BTN_TEST_GEMINI_KEY"
+MSG_GEMINI_KEY_OK_KEY = "MSG_GEMINI_KEY_OK"
+MSG_GEMINI_KEY_EMPTY_KEY = "MSG_GEMINI_KEY_EMPTY"
+MSG_GEMINI_KEY_TESTING_KEY = "MSG_GEMINI_KEY_TESTING"
 GEMINI_TIMEOUT_SECONDS = 60
 # Sent inside the request, where it grows by a third; Google takes 20 MB in all.
 GEMINI_MAX_IMAGE_BYTES = 12 * 1024 * 1024

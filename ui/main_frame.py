@@ -71,10 +71,12 @@ from ui.live_updates import LiveUpdatesMixin
 from ui.downloads import DownloadsMixin
 from ui.chat_extras import ChatExtrasMixin
 from ui.reminders import RemindersMixin
+from ui.mouse_bars import MouseBarsMixin
 
 class MainFrame(
     ChatListMixin, MessageListMixin, ComposerMixin, MessageActionsMixin,
-    VoiceMixin, LiveUpdatesMixin, DownloadsMixin, ChatExtrasMixin, RemindersMixin, wx.Frame
+    VoiceMixin, LiveUpdatesMixin, DownloadsMixin, ChatExtrasMixin, RemindersMixin,
+    MouseBarsMixin, wx.Frame
 ):
     """The main window: builds the widgets and menus, holds the state every part
     shares, and offers the helpers the mixins rely on (status, errors, results)."""
@@ -173,6 +175,8 @@ class MainFrame(
 
     def init_ui(self):
         self.panel = wx.Panel(self)
+        # The buttons of the rows for the mouse, on both screens.
+        self.mouse_buttons = []
         # Two screens share the window, one at a time: the list of chats, and the chat that was entered.
         hbox = self.screens = wx.BoxSizer(wx.HORIZONTAL)
 
@@ -199,7 +203,9 @@ class MainFrame(
         self.list_search_btn = wx.Button(self.panel, label=self.i18n.get_string(BTN_SEARCH_KEY))
         self.list_search_btn.Bind(wx.EVT_BUTTON, self.on_search_chats)
         self.list_search_btn.SetToolTip(self.i18n.get_string(TOOLTIP_SEARCH_CHATS_KEY))
-        dialogs_box.Add(self.list_search_btn, flag=wx.TOP, border=10)
+        dialogs_box.Add(
+            self.build_mouse_bar(self.list_bar_entries(), first=(self.list_search_btn,)), flag=wx.EXPAND|wx.TOP, border=10
+        )
         hbox.Add(dialogs_box, proportion=1, flag=wx.EXPAND|wx.ALL, border=15)
 
         chat_box = self.chat_box = wx.BoxSizer(wx.VERTICAL)
@@ -218,6 +224,7 @@ class MainFrame(
         chat_box.Add(self.preview_label, flag=wx.BOTTOM, border=5)
         self.preview_text = ReadOnlyText(self.panel, size=(-1, PREVIEW_HEIGHT))
         chat_box.Add(self.preview_text, flag=wx.EXPAND|wx.BOTTOM, border=15)
+        chat_box.Add(self.build_mouse_bar(self.chat_bar_entries()), flag=wx.EXPAND|wx.BOTTOM, border=9)
 
         self.input_label = wx.StaticText(self.panel, label=self.i18n.get_string(MESSAGE_INPUT_LABEL_KEY))
         chat_box.Add(self.input_label, flag=wx.BOTTOM, border=5)
@@ -284,7 +291,8 @@ class MainFrame(
         """Keep the window as plain as the settings ask: fewer stops for Tab, and the preview only if wanted."""
         skipped = self.settings.get(SETTING_SIMPLE_TAB)
         # Each of these is one key away anyway: the view on the menu bar, sending on Enter.
-        for control in (self.view_tabs, self.send_btn, self.back_btn):
+        # So are the buttons for the mouse: each is a menu command with its own shortcut.
+        for control in (self.view_tabs, self.send_btn, self.back_btn, *self.mouse_buttons):
             control.skipped_by_tab = skipped
         # Part of the chat screen, so never there while the list of chats is.
         shown = self.in_chat and self.settings.get(SETTING_SHOW_PREVIEW)
@@ -610,6 +618,7 @@ class MainFrame(
             label = self.i18n.get_string(command)
             item.SetItemLabel(label + "\t" + table[command] if table[command] else label)
         self.menu_shortcuts = {table[command] for command in self.menu_items} - {""}
+        self.update_mouse_tooltips()
 
     def show_window_shortcut(self):
         return shortcuts.current(self.settings)[SHORTCUT_SHOW_WINDOW]

@@ -1,17 +1,21 @@
 """Describing a picture in words, by asking Google's Gemini with the user's own API key."""
 import base64
 import json
+import logging
 import os
 import urllib.error
 import urllib.request
 
 from core.constants import (
-    GEMINI_ENDPOINT_FORMAT, GEMINI_MODEL, GEMINI_TIMEOUT_SECONDS, GEMINI_MAX_IMAGE_BYTES, IMAGE_MIME_TYPES,
+    GEMINI_ENDPOINT_FORMAT, GEMINI_MODELS, GEMINI_MODELS_URL, GEMINI_TIMEOUT_SECONDS, GEMINI_MAX_IMAGE_BYTES, IMAGE_MIME_TYPES,
     ERR_VISION_KEY_KEY, ERR_VISION_QUOTA_KEY, ERR_VISION_FAILED_KEY, ERR_VISION_NO_ANSWER_KEY,
     ERR_VISION_TOO_BIG_KEY, ERR_CONNECTION_KEY
 )
 
-HTTP_BAD_REQUEST, HTTP_UNAUTHORIZED, HTTP_FORBIDDEN, HTTP_TOO_MANY = 400, 401, 403, 429
+logger = logging.getLogger(__name__)
+HTTP_BAD_REQUEST, HTTP_UNAUTHORIZED, HTTP_FORBIDDEN, HTTP_NOT_FOUND, HTTP_TOO_MANY = 400, 401, 403, 404, 429
+# Enough of Google's answer to a failure for the log to tell why, never the key.
+LOGGED_BODY_CHARACTERS = 300
 # How Google words a key it does not know, in the middle of an otherwise ordinary "bad request".
 INVALID_KEY_MARK = "API_KEY_INVALID"
 
@@ -65,16 +69,38 @@ def describe_image(path, api_key, prompt):
         image = image_file.read(GEMINI_MAX_IMAGE_BYTES + 1)
     if len(image) > GEMINI_MAX_IMAGE_BYTES:
         raise VisionError(ERR_VISION_TOO_BIG_KEY)
-    request = urllib.request.Request(
-        GEMINI_ENDPOINT_FORMAT.format(model=GEMINI_MODEL),
-        data=json.dumps(build_request(image, mime_type, prompt)).encode("utf-8"),
-        # In a header, not the address: addresses end up in logs and histories.
-        headers={"Content-Type": "application/json", "x-goog-api-key": api_key.strip()},
-    )
+    data = json.dumps(build_request(image, mime_type, prompt)).encode("utf-8")
+    for model in GEMINI_MODELS:
+        request = urllib.request.Request(
+            GEMINI_ENDPOINT_FORMAT.format(model=model), data=data,
+            # In a header, not the address: addresses end up in logs and histories.
+            headers={"Content-Type": "application/json", "x-goog-api-key": api_key.strip()},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=GEMINI_TIMEOUT_SECONDS) as response:
+                return read_answer(response.read())
+        except urllib.error.HTTPError as error:
+            body = error.read().decode("utf-8", "replace")
+            logger.warning("Gemini answered %s for %s: %s", error.code, model, body[:LOGGED_BODY_CHARACTERS])
+            if error.code == HTTP_NOT_FOUND:
+                # This model is gone: the next one may still be there.
+                continue
+            raise VisionError(error_key_for(error.code, body)) from error
+        except (OSError, ValueError) as error:
+            logger.warning("Could not reach Gemini: %s", error)
+            raise VisionError(ERR_CONNECTION_KEY) from error
+    raise VisionError(ERR_VISION_FAILED_KEY)
+
+
+def check_key(api_key):
+    """Whether Gemini takes the key, asked without sending any picture. Blocks; raises VisionError if not."""
+    request = urllib.request.Request(GEMINI_MODELS_URL, headers={"x-goog-api-key": api_key.strip()})
     try:
         with urllib.request.urlopen(request, timeout=GEMINI_TIMEOUT_SECONDS) as response:
-            return read_answer(response.read())
+            response.read()
     except urllib.error.HTTPError as error:
-        raise VisionError(error_key_for(error.code, error.read().decode("utf-8", "replace"))) from error
+        body = error.read().decode("utf-8", "replace")
+        logger.warning("Gemini refused the key: %s %s", error.code, body[:LOGGED_BODY_CHARACTERS])
+        raise VisionError(error_key_for(error.code, body)) from error
     except (OSError, ValueError) as error:
         raise VisionError(ERR_CONNECTION_KEY) from error
