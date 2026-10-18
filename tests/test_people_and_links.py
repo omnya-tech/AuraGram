@@ -109,8 +109,14 @@ class ScriptedSearch(GlobalSearchDialog):
 
     query = ""
     pick = 0
+    # How many times the window was shown, and how many times in all.
+    shown = 0
 
     def ShowModal(self):
+        ScriptedSearch.shown += 1
+        if self.results:
+            # Shown again, back from a result: the user presses Escape there.
+            return wx.ID_CANCEL
         self.search_input.SetValue(ScriptedSearch.query)
         self.search()
         pump(lambda: not self.busy and self.round > 0)
@@ -182,6 +188,25 @@ class FindingAndJoiningTest(WindowTestCase):
         self.frame.close_chat()
         self.assertIsNone(self.frame.find_known_dialog(self.channel_id))
         self.assertEqual(self.frame.find_dialog_index(self.channel_id), wx.NOT_FOUND)
+
+    def test_escape_from_a_result_goes_back_to_the_results_and_again_ends_the_search(self):
+        ScriptedSearch.shown = 0
+        self.open_unjoined_channel()
+        search_window = self.frame.global_search
+        self.assertIsNotNone(search_window)
+        self.assertTrue(self.frame.on_escape())
+        # Back on the same window, with its results as they were.
+        self.assertTrue(pump(lambda: ScriptedSearch.shown == 2))
+        self.assertTrue(search_window.results)
+        # Escape there ended the search: the window is gone, and so is its result from the list.
+        self.assertIsNone(self.frame.global_search)
+        self.assertIsNone(self.frame.find_known_dialog(self.channel_id))
+
+    def test_another_chat_opened_ends_the_search(self):
+        self.open_unjoined_channel()
+        self.frame.dialogs_list.SetSelection(self.frame.find_dialog_index(1))
+        self.frame.on_open_dialog(None)
+        self.assertIsNone(self.frame.global_search)
 
     def test_leaving_a_channel_never_joined_asks_telegram_nothing_and_shows_no_error(self):
         channel = self.open_unjoined_channel()

@@ -313,23 +313,28 @@ class ChatListMixin:
             if focus_messages:
                 self.load_more_dialogs()
             return
-        dialog_id = self.dialogs[index]["id"]
+        # Held by itself, not by its row: taking a chat only looked at off the list moves the rows.
+        dialog = self.dialogs[index]
+        dialog_id = dialog["id"]
         if dialog_id == self.current_dialog_id:
             if focus_messages:
                 self.messages_list.SetFocus()
             return
+        if dialog_id != self.search_result_id:
+            # Another chat than the result looked at: the search is over.
+            self.end_global_search()
         if self.find_known_dialog(dialog_id) is None:
             # A contact never written to: from here on it is a chat like the others.
-            self.all_dialogs.insert(sum(1 for other in self.all_dialogs if other["pinned"]), self.dialogs[index])
+            self.all_dialogs.insert(sum(1 for other in self.all_dialogs if other["pinned"]), dialog)
         self.keep_draft()
-        self.unread_on_open = self.dialogs[index]["unread"]
+        self.unread_on_open = dialog["unread"]
         previous = self.current_dialog_id
         self.current_dialog_id = dialog_id
         # The chat left behind may have been only looked at; the list keeps its place on this one.
         self.drop_preview(previous)
         # From here on the window is this chat and nothing else, until it is left.
         self.show_chat_screen(True)
-        self.show_chat_name(self.dialogs[index])
+        self.show_chat_name(dialog)
         self.set_compose()
         self.message_input.SetValue(self.drafts.get(dialog_id, ""))
         self.messages = []
@@ -578,12 +583,28 @@ class ChatListMixin:
 
     def on_global_search_menu(self, event):
         """Search all of Telegram in a window of its own; a result opened is looked at like any chat."""
-        with GlobalSearchDialog(self, self.i18n, self.telegram_manager, self.add_joined_chat) as search_dialog:
-            if search_dialog.ShowModal() != wx.ID_OK:
-                return
-            chat = search_dialog.chosen
-        known = self.find_known_dialog(chat["id"])
-        self.open_chat(known or chat)
+        self.end_global_search()
+        self.global_search = GlobalSearchDialog(self, self.i18n, self.telegram_manager, self.add_joined_chat)
+        self.show_global_search()
+
+    def show_global_search(self):
+        """Show the search window, as it was left: Escape there ends the search; a result opened is entered,
+        and Escape out of it comes back here, to the same results."""
+        search_dialog = self.global_search
+        if not self or search_dialog is None:
+            return
+        if search_dialog.ShowModal() != wx.ID_OK:
+            self.end_global_search()
+            return
+        chat = search_dialog.chosen
+        self.search_result_id = chat["id"]
+        self.open_chat(self.find_known_dialog(chat["id"]) or chat)
+
+    def end_global_search(self):
+        if self.global_search is not None:
+            self.global_search.Destroy()
+        self.global_search = None
+        self.search_result_id = None
 
     def add_joined_chat(self, chat):
         """A group or channel joined from the search window: it belongs in the chat list from now on."""

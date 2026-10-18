@@ -163,6 +163,9 @@ class MainFrame(
         self.heard = {}
         # chat id -> what someone there is doing ("typing", "recording"), shown on its row for a while.
         self.typing_in = {}
+        # The search window while its results are being looked through, and the result opened from it.
+        self.global_search = None
+        self.search_result_id = None
         self.typing_row_timers = {}
         self.init_ui()
         self.init_reminders()
@@ -457,12 +460,18 @@ class MainFrame(
         self.show_chat_screen(False)
 
     def close_chat(self):
-        """Leave the open chat for the chat list, as Escape does in Telegram's own apps."""
+        """Leave the open chat for the chat list, as Escape does in Telegram's own apps; or, for a chat
+        opened from the search window, for that window again, with its results as they were."""
+        from_search = self.global_search is not None and self.current_dialog_id == self.search_result_id
         # What was being written stays with the chat.
         self.keep_draft()
         self.forget_open_chat()
         self.dialogs_list.SetFocus()
         self.notify(MSG_CHAT_CLOSED_KEY)
+        if from_search:
+            self.search_result_id = None
+            # After this key press is over: a window shown from inside it would take its Escape too.
+            wx.CallAfter(self.show_global_search)
 
     def status_text(self, chat):
         """"Online", "last seen ..." for a person's chat; empty for groups, channels, bots and hidden statuses."""

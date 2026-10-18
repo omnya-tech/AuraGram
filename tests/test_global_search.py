@@ -93,6 +93,35 @@ class SearchWindowTest(WindowTestCase):
         self.assertTrue(joined["joined"])
         self.assertIn(self.text(c.SEARCH_ROW_JOINED_KEY), self.dialog.results_list.GetString(0))
 
+    def choose_filter(self, name):
+        self.dialog.filter_choice.SetSelection(list(c.SEARCH_FILTERS).index(name))
+        self.dialog.on_filter_changed()
+
+    def test_the_kind_chosen_narrows_what_was_found_at_once(self):
+        FakeTelegramClient.public["news_bot"] = make_user(70, "News bot", bot=True)
+        FakeTelegramClient.public["newsgroup"] = types.Channel(
+            id=54, title="News group", photo=None, date=NOW, megagroup=True, broadcast=False, left=True, access_hash=1
+        )
+        self.search("news")
+        self.assertEqual(set(self.titles()), {"News", "Newsroom", "News bot", "News group"})
+        self.choose_filter("SEARCH_FILTER_GROUPS")
+        self.assertEqual(self.titles(), ["News group"])
+        self.choose_filter("SEARCH_FILTER_BOTS")
+        self.assertEqual(self.titles(), ["News bot"])
+        self.choose_filter("SEARCH_FILTER_PEOPLE")
+        self.assertEqual(self.titles(), [])
+        self.assertEqual(self.spoken[-1], self.text(c.MSG_NO_RESULTS_OF_KIND_KEY))
+        self.choose_filter("SEARCH_FILTER_ALL")
+        self.assertEqual(len(self.titles()), 4)
+
+    def test_a_kind_chosen_before_searching_looks_further_until_it_finds_one(self):
+        self.choose_filter("SEARCH_FILTER_CHANNELS")
+        self.dialog.search_input.SetValue("new")
+        self.dialog.search()
+        self.assertTrue(pump(lambda: not self.dialog.busy and self.dialog.round > 0))
+        self.assertTrue(self.titles())
+        self.assertTrue(all(chat["category"] == c.CATEGORY_BROADCASTS for chat in self.dialog.results))
+
     def test_a_person_cannot_be_joined(self):
         FakeTelegramClient.public["zed"] = make_user(9, "Zed", contact=False)
         self.search("zed")

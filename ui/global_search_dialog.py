@@ -9,7 +9,8 @@ from core.constants import (
     MSG_GLOBAL_SEARCH_MORE_FORMAT_KEY, MSG_GLOBAL_SEARCH_NO_MORE_KEY, MSG_SEARCHING_KEY, SEARCH_ROW_MEMBERS_FORMAT_KEY,
     SEARCH_ROW_JOINED_KEY, SEARCH_KIND_PERSON_KEY, SEARCH_KIND_BOT_KEY, CHAT_KIND_CHANNEL, CHAT_KIND_GROUP,
     MSG_JOINED_FORMAT_KEY, MSG_ALREADY_JOINED_KEY, MSG_CANNOT_JOIN_PERSON_KEY, FILE_LABEL_SEPARATOR_KEY,
-    CATEGORY_BROADCASTS, CATEGORY_GROUPS, CATEGORY_BOTS
+    CATEGORY_BROADCASTS, CATEGORY_GROUPS, CATEGORY_BOTS, SEARCH_FILTERS, SEARCH_FILTER_LABEL_KEY,
+    MSG_NO_RESULTS_OF_KIND_KEY
 )
 
 class GlobalSearchDialog(wx.Dialog):
@@ -36,6 +37,13 @@ class GlobalSearchDialog(wx.Dialog):
         self.busy = False
 
         sizer = wx.BoxSizer(wx.VERTICAL)
+        # Before the search, and changed at any time after it: the results already found are narrowed at once.
+        sizer.Add(wx.StaticText(self, label=i18n.get_string(SEARCH_FILTER_LABEL_KEY)), flag=wx.LEFT|wx.RIGHT|wx.TOP, border=10)
+        self.filter_choice = wx.Choice(self, choices=[i18n.get_string(name) for name in SEARCH_FILTERS])
+        self.filter_choice.SetName(i18n.get_string(SEARCH_FILTER_LABEL_KEY))
+        self.filter_choice.SetSelection(0)
+        self.filter_choice.Bind(wx.EVT_CHOICE, lambda event: self.on_filter_changed())
+        sizer.Add(self.filter_choice, flag=wx.LEFT|wx.RIGHT|wx.TOP, border=10)
         sizer.Add(wx.StaticText(self, label=i18n.get_string(GLOBAL_SEARCH_LABEL_KEY)), flag=wx.LEFT|wx.RIGHT|wx.TOP, border=10)
         search_row = wx.BoxSizer(wx.HORIZONTAL)
         self.search_input = wx.TextCtrl(self, style=wx.TE_PROCESS_ENTER)
@@ -72,6 +80,13 @@ class GlobalSearchDialog(wx.Dialog):
         self.CenterOnParent()
         self.update_buttons()
         self.search_input.SetFocus()
+
+    def ShowModal(self):
+        # Back from a result: on the results, where the user left them.
+        self.chosen = None
+        if self.results:
+            self.results_list.SetFocus()
+        return super().ShowModal()
 
     def on_char_hook(self, event):
         # Enter on a result opens it, rather than pressing some button of the window.
@@ -116,31 +131,53 @@ class GlobalSearchDialog(wx.Dialog):
             self.update_buttons()
             speak(self.i18n.get_string(error_key))
             return
-        before = len(self.found)
+        before = len(self.visible())
         for chat in chats or []:
             self.found.setdefault(chat["id"], chat)
-        added = len(self.found) - before
-        if not self.found and self.round < global_search.ROUNDS:
-            # Nothing at all yet: look more loosely by itself, rather than leave the user with an empty list.
+        added = len(self.visible()) - before
+        if not self.visible() and self.round < global_search.ROUNDS:
+            # Nothing of the kind asked for yet: look more loosely by itself, rather than leave the list empty.
             self.run_round()
             return
-        selected = self.selected()
-        self.results = global_search.ranked(list(self.found.values()), self.text)
-        self.results_list.Set([self.row(chat) for chat in self.results])
-        if self.results:
-            # Stay on the result being looked at, if there was one.
-            self.results_list.SetSelection(self.results.index(selected) if selected in self.results else 0)
-        self.update_buttons()
-        if not self.results:
-            text = self.i18n.get_string(MSG_GLOBAL_SEARCH_EMPTY_KEY)
+        if not self.visible():
+            text = self.i18n.get_string(MSG_NO_RESULTS_OF_KIND_KEY if self.found else MSG_GLOBAL_SEARCH_EMPTY_KEY)
         elif before:
-            text = self.i18n.get_string(MSG_GLOBAL_SEARCH_MORE_FORMAT_KEY).format(added=added, count=len(self.results))
+            text = self.i18n.get_string(MSG_GLOBAL_SEARCH_MORE_FORMAT_KEY).format(added=added, count=len(self.visible()))
         else:
-            text = self.i18n.get_string(MSG_GLOBAL_SEARCH_COUNT_FORMAT_KEY).format(count=len(self.results))
-        self.count_label.SetLabel(text)
-        speak(text)
+            text = self.i18n.get_string(MSG_GLOBAL_SEARCH_COUNT_FORMAT_KEY).format(count=len(self.visible()))
+        self.show_results(text)
         if self.results and before == 0:
             self.results_list.SetFocus()
+
+    def kinds(self):
+        """The categories of chat the filter lets through; None for all of them."""
+        return list(SEARCH_FILTERS.values())[max(self.filter_choice.GetSelection(), 0)]
+
+    def visible(self):
+        """What was found that the filter lets through, in no order."""
+        kinds = self.kinds()
+        return [chat for chat in self.found.values() if kinds is None or chat["category"] in kinds]
+
+    def show_results(self, text):
+        """Fill the list with what the filter lets through, nearest first, and say `text`."""
+        selected = self.selected()
+        self.results = global_search.ranked(self.visible(), self.text)
+        self.results_list.Set([self.row(chat) for chat in self.results])
+        if self.results:
+            # Stay on the result being looked at, if there was one and it is still let through.
+            self.results_list.SetSelection(self.results.index(selected) if selected in self.results else 0)
+        self.update_buttons()
+        self.count_label.SetLabel(text)
+        speak(text)
+
+    def on_filter_changed(self):
+        if not self.found:
+            return
+        if self.visible():
+            text = self.i18n.get_string(MSG_GLOBAL_SEARCH_COUNT_FORMAT_KEY).format(count=len(self.visible()))
+        else:
+            text = self.i18n.get_string(MSG_NO_RESULTS_OF_KIND_KEY)
+        self.show_results(text)
 
     def row(self, chat):
         """A result as one line: its name, what it is, its username and size, and whether it is joined."""
