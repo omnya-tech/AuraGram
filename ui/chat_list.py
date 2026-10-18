@@ -3,9 +3,13 @@ from core.speech import speak
 from core.settings import SETTING_CHAT_KIND
 from ui.chat_picker_dialog import ChatPickerDialog
 from ui.type_ahead import attach_to_lists
+from ui.global_search_dialog import GlobalSearchDialog
 from ui.chat_info_dialog import ChatInfoDialog
 from core.chat_views import ARCHIVE_VIEW, build_views, contacts_first_online, is_online
+from core import shortcuts
 from core.constants import (
+    MSG_NOT_JOINED_FORMAT_KEY, MSG_NOT_JOINED_NO_KEY_FORMAT_KEY, DIALOG_NOT_JOINED_KEY,
+    MSG_PREVIEW_REMOVED_FORMAT_KEY, MENU_CHAT_JOIN_KEY,
     CATEGORY_GROUPS, CATEGORY_BROADCASTS, CONTEXT_LEAVE_KEY, CONTEXT_DELETE_CHAT_KEY,
     MSG_CONFIRM_LEAVE_KEY, MSG_CONFIRM_DELETE_CHAT_KEY, MSG_LEFT_KEY, MSG_VIEW_COUNT_FORMAT_KEY,
     MSG_CHOOSE_CONTACT_KEY, MSG_NO_CONTACTS_KEY, MSG_FIND_CHAT_PROMPT_KEY, CONTEXT_INFO_KEY,
@@ -25,7 +29,6 @@ from core.constants import (
     MSG_CONTACT_ADDED_FORMAT_KEY, MSG_CONTACT_DELETED_FORMAT_KEY, MSG_CONFIRM_DELETE_CONTACT_FORMAT_KEY,
     MSG_CONFIRM_BLOCK_FORMAT_KEY, MSG_CONFIRM_UNBLOCK_FORMAT_KEY, MSG_BLOCKED_FORMAT_KEY,
     MSG_UNBLOCKED_FORMAT_KEY, MSG_NO_BLOCKED_KEY, MSG_CHOOSE_BLOCKED_KEY, MSG_NOT_A_PERSON_KEY,
-    MSG_GLOBAL_SEARCH_PROMPT_KEY, MSG_GLOBAL_SEARCH_RESULTS_KEY, MSG_GLOBAL_SEARCH_EMPTY_KEY,
     MSG_CONFIRM_JOIN_FORMAT_KEY, MSG_JOINED_FORMAT_KEY, MSG_ALREADY_JOINED_KEY, MSG_MANAGE_FOLDERS_KEY,
     FOLDER_NEW_KEY, MSG_FOLDER_ACTION_FORMAT_KEY, FOLDER_EDIT_KEY, FOLDER_DELETE_KEY,
     MSG_FOLDER_NAME_PROMPT_KEY, MSG_FOLDER_RULES_PROMPT_KEY, FOLDER_RULE_KEY_PREFIX, FOLDER_EXCLUSIONS,
@@ -174,6 +177,8 @@ class ChatListMixin:
         """One row of the chat list: name, state, then the latest message whether read or not."""
         details = []
         title = dialog["title"]
+        if dialog.get("preview"):
+            details.append(self.i18n.get_string(DIALOG_NOT_JOINED_KEY))
         if dialog["id"] in self.typing_in:
             # First after the name: it is news, and it lasts only seconds.
             details.append(self.typing_in[dialog["id"]])
@@ -318,7 +323,10 @@ class ChatListMixin:
             self.all_dialogs.insert(sum(1 for other in self.all_dialogs if other["pinned"]), self.dialogs[index])
         self.keep_draft()
         self.unread_on_open = self.dialogs[index]["unread"]
+        previous = self.current_dialog_id
         self.current_dialog_id = dialog_id
+        # The chat left behind may have been only looked at; the list keeps its place on this one.
+        self.drop_preview(previous)
         # From here on the window is this chat and nothing else, until it is left.
         self.show_chat_screen(True)
         self.show_chat_name(self.dialogs[index])
@@ -351,6 +359,9 @@ class ChatListMixin:
         known = self.find_known_dialog(chat["id"])
         if known is None:
             known = chat
+            if not chat["joined"] and not self.is_private_chat(chat):
+                # Only looked at: in the list while it is open, gone once it is left unless joined.
+                chat["preview"] = True
             self.all_dialogs.insert(sum(1 for other in self.all_dialogs if other["pinned"]), chat)
         if self.find_dialog_index(known["id"]) == wx.NOT_FOUND:
             if not self.views[self.view_index].matches(known):
@@ -367,6 +378,23 @@ class ChatListMixin:
             index = self.find_dialog_index(known["id"])
         self.dialogs_list.SetSelection(index)
         self.open_selected_dialog(True)
+        if known.get("preview"):
+            self.announce(self.join_hint(known))
+
+    def join_hint(self, dialog):
+        """How to join a group or channel only looked at, with the shortcut for it as it is now."""
+        shortcut = shortcuts.current(self.settings)[MENU_CHAT_JOIN_KEY]
+        if shortcut:
+            return self.i18n.get_string(MSG_NOT_JOINED_FORMAT_KEY).format(title=dialog["title"], shortcut=shortcut)
+        return self.i18n.get_string(MSG_NOT_JOINED_NO_KEY_FORMAT_KEY).format(title=dialog["title"])
+
+    def drop_preview(self, dialog_id):
+        """Take off the list a group or channel that was only looked at and has been left without joining."""
+        dialog = self.find_known_dialog(dialog_id)
+        if dialog is None or not dialog.get("preview") or dialog["joined"]:
+            return
+        self.all_dialogs.remove(dialog)
+        self.render_dialogs()
 
     def on_new_chat_menu(self, event):
         self.set_status(MSG_LOADING_KEY)
@@ -431,8 +459,10 @@ class ChatListMixin:
 
     def on_joined(self, chat, dialog=None):
         if dialog is not None:
-            # Already in the list: keep its row, with what joining has changed.
+            # Already in the list: keep its row, with what joining has changed. Joined, it stays.
             dialog.update(joined=chat["joined"], can_send=chat["can_send"])
+            dialog.pop("preview", None)
+            self.refresh_dialog_row(dialog)
             if dialog["id"] == self.current_dialog_id:
                 self.enable_chat(True)
         else:
@@ -547,19 +577,24 @@ class ChatListMixin:
         self.notify(MSG_ALL_READ_KEY)
 
     def on_global_search_menu(self, event):
-        query = self.ask_text(MSG_GLOBAL_SEARCH_PROMPT_KEY)
-        if query:
-            self.set_status(MSG_LOADING_KEY)
-            self.telegram_manager.search_public(query, self.on_ui_thread(self.show_global_results))
+        """Search all of Telegram in a window of its own; a result opened is looked at like any chat."""
+        with GlobalSearchDialog(self, self.i18n, self.telegram_manager, self.add_joined_chat) as search_dialog:
+            if search_dialog.ShowModal() != wx.ID_OK:
+                return
+            chat = search_dialog.chosen
+        known = self.find_known_dialog(chat["id"])
+        self.open_chat(known or chat)
 
-    def show_global_results(self, chats):
-        self.set_status(STATUS_READY_KEY)
-        if not chats:
-            self.notify(MSG_GLOBAL_SEARCH_EMPTY_KEY)
+    def add_joined_chat(self, chat):
+        """A group or channel joined from the search window: it belongs in the chat list from now on."""
+        known = self.find_known_dialog(chat["id"])
+        if known is not None:
+            known.update(joined=True, can_send=chat["can_send"])
+            known.pop("preview", None)
+            self.refresh_dialog_row(known)
             return
-        chat = self.choose_chat(MSG_GLOBAL_SEARCH_RESULTS_KEY, chats)
-        if chat is not None:
-            self.open_chat(chat)
+        self.all_dialogs.insert(sum(1 for other in self.all_dialogs if other["pinned"]), chat)
+        self.render_dialogs()
 
     def confirm(self, question):
         answer = wx.MessageBox(
@@ -892,6 +927,9 @@ class ChatListMixin:
         self.notify(MSG_HISTORY_CLEARED_KEY)
 
     def leave_chat(self, dialog, is_private):
+        if not is_private and not dialog["joined"]:
+            self.remove_preview(dialog)
+            return
         confirm_key = MSG_CONFIRM_DELETE_CHAT_KEY if is_private else MSG_CONFIRM_LEAVE_KEY
         answer = wx.MessageBox(
             self.i18n.get_string(confirm_key).format(title=dialog["title"]),
@@ -900,6 +938,15 @@ class ChatListMixin:
         )
         if answer == wx.YES:
             self.telegram_manager.leave_chat(dialog["id"], self.on_ui_thread(self.on_chat_left, dialog))
+
+    def remove_preview(self, dialog):
+        """"Leave" a group or channel never joined: there is nothing to leave, only its row to take away."""
+        if dialog in self.all_dialogs:
+            self.all_dialogs.remove(dialog)
+        if dialog["id"] == self.current_dialog_id:
+            self.forget_open_chat()
+        self.render_dialogs()
+        self.announce(self.i18n.get_string(MSG_PREVIEW_REMOVED_FORMAT_KEY).format(title=dialog["title"]))
 
     def on_chat_left(self, result, dialog):
         if dialog in self.all_dialogs:

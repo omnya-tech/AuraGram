@@ -7,6 +7,7 @@ import threading
 from telethon import TelegramClient, events
 from telethon.password import compute_check
 from telethon.errors import (
+    UserNotParticipantError,
     PhoneCodeInvalidError, PhoneCodeExpiredError, PhoneNumberInvalidError,
     SessionPasswordNeededError, PasswordHashInvalidError, FloodWaitError,
     MessageNotModifiedError, ChatAdminRequiredError, ChatWriteForbiddenError,
@@ -437,9 +438,10 @@ class TelegramManager(threading.Thread):
         """The result is the blocked people, shaped like chats."""
         self._request(on_result, self._load_blocked_async)
 
-    def search_public(self, query, on_result):
-        """Look through all of Telegram for people, groups and channels; the result is a list of chats."""
-        self._request(on_result, self._search_public_async, query)
+    def search_public(self, queries, on_result):
+        """Look through all of Telegram for people, groups and channels, once for each of `queries`.
+        The result is every chat found, once each, with its "username" and its number of "members" when known."""
+        self._request(on_result, self._search_public_async, queries)
 
     def resolve_link(self, text, on_result):
         """Find what a username, phone number or t.me link points to. The result is
@@ -976,9 +978,23 @@ class TelegramManager(threading.Thread):
         result = await self.client(functions.contacts.GetBlockedRequest(offset=0, limit=BLOCKED_LIMIT))
         return [self._remember_chat(user) for user in result.users]
 
-    async def _search_public_async(self, query):
-        result = await self.client(functions.contacts.SearchRequest(q=query, limit=GLOBAL_SEARCH_LIMIT))
-        return [self._remember_chat(entity) for entity in list(result.users) + list(result.chats)]
+    async def _search_public_async(self, queries):
+        found = {}
+        for query in queries:
+            try:
+                result = await self.client(functions.contacts.SearchRequest(q=query, limit=GLOBAL_SEARCH_LIMIT))
+            except FloodWaitError:
+                # Asked too often: what was found so far is still worth showing.
+                if found:
+                    break
+                raise
+            for entity in list(result.users) + list(result.chats):
+                chat = self._remember_chat(entity)
+                if chat["id"] not in found:
+                    chat["username"] = getattr(entity, "username", None)
+                    chat["members"] = getattr(entity, "participants_count", None)
+                    found[chat["id"]] = chat
+        return list(found.values())
 
     async def _resolve_link_async(self, text):
         invite_hash, is_invite = parse_username(text)
@@ -2221,7 +2237,11 @@ class TelegramManager(threading.Thread):
         return events
 
     async def _leave_chat_async(self, dialog_id):
-        await self.client.delete_dialog(self.entities[dialog_id])
+        try:
+            await self.client.delete_dialog(self.entities[dialog_id])
+        except UserNotParticipantError:
+            # Never joined, or already gone: either way it is left.
+            pass
 
     async def _react_async(self, dialog_id, message_id, emoji):
         entity = self.entities[dialog_id]

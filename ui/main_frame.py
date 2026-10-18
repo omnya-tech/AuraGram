@@ -1,7 +1,7 @@
 import os
 import threading
 import wx
-from core import audio, diagnostics, key_conflicts, shortcuts, sounds, updates
+from core import audio, diagnostics, key_conflicts, shortcut_guide, shortcuts, sounds, updates
 from core.speech import speak
 from core.settings import (
     SETTING_KEEP_IN_BACKGROUND, SETTING_LARGE_TEXT, SETTING_THEME, SETTING_SPEAK_FEEDBACK,
@@ -57,7 +57,10 @@ from core.constants import (
     MESSAGE_INPUT_HEIGHT, MENU_LICENSE_KEY, LICENSE_TITLE_KEY, LICENSE_FILE_NAME, NOTICES_FILE_NAME, RESOURCE_DIR,
     LICENSE_NOTICE_KEY, LICENSE_SOURCE_FORMAT_KEY, SOURCE_CODE_URL, SOUND_VOLUMES,
     MENU_DOWNLOAD_FILES_KEY, MENU_DOWNLOAD_STATUS_KEY, MENU_CANCEL_DOWNLOADS_KEY, MENU_EXPORT_CHAT_KEY,
-    MENU_CHAT_TONE_KEY, MENU_REMIND_KEY, MENU_REMINDERS_KEY, MENU_CANCEL_UPLOAD_KEY
+    MENU_CHAT_TONE_KEY, MENU_REMIND_KEY, MENU_REMINDERS_KEY, MENU_CANCEL_UPLOAD_KEY, MENU_EXPORT_SHORTCUTS_KEY,
+    GUIDE_HTML_FILES_KEY, GUIDE_TEXT_FILES_KEY, GUIDE_EXTENSIONS, MSG_EXPORT_GUIDE_PROMPT_KEY, GUIDE_FILE_NAME_KEY,
+    GUIDE_SHORTCUT_COLUMN_KEY, GUIDE_COMMAND_COLUMN_KEY, MSG_GUIDE_EXPORTED_FORMAT_KEY, ERR_GUIDE_EXPORT_KEY,
+    TEXT_DIRECTION_KEY, ENCODING_UTF8
 )
 from ui.chat_list import ChatListMixin
 from ui.message_list import MessageListMixin
@@ -429,7 +432,9 @@ class MainFrame(
 
     def forget_open_chat(self):
         """Empty the message area: no chat is open any more."""
+        previous = self.current_dialog_id
         self.current_dialog_id = None
+        self.drop_preview(previous)
         self.thread = None
         self.message_view = None
         self.show_chat_name(None)
@@ -577,6 +582,7 @@ class MainFrame(
             )),
             (MENU_HELP_KEY, (
                 (MENU_SHORTCUTS_KEY, self.on_shortcuts_menu, wx.ID_HELP),
+                (MENU_EXPORT_SHORTCUTS_KEY, self.on_export_shortcuts_menu),
                 (MENU_CONNECTION_KEY, self.on_connection_menu),
                 (MENU_CHECK_UPDATES_KEY, lambda event: self.check_for_updates(quiet=False)),
                 (MENU_PROBLEM_REPORT_KEY, self.on_problem_report_menu),
@@ -811,31 +817,79 @@ class MainFrame(
                 profile, self.on_ui_thread(lambda result: self.notify(MSG_PROFILE_SAVED_KEY))
             )
 
-    def show_text(self, title_key, text):
-        with TextDialog(self, self.i18n, self.i18n.get_string(title_key), text) as text_dialog:
+    def show_text(self, title_key, text, on_export=None):
+        kwargs = {} if on_export is None else {"on_export": on_export}
+        with TextDialog(self, self.i18n, self.i18n.get_string(title_key), text, **kwargs) as text_dialog:
             text_dialog.ShowModal()
 
     def on_shortcuts_menu(self, event):
-        self.show_text(SHORTCUTS_TITLE_KEY, self.shortcuts_text())
+        self.show_text(SHORTCUTS_TITLE_KEY, self.shortcuts_text(), on_export=self.export_shortcuts)
 
-    def shortcuts_text(self):
-        """The keys that never change, then every menu with the shortcuts its entries have now."""
-        line = self.i18n.get_string(SHORTCUTS_HELP_LINE_FORMAT_KEY)
-        parts = [self.i18n.get_string(SHORTCUTS_TEXT_KEY)]
+    def shortcuts_guide(self):
+        """(the keys that never change, [(menu, [(shortcut, command), ...]), ...]) with the shortcuts as they are now."""
+        sections = []
         for menu, title in self.GetMenuBar().GetMenus():
             rows = [
-                line.format(shortcut=item.GetItemLabel().partition("\t")[2], command=item.GetItemLabelText())
+                (item.GetItemLabel().partition("\t")[2], item.GetItemLabelText())
                 for item in menu.GetMenuItems() if "\t" in item.GetItemLabel()
             ]
             if rows:
-                parts.append("\n".join([wx.MenuItem.GetLabelText(title)] + rows))
+                sections.append((wx.MenuItem.GetLabelText(title), rows))
         hotkey = self.show_window_shortcut()
         if hotkey:
-            parts.append("\n".join([
+            sections.append((
                 self.i18n.get_string(SHORTCUTS_HELP_ANYWHERE_KEY),
-                line.format(shortcut=hotkey, command=shortcuts.label(self.i18n, SHORTCUT_SHOW_WINDOW))
-            ]))
-        return "\n\n".join(parts)
+                [(hotkey, shortcuts.label(self.i18n, SHORTCUT_SHOW_WINDOW))]
+            ))
+        return self.i18n.get_string(SHORTCUTS_TEXT_KEY), sections
+
+    def shortcuts_text(self):
+        """The keys that never change, then every menu with the shortcuts its entries have now."""
+        return shortcut_guide.to_text(*self.shortcuts_guide(), self.i18n.get_string(SHORTCUTS_HELP_LINE_FORMAT_KEY))
+
+    def on_export_shortcuts_menu(self, event):
+        self.export_shortcuts()
+
+    def export_shortcuts(self):
+        """Save the guide where the user says, as a web page or as text."""
+        text = self.i18n.get_string
+        wildcard = "|".join(
+            "%s (*%s)|*%s" % (text(label_key), extension, extension)
+            for label_key, extension in zip((GUIDE_HTML_FILES_KEY, GUIDE_TEXT_FILES_KEY), GUIDE_EXTENSIONS)
+        )
+        with wx.FileDialog(
+            self, text(MSG_EXPORT_GUIDE_PROMPT_KEY), self.downloads_folder(), text(GUIDE_FILE_NAME_KEY), wildcard,
+            wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT
+        ) as file_dialog:
+            if file_dialog.ShowModal() != wx.ID_OK:
+                return
+            path, kind = file_dialog.GetPath(), file_dialog.GetFilterIndex()
+        self.write_shortcuts_guide(path, GUIDE_EXTENSIONS[kind])
+
+    def write_shortcuts_guide(self, path, extension):
+        """Write the guide to `path`, given the extension of its kind if it has none of its own."""
+        if os.path.splitext(path)[1].lower() not in GUIDE_EXTENSIONS:
+            path += extension
+        intro, sections = self.shortcuts_guide()
+        if path.lower().endswith(".html"):
+            content = shortcut_guide.to_html(
+                self.i18n.get_string(SHORTCUTS_TITLE_KEY), intro, sections, self.settings.get(SETTING_LANGUAGE),
+                self.i18n.get_string(TEXT_DIRECTION_KEY), self.i18n.get_string(GUIDE_SHORTCUT_COLUMN_KEY),
+                self.i18n.get_string(GUIDE_COMMAND_COLUMN_KEY)
+            )
+            encoding = ENCODING_UTF8
+        else:
+            content = shortcut_guide.to_text(intro, sections, self.i18n.get_string(SHORTCUTS_HELP_LINE_FORMAT_KEY))
+            # With a byte order mark, so Notepad and every other editor see Arabic as Arabic.
+            encoding = ENCODING_UTF8 + "-sig"
+        try:
+            with open(path, "w", encoding=encoding) as guide_file:
+                guide_file.write(content)
+        except OSError:
+            self.show_error(ERR_GUIDE_EXPORT_KEY)
+            return None
+        self.announce(self.i18n.get_string(MSG_GUIDE_EXPORTED_FORMAT_KEY).format(path=path))
+        return path
 
     def on_about_menu(self, event):
         wx.MessageBox(
@@ -954,9 +1008,14 @@ class MainFrame(
         self.attach_btn.Enable(usable)
         self.record_btn.Enable(usable and audio.AVAILABLE)
         if not self.reply_to and not self.editing:
-            # In a channel that only its admins post to, say why the field is locked.
+            # In a channel that only its admins post to, say why the field is locked;
+            # in one only looked at, how to join it.
             read_only = self.current_dialog_id is not None and not can_send
-            label = self.i18n.get_string(MSG_CANNOT_WRITE_KEY if read_only else MESSAGE_INPUT_LABEL_KEY)
+            chat = self.current_dialog()
+            if read_only and chat.get("preview"):
+                label = self.join_hint(chat)
+            else:
+                label = self.i18n.get_string(MSG_CANNOT_WRITE_KEY if read_only else MESSAGE_INPUT_LABEL_KEY)
             self.input_label.SetLabel(label)
             self.message_input.SetName(label)
 

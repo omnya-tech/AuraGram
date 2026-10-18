@@ -68,7 +68,7 @@ Name: "arabic"; MessagesFile: "compiler:Languages\Arabic.isl"; LicenseFile: "LIC
 Name: "english"; MessagesFile: "compiler:Default.isl"; LicenseFile: "LICENSE"
 
 [CustomMessages]
-arabic.NeedsFullInstall=هذا ملف تحديث فقط، و AuraGram غير مثبت على هذا الجهاز. نزّل الإصدار الكامل وثبّته.
+arabic.NeedsFullInstall=هذا ملف تحديث فقط، و AuraGram غير مثبت على هذا الجهاز. حمّل الإصدار الكامل وثبّته.
 english.NeedsFullInstall=This is an update only, and AuraGram is not installed on this computer. Download and install the full version instead.
 arabic.DesktopIcon=إنشاء اختصار على سطح المكتب
 english.DesktopIcon=Create a desktop shortcut

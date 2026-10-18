@@ -675,7 +675,7 @@ class DraftAndReadingTest(WindowTestCase):
         shown = []
 
         class CapturingDialog:
-            def __init__(self, parent, i18n, title, text):
+            def __init__(self, parent, i18n, title, text, on_export=None):
                 shown.append((title, text))
 
             def __enter__(self):
