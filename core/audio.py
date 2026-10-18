@@ -3,6 +3,7 @@
 Needs the optional packages av, numpy and sounddevice; `AVAILABLE` says
 whether they could be loaded.
 """
+import io
 import threading
 
 try:
@@ -32,14 +33,14 @@ LEVEL_PEAK_PERCENTILE = 99.9
 LIMIT_KNEE = 0.9
 
 
-def decode(path, speed=1.0):
-    """Read any audio file into a mono int16 array at SAMPLE_RATE.
+def decode(source, speed=1.0):
+    """Read any audio, a file's path or its bytes held in memory, into a mono int16 array at SAMPLE_RATE.
 
     `speed` shortens or stretches it without changing how high the voice sounds.
     """
     resampler = av.AudioResampler(format="s16", layout="mono", rate=SAMPLE_RATE)
     chunks = []
-    with av.open(path) as container:
+    with av.open(io.BytesIO(source) if isinstance(source, bytes) else source) as container:
         stream = container.streams.audio[0]
         if speed == 1.0:
             frames = container.decode(stream)

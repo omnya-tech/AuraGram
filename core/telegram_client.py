@@ -535,6 +535,10 @@ class TelegramManager(threading.Thread):
     def set_pinned(self, dialog_id, message_id, pinned, on_result):
         self._request(on_result, self._set_pinned_async, dialog_id, message_id, pinned)
 
+    def fetch_media(self, dialog_id, message_id, on_result, on_progress=None):
+        """The message's media as bytes, held in memory only: nothing is written to the disk."""
+        self._request(on_result, self._fetch_media_async, dialog_id, message_id, self._percent_reporter(on_progress))
+
     def download_media(self, dialog_id, message_id, on_result, folder=None, on_progress=None):
         """Saves the message's media to `folder` (the downloads folder by default); the result is the file path.
         on_progress(percent) is called from this thread as the file comes in."""
@@ -1866,6 +1870,13 @@ class TelegramManager(threading.Thread):
         if not path:
             raise ValueError("message has no downloadable media")
         return path
+
+    async def _fetch_media_async(self, dialog_id, message_id, report):
+        message = await self.client.get_messages(self.entities[dialog_id], ids=message_id)
+        data = await self.client.download_media(message, file=bytes, progress_callback=report)
+        if not data:
+            raise ValueError("message has no downloadable media")
+        return data
 
     async def _mark_read_async(self, dialog_id):
         # Best effort: failing to mark as read must not fail the request around it.

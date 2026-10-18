@@ -2,6 +2,7 @@ import wx
 from core.speech import speak
 from core.settings import SETTING_CHAT_KIND
 from ui.chat_picker_dialog import ChatPickerDialog
+from ui.type_ahead import attach_to_lists
 from ui.chat_info_dialog import ChatInfoDialog
 from core.chat_views import ARCHIVE_VIEW, build_views, contacts_first_online, is_online
 from core.constants import (
@@ -447,6 +448,7 @@ class ChatListMixin:
     def pick(self, prompt, choices):
         """Index picked from a list; None if the user backs out."""
         with wx.SingleChoiceDialog(self, prompt, self.i18n.get_string(APP_TITLE_KEY), choices) as choice_dialog:
+            choice_dialog.type_ahead = attach_to_lists(choice_dialog)
             if choice_dialog.ShowModal() != wx.ID_OK:
                 return None
             return choice_dialog.GetSelection()
@@ -454,6 +456,7 @@ class ChatListMixin:
     def pick_many(self, prompt, choices, selected):
         """Indexes ticked in a list that starts with `selected` ticked; None if the user backs out."""
         with wx.MultiChoiceDialog(self, prompt, self.i18n.get_string(APP_TITLE_KEY), choices) as choice_dialog:
+            choice_dialog.type_ahead = attach_to_lists(choice_dialog)
             choice_dialog.SetSelections(selected)
             if choice_dialog.ShowModal() != wx.ID_OK:
                 return None

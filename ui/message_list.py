@@ -19,6 +19,7 @@ from core.constants import (
     CONTEXT_OPEN_MEDIA_KEY, MSG_SEARCH_MESSAGES_PROMPT_KEY, MSG_SEARCH_RESULTS_FORMAT_KEY,
     MSG_SEARCH_NO_RESULTS_KEY, MSG_SEARCH_CLOSED_KEY, MEDIA_VOICE, MESSAGES_LIMIT,
     MSG_LOAD_OLDER_KEY, MSG_DOWNLOADING_KEY, DOWNLOADABLE_MEDIA, SAFE_OPEN_EXTENSIONS,
+    PLAYABLE_MEDIA, HEARD_KEPT, MSG_FETCHING_SOUND_KEY,
     SNIPPET_LENGTH, REPLY_PREFIX_FORMAT_KEY, APP_TITLE_KEY, MESSAGE_FORMAT_KEY, SENDER_YOU_KEY,
     MESSAGE_NO_SENDER_FORMAT_KEY, MESSAGE_NO_SENDER_NO_TIME_FORMAT, CATEGORY_BROADCASTS,
     MSG_NO_TEXT_KEY, MSG_LOADING_KEY, STATUS_READY_KEY, TIME_FORMAT, DATE_TIME_FORMAT,
@@ -397,16 +398,49 @@ class MessageListMixin:
         self.telegram_manager.download_media(
             self.peer(self.current_dialog_id), message["id"],
             self.on_ui_thread(self.open_media, cache_key, message["media"]),
+            folder=self.downloads_folder(), on_progress=self.progress_reporter(MSG_DOWNLOAD_PROGRESS_FORMAT_KEY)
+        )
+
+    def listen(self):
+        """Space on a voice message or a song: play it straight from Telegram, holding it in memory only,
+        or stop it if it is playing. False if the selected message has no sound to play."""
+        message = self.selected_message()
+        if message is None or message["media"] not in PLAYABLE_MEDIA or not audio.AVAILABLE:
+            return False
+        if self.stop_playback():
+            return True
+        if self.is_busy:
+            return True
+        key = (self.peer(self.current_dialog_id), message["id"])
+        sound = self.heard.get(key)
+        if sound is not None:
+            self.play_voice(sound)
+            return True
+        self.is_busy = True
+        self.set_status(MSG_FETCHING_SOUND_KEY)
+        self.telegram_manager.fetch_media(
+            key[0], message["id"], self.on_ui_thread(self.on_sound_fetched, key),
             on_progress=self.progress_reporter(MSG_DOWNLOAD_PROGRESS_FORMAT_KEY)
         )
+        return True
+
+    def on_sound_fetched(self, sound, key):
+        self.is_busy = False
+        self.hide_progress()
+        self.heard[key] = sound
+        while len(self.heard) > HEARD_KEPT:
+            # The one heard longest ago goes first.
+            self.heard.pop(next(iter(self.heard)))
+        self.play_voice(sound)
 
     def open_media(self, path, cache_key, media):
         self.is_busy = False
         self.hide_progress()
         self.downloaded[cache_key] = path
         self.set_status(STATUS_READY_KEY)
-        if media == MEDIA_VOICE and audio.AVAILABLE:
-            self.play_voice(path)
+        if media in PLAYABLE_MEDIA:
+            # Enter asked for it to be kept: it is, in the downloads; Space is what plays it.
+            self.announce(self.i18n.get_string(MSG_SAVED_FORMAT_KEY).format(path=path))
         # Only hand known media formats to their default app; anything else
         # could be a program, so just show the folder it was saved in.
         elif os.path.splitext(path)[1].lower() in SAFE_OPEN_EXTENSIONS:

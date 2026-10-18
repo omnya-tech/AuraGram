@@ -8,13 +8,16 @@ from core.settings import (
     SETTING_MARK_READ_ON_OPEN, SETTING_START_SOUND, SETTING_ANNOUNCE_INTERRUPT,
     SETTING_BRAILLE_MESSAGES, SETTING_SPEAK_FEEDBACK, SETTING_ANNOUNCE_CONNECTION, SETTING_SIMPLE_TAB,
     SETTING_SHOW_PREVIEW, SETTING_ANNOUNCE_WHEN, SETTING_ANNOUNCE_WHAT, SETTING_ANNOUNCE_TYPING,
-    SETTING_VOICE_SPEED, SETTING_SOUND_VOLUME, SETTING_MIC_DEVICE, SETTING_MIC_LEVEL, SETTING_NOISE, SETTING_LANGUAGE, CHOICES,
+    SETTING_VOICE_SPEED, SETTING_SOUND_VOLUME, SETTING_DOWNLOAD_FOLDER, SETTING_DOWNLOAD_PER_CHAT,
+    SETTING_DOWNLOAD_SKIP, SETTING_DOWNLOAD_SPEAK_EACH, SETTING_DOWNLOAD_DONE_SOUND, SETTING_DOWNLOAD_CHECK_ALL,
+    SETTING_DOWNLOAD_KINDS, SETTING_MIC_DEVICE, SETTING_MIC_LEVEL, SETTING_NOISE, SETTING_LANGUAGE, CHOICES,
     SETTING_CHECK_UPDATES, SETTING_GEMINI_KEY, SETTING_CHAT_KIND, SETTING_MESSAGE_STATS, SETTING_TIME_STYLE,
     SETTING_RECORD_SOUND, SETTING_ENTER_SENDS
 )
 from ui.layout import prepare_window
 from ui.proxy_dialog import ProxyDialog
 from ui.shortcut_dialog import ShortcutDialog
+from ui.type_ahead import TypeAhead
 from core.constants import (
     SOUNDS_DIR, SETTINGS_THEME_LABEL_KEY, SETTINGS_LARGE_TEXT_KEY, SETTINGS_KEEP_IN_BACKGROUND_KEY, SETTINGS_SENT_SOUND_KEY, SETTINGS_TITLE_KEY, SETTINGS_TAB_APP_KEY, SETTINGS_TAB_ACCOUNT_KEY,
     SETTINGS_APP_NOTE_KEY, SETTINGS_ACCOUNT_NOTE_KEY, SETTINGS_PLAY_SOUND_KEY,
@@ -43,6 +46,10 @@ from core.constants import (
     MSG_TWO_STEP_EMAIL_KEY, MSG_TWO_STEP_EMAIL_CODE_KEY, BTN_CHANGE_PHONE_KEY, MSG_NEW_PHONE_PROMPT_KEY,
     MSG_NEW_PHONE_CODE_KEY, MSG_PHONE_CHANGED_KEY, BTN_DELETE_ACCOUNT_KEY, MSG_CONFIRM_DELETE_ACCOUNT_KEY,
     MSG_DELETE_ACCOUNT_WORD_KEY, DELETE_ACCOUNT_WORD_KEY, MSG_DELETE_ACCOUNT_CANCELLED_KEY,
+    SETTINGS_TAB_DOWNLOADS_KEY, DOWNLOADS_NOTE_KEY, DOWNLOAD_FOLDER_LABEL_KEY, BTN_CHOOSE_FOLDER_KEY,
+    BTN_DEFAULT_FOLDER_KEY, MSG_CHOOSE_DOWNLOAD_FOLDER_KEY, SETTINGS_DOWNLOAD_PER_CHAT_KEY, SETTINGS_DOWNLOAD_SKIP_KEY,
+    SETTINGS_DOWNLOAD_SPEAK_EACH_KEY, SETTINGS_DOWNLOAD_DONE_SOUND_KEY, SETTINGS_DOWNLOAD_CHECK_ALL_KEY,
+    DOWNLOAD_KINDS_LABEL_KEY, DOWNLOADS_DIR,
     MSG_ACCOUNT_DELETED_KEY, SETTINGS_VOICE_SPEED_LABEL_KEY, SOUND_VOLUME_LABEL_KEY, SOUND_VOLUMES, SETTINGS_TAB_MICROPHONE_KEY, MIC_NOTE_KEY,
     MIC_DEVICE_LABEL_KEY, MIC_DEVICE_DEFAULT_KEY, MIC_LEVEL_LABEL_KEY, MIC_NOISE_LABEL_KEY, BTN_TEST_MIC_KEY,
     MSG_MIC_TEST_SPEAK_KEY, MSG_MIC_TEST_PLAYING_KEY, MSG_MIC_TEST_SILENT_KEY, MIC_LEVELS, NOISE_LEVELS,
@@ -83,6 +90,13 @@ SOUND_OPTIONS = (
     (SETTING_SENT_SOUND, SETTINGS_SENT_SOUND_KEY),
     (SETTING_START_SOUND, SETTINGS_START_SOUND_KEY),
     (SETTING_RECORD_SOUND, SETTINGS_RECORD_SOUND_KEY),
+)
+DOWNLOAD_OPTIONS = (
+    (SETTING_DOWNLOAD_PER_CHAT, SETTINGS_DOWNLOAD_PER_CHAT_KEY),
+    (SETTING_DOWNLOAD_SKIP, SETTINGS_DOWNLOAD_SKIP_KEY),
+    (SETTING_DOWNLOAD_SPEAK_EACH, SETTINGS_DOWNLOAD_SPEAK_EACH_KEY),
+    (SETTING_DOWNLOAD_DONE_SOUND, SETTINGS_DOWNLOAD_DONE_SOUND_KEY),
+    (SETTING_DOWNLOAD_CHECK_ALL, SETTINGS_DOWNLOAD_CHECK_ALL_KEY),
 )
 PROFILE_FIELDS = (
     ("first_name", PROFILE_FIRST_NAME_KEY),
@@ -128,6 +142,7 @@ class SettingsDialog(wx.Dialog):
         notebook.AddPage(self.create_accessibility_page(notebook), i18n.get_string(SETTINGS_TAB_ACCESSIBILITY_KEY))
         notebook.AddPage(self.create_shortcuts_page(notebook), i18n.get_string(SETTINGS_TAB_SHORTCUTS_KEY))
         notebook.AddPage(self.create_sounds_page(notebook), i18n.get_string(SETTINGS_TAB_SOUNDS_KEY))
+        notebook.AddPage(self.create_downloads_page(notebook), i18n.get_string(SETTINGS_TAB_DOWNLOADS_KEY))
         notebook.AddPage(self.create_microphone_page(notebook), i18n.get_string(SETTINGS_TAB_MICROPHONE_KEY))
         notebook.AddPage(self.create_services_page(notebook), i18n.get_string(SETTINGS_TAB_SERVICES_KEY))
         notebook.AddPage(self.create_account_page(notebook), i18n.get_string(SETTINGS_TAB_ACCOUNT_KEY))
@@ -224,6 +239,7 @@ class SettingsDialog(wx.Dialog):
         sizer.Add(note, flag=wx.ALL, border=10)
         sizer.Add(wx.StaticText(page, label=self.i18n.get_string(SHORTCUTS_LIST_LABEL_KEY)), flag=wx.LEFT|wx.RIGHT, border=10)
         self.shortcuts_list = wx.ListBox(page, style=wx.LB_SINGLE)
+        self.shortcuts_type_ahead = TypeAhead(self.shortcuts_list)
         self.shortcuts_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_change_shortcut)
         sizer.Add(self.shortcuts_list, proportion=1, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
         for label_key, handler in (
@@ -359,6 +375,7 @@ class SettingsDialog(wx.Dialog):
         sizer.Add(note, flag=wx.ALL, border=10)
         sizer.Add(wx.StaticText(page, label=self.i18n.get_string(SOUNDS_LABEL_KEY)), flag=wx.LEFT|wx.RIGHT, border=10)
         self.sounds_list = wx.ListBox(page, style=wx.LB_SINGLE)
+        self.sounds_type_ahead = TypeAhead(self.sounds_list)
         sizer.Add(self.sounds_list, proportion=1, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
         for label_key, handler in (
             (BTN_CHOOSE_SOUND_KEY, self.on_choose_sound),
@@ -438,6 +455,50 @@ class SettingsDialog(wx.Dialog):
         # A microphone test may be half way through.
         self.mic_tester.cancel()
         return super().Destroy()
+
+    def create_downloads_page(self, notebook):
+        page = wx.Panel(notebook)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        note = wx.StaticText(page, label=self.i18n.get_string(DOWNLOADS_NOTE_KEY))
+        note.Wrap(460)
+        sizer.Add(note, flag=wx.ALL, border=10)
+        sizer.Add(wx.StaticText(page, label=self.i18n.get_string(DOWNLOAD_FOLDER_LABEL_KEY)), flag=wx.LEFT|wx.RIGHT, border=10)
+        # Read-only: a folder is chosen with the button, so no mistyped path is ever saved.
+        self.download_folder_input = wx.TextCtrl(page, value=self.download_folder_shown(), style=wx.TE_READONLY)
+        self.download_folder_input.SetName(self.i18n.get_string(DOWNLOAD_FOLDER_LABEL_KEY))
+        self.download_folder = self.settings.get(SETTING_DOWNLOAD_FOLDER)
+        sizer.Add(self.download_folder_input, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
+        buttons = wx.BoxSizer(wx.HORIZONTAL)
+        for label_key, handler in (
+            (BTN_CHOOSE_FOLDER_KEY, self.on_choose_download_folder),
+            (BTN_DEFAULT_FOLDER_KEY, self.on_default_download_folder),
+        ):
+            button = wx.Button(page, label=self.i18n.get_string(label_key))
+            button.Bind(wx.EVT_BUTTON, handler)
+            buttons.Add(button, flag=wx.RIGHT, border=10)
+        sizer.Add(buttons, flag=wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
+        self.add_checkboxes(page, sizer, DOWNLOAD_OPTIONS)
+        self.add_choice(page, sizer, DOWNLOAD_KINDS_LABEL_KEY, SETTING_DOWNLOAD_KINDS)
+        page.SetSizer(sizer)
+        return page
+
+    def download_folder_shown(self, folder=None):
+        folder = self.settings.get(SETTING_DOWNLOAD_FOLDER) if folder is None else folder
+        return folder or DOWNLOADS_DIR
+
+    def on_choose_download_folder(self, event):
+        with wx.DirDialog(
+            self, self.i18n.get_string(MSG_CHOOSE_DOWNLOAD_FOLDER_KEY), self.download_folder_shown(self.download_folder)
+        ) as folder_dialog:
+            if folder_dialog.ShowModal() != wx.ID_OK:
+                return
+            self.download_folder = folder_dialog.GetPath()
+        self.download_folder_input.ChangeValue(self.download_folder)
+
+    def on_default_download_folder(self, event):
+        self.download_folder = ""
+        self.download_folder_input.ChangeValue(DOWNLOADS_DIR)
+        speak(DOWNLOADS_DIR)
 
     def create_microphone_page(self, notebook):
         page = wx.Panel(notebook)
@@ -870,6 +931,7 @@ class SettingsDialog(wx.Dialog):
             self.settings.set(setting, CHOICES[setting][0][choice.GetSelection()])
         self.settings.set(SETTING_MIC_DEVICE, self.mic_names[self.mic_choice.GetSelection()])
         self.settings.set(SETTING_GEMINI_KEY, self.gemini_key_input.GetValue().strip())
+        self.settings.set(SETTING_DOWNLOAD_FOLDER, self.download_folder)
         language = LANGUAGES[self.language_choice.GetSelection()]
         self.language_changed = language != self.settings.get(SETTING_LANGUAGE)
         self.settings.set(SETTING_LANGUAGE, language)

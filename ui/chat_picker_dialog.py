@@ -1,6 +1,7 @@
 import wx
 from core.speech import speak
 from ui.layout import prepare_window
+from ui.type_ahead import TypeAhead
 from core.constants import (
     APP_TITLE_KEY, CHAT_PICKER_SEARCH_LABEL_KEY, CHAT_PICKER_LIST_LABEL_KEY, MSG_CHAT_PICKER_COUNT_FORMAT_KEY,
     MSG_CHAT_PICKER_NONE_KEY, CHAT_PICKER_SPEAK_DELAY_MS, CHAT_PICKER_HINT_KEY
@@ -36,6 +37,7 @@ class ChatPickerDialog(wx.Dialog):
         sizer.Add(self.search_input, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
         sizer.Add(wx.StaticText(self, label=i18n.get_string(CHAT_PICKER_LIST_LABEL_KEY)), flag=wx.LEFT|wx.RIGHT, border=10)
         self.chats_list = wx.CheckListBox(self)
+        self.type_ahead = TypeAhead(self.chats_list)
         self.chats_list.Bind(wx.EVT_CHECKLISTBOX, self.on_tick)
         sizer.Add(self.chats_list, proportion=1, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
         sizer.Add(self.CreateButtonSizer(wx.OK|wx.CANCEL), flag=wx.EXPAND|wx.ALL, border=10)

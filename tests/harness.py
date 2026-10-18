@@ -201,6 +201,11 @@ class FakeTelegramClient:
         self.calls.append(("download", getattr(message, "id", None), file))
         for done in self.progress_steps if progress_callback else ():
             progress_callback(done, 200)
+        if self.transfer_gate is not None:
+            await self.transfer_gate.wait()
+        if file is bytes:
+            # Asked for in memory: nothing is written anywhere.
+            return b"sound"
         return file + "saved.bin"
 
     async def get_messages(self, entity, limit=None, max_id=0, ids=None, search=None, filter=None, scheduled=False,
@@ -504,6 +509,10 @@ class FakeChooser:
 
     def GetValue(self):
         return FakeChooser.values.pop(0)
+
+    def GetChildren(self):
+        # No real list inside to type in.
+        return []
 
 
 class FakeChatPicker(FakeChooser):

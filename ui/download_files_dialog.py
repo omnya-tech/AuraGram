@@ -1,6 +1,7 @@
 import wx
 from core.speech import speak
 from ui.layout import prepare_window
+from ui.type_ahead import TypeAhead
 from core.constants import (
     DOWNLOAD_FILES_TITLE_FORMAT_KEY, DOWNLOAD_FILES_LABEL_KEY, BTN_SELECT_ALL_KEY, BTN_SELECT_NONE_KEY,
     BTN_DOWNLOAD_KEY, DOWNLOAD_SELECTED_FORMAT_KEY, MSG_NOTHING_CHOSEN_KEY
@@ -10,7 +11,7 @@ class DownloadFilesDialog(wx.Dialog):
     """The files of one chat, each with a box to tick: one by one with Space, or all at
     once with a button or Ctrl+A. `chosen()` gives the positions ticked, in list order."""
 
-    def __init__(self, parent, i18n, chat_title, rows):
+    def __init__(self, parent, i18n, chat_title, rows, checked=False):
         super().__init__(
             parent, title=i18n.get_string(DOWNLOAD_FILES_TITLE_FORMAT_KEY).format(chat=chat_title),
             size=(560, 560), style=wx.DEFAULT_DIALOG_STYLE|wx.RESIZE_BORDER
@@ -20,6 +21,7 @@ class DownloadFilesDialog(wx.Dialog):
         sizer = wx.BoxSizer(wx.VERTICAL)
         sizer.Add(wx.StaticText(self, label=i18n.get_string(DOWNLOAD_FILES_LABEL_KEY)), flag=wx.ALL, border=10)
         self.files_list = wx.CheckListBox(self, choices=rows)
+        self.type_ahead = TypeAhead(self.files_list)
         self.files_list.SetName(i18n.get_string(DOWNLOAD_FILES_LABEL_KEY))
         self.files_list.Bind(wx.EVT_CHECKLISTBOX, lambda event: self.show_count())
         sizer.Add(self.files_list, proportion=1, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
@@ -38,6 +40,9 @@ class DownloadFilesDialog(wx.Dialog):
         self.Bind(wx.EVT_CHAR_HOOK, self.on_char_hook)
         self.SetSizer(sizer)
         self.CenterOnParent()
+        if checked:
+            for index in range(len(rows)):
+                self.files_list.Check(index)
         if rows:
             self.files_list.SetSelection(0)
         self.show_count()

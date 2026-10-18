@@ -5,7 +5,8 @@ from core.constants import (
     ANNOUNCE_WHEN_OPTIONS, ANNOUNCE_WHEN_ALWAYS, ANNOUNCE_WHAT_OPTIONS, ANNOUNCE_WHAT_FULL,
     VOICE_SPEEDS, VOICE_SPEED_NORMAL, MIC_LEVELS, MIC_LEVEL_NORMAL, NOISE_LEVELS, NOISE_OFF,
     LANGUAGES, DEFAULT_LANG, PROXY_TYPES, PROXY_NONE, CHAT_KIND_PLACES, CHAT_KIND_PLACE_AFTER,
-    MESSAGE_STATS_PLACES, MESSAGE_STATS_AFTER, TIME_STYLES, TIME_STYLE_NUMBERS, SOUND_VOLUMES, SOUND_VOLUME_FULL
+    MESSAGE_STATS_PLACES, MESSAGE_STATS_AFTER, TIME_STYLES, TIME_STYLE_NUMBERS, SOUND_VOLUMES, SOUND_VOLUME_FULL,
+    DOWNLOAD_KINDS, DOWNLOAD_KINDS_ALL
 )
 
 SETTING_PLAY_SOUND = "play_sound"
@@ -57,6 +58,14 @@ SETTING_PROXY_PASSWORD = "proxy_password"
 SETTING_PROXY_SECRET = "proxy_secret"
 # The user's own Google Gemini API key, for describing pictures; empty leaves that turned off.
 SETTING_GEMINI_KEY = "gemini_key"
+# The download manager. The folder is empty for the usual one; the kinds are one of DOWNLOAD_KINDS.
+SETTING_DOWNLOAD_FOLDER = "download_folder"
+SETTING_DOWNLOAD_PER_CHAT = "download_per_chat"
+SETTING_DOWNLOAD_SKIP = "download_skip_existing"
+SETTING_DOWNLOAD_SPEAK_EACH = "download_speak_each"
+SETTING_DOWNLOAD_DONE_SOUND = "download_done_sound"
+SETTING_DOWNLOAD_CHECK_ALL = "download_check_all"
+SETTING_DOWNLOAD_KINDS = "download_kinds"
 # Not an on/off option: {command: shortcut} for the commands whose shortcut the user changed,
 # "" where they took it away. See core/shortcuts.py for the ones every command starts with.
 SETTING_SHORTCUTS = "shortcuts"
@@ -81,6 +90,11 @@ DEFAULTS = {
     SETTING_CHECK_UPDATES: True,
     SETTING_RECORD_SOUND: True,
     SETTING_ENTER_SENDS: True,
+    SETTING_DOWNLOAD_PER_CHAT: True,
+    SETTING_DOWNLOAD_SKIP: True,
+    SETTING_DOWNLOAD_SPEAK_EACH: False,
+    SETTING_DOWNLOAD_DONE_SOUND: True,
+    SETTING_DOWNLOAD_CHECK_ALL: False,
 }
 # Settings that are one of a fixed list: (what may be stored, what it is until chosen).
 CHOICES = {
@@ -89,6 +103,7 @@ CHOICES = {
     SETTING_ANNOUNCE_WHAT: (ANNOUNCE_WHAT_OPTIONS, ANNOUNCE_WHAT_FULL),
     SETTING_VOICE_SPEED: (tuple(VOICE_SPEEDS), VOICE_SPEED_NORMAL),
     SETTING_SOUND_VOLUME: (tuple(SOUND_VOLUMES), SOUND_VOLUME_FULL),
+    SETTING_DOWNLOAD_KINDS: (tuple(DOWNLOAD_KINDS), DOWNLOAD_KINDS_ALL),
     SETTING_MIC_LEVEL: (tuple(MIC_LEVELS), MIC_LEVEL_NORMAL),
     SETTING_NOISE: (tuple(NOISE_LEVELS), NOISE_OFF),
     SETTING_LANGUAGE: (LANGUAGES, DEFAULT_LANG),
@@ -100,7 +115,7 @@ CHOICES = {
 # Settings that are free text.
 TEXTS = {
     SETTING_MIC_DEVICE: "", SETTING_PROXY_HOST: "", SETTING_PROXY_PORT: "", SETTING_PROXY_USER: "",
-    SETTING_PROXY_PASSWORD: "", SETTING_PROXY_SECRET: "", SETTING_GEMINI_KEY: "",
+    SETTING_PROXY_PASSWORD: "", SETTING_PROXY_SECRET: "", SETTING_GEMINI_KEY: "", SETTING_DOWNLOAD_FOLDER: "",
 }
 
 class Settings:

@@ -5,7 +5,7 @@ import wx
 from core import audio, sounds
 from ui.downloads import folder_name
 from core.constants import (
-    DOWNLOADS_DIR, SOUND_FILE_PATTERNS, WAV_FILE_PATTERN, SOUND_FILES_KEY, MSG_CHOOSE_SOUND_FILE_KEY, ERR_SOUND_FILE_KEY,
+    SOUND_FILE_PATTERNS, WAV_FILE_PATTERN, SOUND_FILES_KEY, MSG_CHOOSE_SOUND_FILE_KEY, ERR_SOUND_FILE_KEY,
     SOUND_SOURCE_CUSTOM_KEY, SOUND_SOURCE_DEFAULT_KEY, SOUND_MESSAGE, CHAT_TONE_PROMPT_FORMAT_KEY, CHAT_TONE_CHOOSE_KEY,
     CHAT_TONE_TEST_KEY, CHAT_TONE_DEFAULT_KEY, MSG_CHAT_TONE_SET_FORMAT_KEY, MSG_CHAT_TONE_CLEARED_FORMAT_KEY,
     MSG_EXPORTING_FORMAT_KEY, MSG_EXPORTED_FORMAT_KEY, EXPORT_HEADER_FORMAT_KEY, EXPORT_LINE_FORMAT_KEY, ERR_EXPORT_KEY,
@@ -93,9 +93,10 @@ class ChatExtrasMixin:
 
     def write_export(self, messages, chat):
         self.set_status(STATUS_READY_KEY)
-        path = os.path.join(DOWNLOADS_DIR, EXPORT_FILE_FORMAT.format(name=folder_name(chat["title"])))
+        folder = self.downloads_folder()
+        path = os.path.join(folder, EXPORT_FILE_FORMAT.format(name=folder_name(chat["title"])))
         try:
-            os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+            os.makedirs(folder, exist_ok=True)
             # With a byte order mark, so Notepad and every other editor see Arabic as Arabic.
             with open(path, "w", encoding=ENCODING_UTF8 + "-sig") as export_file:
                 export_file.write(self.export_text(chat, messages))

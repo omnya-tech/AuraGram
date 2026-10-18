@@ -9,6 +9,7 @@ from unittest import mock
 import wx
 
 import core.constants as c
+import core.settings as s
 import core.reminders
 import core.sounds
 import ui.chat_extras
@@ -33,7 +34,6 @@ class ChatExtrasTest(WindowTestCase):
         for patch in (
             mock.patch.object(core.sounds, "USER_SOUNDS_DIR", os.path.join(self.folder, "sounds")),
             mock.patch.object(core.reminders, "REMINDERS_FILE", os.path.join(self.folder, "reminders.json")),
-            mock.patch.object(ui.chat_extras, "DOWNLOADS_DIR", os.path.join(self.folder, "downloads")),
         ):
             patch.start()
             self.addCleanup(patch.stop)
@@ -76,6 +76,7 @@ class ChatExtrasTest(WindowTestCase):
     # A chat saved as text
 
     def test_a_chat_is_saved_oldest_first_with_its_line_breaks(self):
+        self.frame.settings.set(s.SETTING_DOWNLOAD_FOLDER, os.path.join(self.folder, "downloads"))
         self.frame.on_export_chat(self.chat(0))
         path = os.path.join(self.folder, "downloads", "Ali.txt")
         self.assertTrue(pump(lambda: os.path.exists(path)))

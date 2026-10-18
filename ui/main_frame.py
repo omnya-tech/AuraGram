@@ -12,6 +12,7 @@ from ui.themes import apply_theme, set_theme
 from ui.layout import (
     OptionalButton, ReadOnlyText, ViewTabs, file_size, is_on_a_screen, prepare_window, reading_font
 )
+from ui.type_ahead import TypeAhead
 from ui.settings_dialog import SettingsDialog
 from core.chat_views import build_views
 from ui.text_dialog import TextDialog
@@ -152,6 +153,9 @@ class MainFrame(
         self.upload = None
         sounds.set_volume(SOUND_VOLUMES[settings.get(SETTING_SOUND_VOLUME)])
         self.init_downloads()
+        # (dialog id, message id) -> the sound of a voice message or song heard in this run, held in
+        # memory only, newest last, so hearing it again needs no second fetch and nothing is saved.
+        self.heard = {}
         # chat id -> what someone there is doing ("typing", "recording"), shown on its row for a while.
         self.typing_in = {}
         self.typing_row_timers = {}
@@ -182,6 +186,8 @@ class MainFrame(
         dialogs_label = wx.StaticText(self.panel, label=self.i18n.get_string(DIALOGS_LABEL_KEY))
         dialogs_box.Add(dialogs_label, flag=wx.BOTTOM, border=5)
         self.dialogs_list = wx.ListBox(self.panel, style=wx.LB_SINGLE)
+        # A chat is found by its name, whatever its row says before it.
+        self.dialogs_type_ahead = TypeAhead(self.dialogs_list, lambda index: self.dialogs[index]["title"])
         self.dialogs_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_open_dialog)
         self.dialogs_list.Bind(wx.EVT_CONTEXT_MENU, self.on_dialog_context_menu)
         # Enter never reaches the list as a key event inside a panel, so catch it here.
@@ -197,6 +203,7 @@ class MainFrame(
         self.messages_label = wx.StaticText(self.panel, label=self.i18n.get_string(MESSAGES_LABEL_KEY))
         chat_box.Add(self.messages_label, flag=wx.BOTTOM, border=5)
         self.messages_list = wx.ListBox(self.panel, style=wx.LB_SINGLE)
+        self.messages_type_ahead = TypeAhead(self.messages_list)
         self.messages_list.Bind(wx.EVT_LISTBOX, lambda event: self.update_preview())
         self.messages_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_activate_message)
         self.messages_list.Bind(wx.EVT_CONTEXT_MENU, self.on_message_context_menu)
@@ -620,8 +627,9 @@ class MainFrame(
 
     def on_open_downloads_menu(self, event):
         # Nothing has been downloaded yet on a fresh install.
-        os.makedirs(DOWNLOADS_DIR, exist_ok=True)
-        os.startfile(DOWNLOADS_DIR)
+        folder = self.downloads_folder()
+        os.makedirs(folder, exist_ok=True)
+        os.startfile(folder)
 
     def on_connection_menu(self, event):
         state = self.telegram_manager.connection_state or CONNECTION_CONNECTING
@@ -992,6 +1000,10 @@ class MainFrame(
             # Up and down move through the chats; left and right go to the tab beside the current one,
             # without leaving the list.
             self.cycle_view(self.view_tabs.sideways_step(event.GetKeyCode()))
+        elif event.GetKeyCode() == wx.WXK_SPACE and focused is self.messages_list and not event.HasAnyModifiers() \
+                and not self.messages_type_ahead.is_typing() and self.listen():
+            # A voice message or a song played, or stopped, straight from Telegram.
+            pass
         elif sideways and focused is self.messages_list and not event.HasAnyModifiers():
             # Up and down move through the messages. Forward (left, in a right-to-left window) goes
             # into the post's comments; back says its numbers.

@@ -1,4 +1,5 @@
 """The download manager, a channel's own posts without its name on every row, and how loud the tones play."""
+import asyncio
 import io
 import os
 import tempfile
@@ -31,8 +32,9 @@ class FakeFilesDialog(FakeChooser):
 
     rows = None
 
-    def __init__(self, parent, i18n, chat_title, rows):
+    def __init__(self, parent, i18n, chat_title, rows, checked=False):
         FakeFilesDialog.rows = list(rows)
+        FakeFilesDialog.checked = checked
         FakeFilesDialog.title = chat_title
 
     def chosen(self):
@@ -90,13 +92,41 @@ class DownloadManagerTest(WindowTestCase):
         self.assertTrue(pump(lambda: self.downloads() == [3] and self.frame.download_current is None))
 
     def test_cancelling_leaves_the_rest_of_the_queue_alone(self):
-        self.frame.download_queue = []
+        # Held on the first file, so the cancel comes while it is still coming down.
+        gate = FakeTelegramClient.transfer_gate = asyncio.Event()
+        self.addCleanup(setattr, FakeTelegramClient, "transfer_gate", None)
         self.start([0, 1, 2])
         self.assertTrue(pump(lambda: self.frame.download_current is not None))
         self.frame.on_cancel_downloads_menu(None)
         self.assertEqual(self.frame.download_queue, [])
+        self.manager.loop.call_soon_threadsafe(gate.set)
         self.assertTrue(pump(lambda: self.frame.download_current is None))
         self.assertEqual(len(self.downloads()), 1)
+
+    def test_the_settings_choose_the_folder_and_whether_each_chat_has_its_own(self):
+        chosen = os.path.join(self.folder, "mine")
+        self.frame.settings.set(s.SETTING_DOWNLOAD_FOLDER, chosen)
+        self.frame.settings.set(s.SETTING_DOWNLOAD_PER_CHAT, False)
+        self.start([0])
+        self.assertTrue(pump(lambda: self.downloads() == [1] and self.frame.download_current is None))
+        self.assertEqual(self.calls("download")[0][2], chosen + os.sep)
+
+    def test_only_the_kinds_chosen_are_offered_and_can_start_checked(self):
+        FakeFilesDialog.rows = None
+        self.frame.settings.set(s.SETTING_DOWNLOAD_KINDS, "DOWNLOAD_KINDS_AUDIO")
+        self.frame.settings.set(s.SETTING_DOWNLOAD_CHECK_ALL, True)
+        self.start([])
+        self.assertTrue(pump(lambda: FakeFilesDialog.rows is not None))
+        self.assertEqual(len(FakeFilesDialog.rows), 1)
+        self.assertIn("two.mp3", FakeFilesDialog.rows[0])
+        self.assertTrue(FakeFilesDialog.checked)
+
+    def test_each_file_can_be_said_when_done_and_a_tone_marks_the_end(self):
+        self.frame.settings.set(s.SETTING_DOWNLOAD_SPEAK_EACH, True)
+        self.start([0])
+        self.assertTrue(pump(lambda: self.downloads() == [1] and self.frame.download_current is None))
+        self.assertIn(self.text(c.MSG_FILE_DOWNLOADED_FORMAT_KEY).format(name="one.pdf"), self.spoken)
+        self.assertEqual(self.played[-1], c.SOUND_SENT)
 
     def test_status_says_nothing_is_downloading_when_idle(self):
         self.frame.on_download_status_menu(None)

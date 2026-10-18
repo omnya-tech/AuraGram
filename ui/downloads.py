@@ -1,7 +1,13 @@
 import os
 import wx
+from core import sounds
+from core.settings import (
+    SETTING_DOWNLOAD_FOLDER, SETTING_DOWNLOAD_PER_CHAT, SETTING_DOWNLOAD_SKIP, SETTING_DOWNLOAD_SPEAK_EACH,
+    SETTING_DOWNLOAD_DONE_SOUND, SETTING_DOWNLOAD_CHECK_ALL, SETTING_DOWNLOAD_KINDS
+)
 from ui.download_files_dialog import DownloadFilesDialog
 from core.constants import (
+    DOWNLOAD_KINDS, MSG_FILE_DOWNLOADED_FORMAT_KEY, SOUND_SENT,
     DOWNLOADS_DIR, FOLDER_NAME_FORBIDDEN, DOWNLOAD_FILE_ROW_FORMAT_KEY, MSG_LOADING_FILES_KEY, MSG_NO_FILES_KEY,
     MSG_NO_CHAT_SELECTED_KEY, MSG_DOWNLOADS_QUEUED_FORMAT_KEY, MSG_DOWNLOAD_QUEUE_PROGRESS_FORMAT_KEY,
     MSG_DOWNLOADS_DONE_FORMAT_KEY, MSG_DOWNLOADS_DONE_FAILED_FORMAT_KEY, MSG_DOWNLOADS_CANCELLED_KEY,
@@ -30,6 +36,10 @@ class DownloadsMixin:
         self.download_failed = 0
         self.download_percent = 0
 
+    def downloads_folder(self):
+        """Where what the user downloads is saved: the folder chosen in the settings, or the usual one."""
+        return self.settings.get(SETTING_DOWNLOAD_FOLDER) or DOWNLOADS_DIR
+
     def on_download_files_menu(self, event):
         chat = self.find_known_dialog(self.current_dialog_id) if self.current_dialog_id is not None else self.selected_dialog()
         if chat is None:
@@ -40,16 +50,23 @@ class DownloadsMixin:
 
     def choose_chat_files(self, files, chat):
         self.set_status(STATUS_READY_KEY)
+        kinds = DOWNLOAD_KINDS[self.settings.get(SETTING_DOWNLOAD_KINDS)]
+        if kinds is not None:
+            files = [message for message in files if message["media"] in kinds]
         if not files:
             self.notify(MSG_NO_FILES_KEY)
             return
         row = self.i18n.get_string(DOWNLOAD_FILE_ROW_FORMAT_KEY)
         rows = [row.format(file=self.media_label(message), time=self.time_text(message["date"], True)) for message in files]
-        with DownloadFilesDialog(self, self.i18n, chat["title"], rows) as dialog:
+        with DownloadFilesDialog(
+            self, self.i18n, chat["title"], rows, checked=self.settings.get(SETTING_DOWNLOAD_CHECK_ALL)
+        ) as dialog:
             if dialog.ShowModal() != wx.ID_OK:
                 return
             chosen = [files[index] for index in dialog.chosen()]
-        folder = os.path.join(DOWNLOADS_DIR, folder_name(chat["title"]))
+        folder = self.downloads_folder()
+        if self.settings.get(SETTING_DOWNLOAD_PER_CHAT):
+            folder = os.path.join(folder, folder_name(chat["title"]))
         self.download_queue.extend({"chat_id": chat["id"], "folder": folder, "message": message} for message in chosen)
         self.download_total += len(chosen)
         self.announce(self.i18n.get_string(MSG_DOWNLOADS_QUEUED_FORMAT_KEY).format(count=len(chosen)))
@@ -63,7 +80,8 @@ class DownloadsMixin:
             self.download_index += 1
             attached = item["message"]["file"]
             saved = os.path.join(item["folder"], attached["name"]) if attached["name"] else None
-            if saved and os.path.exists(saved) and os.path.getsize(saved) == attached["size"]:
+            if self.settings.get(SETTING_DOWNLOAD_SKIP) and saved and os.path.exists(saved) \
+                    and os.path.getsize(saved) == attached["size"]:
                 # Fetched on an earlier go: a second copy would only take up room.
                 continue
             self.download_current = item
@@ -90,6 +108,11 @@ class DownloadsMixin:
             return
         if error_key:
             self.download_failed += 1
+        elif self.settings.get(SETTING_DOWNLOAD_SPEAK_EACH) and self.download_current is not None:
+            message = self.download_current["message"]
+            self.announce(self.i18n.get_string(MSG_FILE_DOWNLOADED_FORMAT_KEY).format(
+                name=message["file"]["name"] or self.i18n.get_string(message["media"])
+            ))
         self.download_current = None
         self.download_next()
 
@@ -98,6 +121,8 @@ class DownloadsMixin:
         self.init_downloads()
         if not total:
             return
+        if self.settings.get(SETTING_DOWNLOAD_DONE_SOUND):
+            sounds.play(SOUND_SENT)
         if failed:
             text = self.i18n.get_string(MSG_DOWNLOADS_DONE_FAILED_FORMAT_KEY).format(
                 done=total - failed, total=total, failed=failed
