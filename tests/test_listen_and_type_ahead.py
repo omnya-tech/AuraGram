@@ -123,6 +123,19 @@ class ChatListTypingTest(WindowTestCase):
         self.type("احم")
         self.assertEqual(self.selected_title(), "أحمد")
 
+    def test_a_row_with_no_chat_behind_it_is_typed_through(self):
+        # E.g. the row that says more chats are being fetched, after the last chat.
+        self.frame.dialogs_list.Append("loading")
+        self.frame.dialogs_list.SetSelection(2)
+        self.type("l")
+        self.assertEqual(self.frame.dialogs_list.GetSelection(), 3)
+        self.type_ahead_reset()
+        self.type("a")
+        self.assertEqual(self.selected_title(), "Ali")
+
+    def type_ahead_reset(self):
+        self.frame.dialogs_type_ahead.typed = ""
+
     def test_typing_with_control_is_left_to_the_shortcuts(self):
         event = Typed("t", control=True)
         self.frame.dialogs_type_ahead.on_char(event)

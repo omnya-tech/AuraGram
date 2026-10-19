@@ -8,12 +8,15 @@ import urllib.request
 
 from core.constants import (
     GEMINI_ENDPOINT_FORMAT, GEMINI_MODELS, GEMINI_MODELS_URL, GEMINI_TIMEOUT_SECONDS, GEMINI_MAX_IMAGE_BYTES, IMAGE_MIME_TYPES,
-    ERR_VISION_KEY_KEY, ERR_VISION_QUOTA_KEY, ERR_VISION_FAILED_KEY, ERR_VISION_NO_ANSWER_KEY,
+    ERR_VISION_KEY_KEY, ERR_VISION_QUOTA_KEY, ERR_VISION_BUSY_KEY, ERR_VISION_FAILED_KEY, ERR_VISION_NO_ANSWER_KEY,
     ERR_VISION_TOO_BIG_KEY, ERR_CONNECTION_KEY
 )
 
 logger = logging.getLogger(__name__)
 HTTP_BAD_REQUEST, HTTP_UNAUTHORIZED, HTTP_FORBIDDEN, HTTP_NOT_FOUND, HTTP_TOO_MANY = 400, 401, 403, 404, 429
+HTTP_SERVER_ERROR, HTTP_UNAVAILABLE = 500, 503
+# Answers about one model only: gone, out of its own quota, or too busy just now. Another may still answer.
+TRY_ANOTHER_MODEL = (HTTP_NOT_FOUND, HTTP_TOO_MANY, HTTP_SERVER_ERROR, HTTP_UNAVAILABLE)
 # Enough of Google's answer to a failure for the log to tell why, never the key.
 LOGGED_BODY_CHARACTERS = 300
 # How Google words a key it does not know, in the middle of an otherwise ordinary "bad request".
@@ -57,6 +60,8 @@ def error_key_for(status, body):
         return ERR_VISION_KEY_KEY
     if status == HTTP_TOO_MANY:
         return ERR_VISION_QUOTA_KEY
+    if status in (HTTP_SERVER_ERROR, HTTP_UNAVAILABLE):
+        return ERR_VISION_BUSY_KEY
     return ERR_VISION_FAILED_KEY
 
 
@@ -70,6 +75,7 @@ def describe_image(path, api_key, prompt):
     if len(image) > GEMINI_MAX_IMAGE_BYTES:
         raise VisionError(ERR_VISION_TOO_BIG_KEY)
     data = json.dumps(build_request(image, mime_type, prompt)).encode("utf-8")
+    error_key = ERR_VISION_FAILED_KEY
     for model in GEMINI_MODELS:
         request = urllib.request.Request(
             GEMINI_ENDPOINT_FORMAT.format(model=model), data=data,
@@ -82,14 +88,16 @@ def describe_image(path, api_key, prompt):
         except urllib.error.HTTPError as error:
             body = error.read().decode("utf-8", "replace")
             logger.warning("Gemini answered %s for %s: %s", error.code, model, body[:LOGGED_BODY_CHARACTERS])
-            if error.code == HTTP_NOT_FOUND:
-                # This model is gone: the next one may still be there.
+            if error.code in TRY_ANOTHER_MODEL:
+                # Only this model is out of reach; if all of them are, the reason is the last one's.
+                if error.code != HTTP_NOT_FOUND:
+                    error_key = error_key_for(error.code, body)
                 continue
             raise VisionError(error_key_for(error.code, body)) from error
         except (OSError, ValueError) as error:
             logger.warning("Could not reach Gemini: %s", error)
             raise VisionError(ERR_CONNECTION_KEY) from error
-    raise VisionError(ERR_VISION_FAILED_KEY)
+    raise VisionError(error_key)
 
 
 def check_key(api_key):

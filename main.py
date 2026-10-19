@@ -263,6 +263,9 @@ def can_reach_telegram():
     except Exception:
         return False
 
+# How Telethon starts each line about a failed try at reconnecting.
+RETRY_LOG_PREFIX = "Attempt "
+
 def start_logging():
     """Keep a small file of errors beside the user's settings.
 
@@ -276,6 +279,11 @@ def start_logging():
     logging.getLogger().addHandler(handler)
     logging.getLogger().setLevel(logging.WARNING)
     logging.getLogger("core").setLevel(logging.INFO)
+    # Telethon writes a line for every try while the network is down, several a minute, which pushed
+    # everything else out of the log; the app logs going offline and back online itself.
+    logging.getLogger("telethon.network.mtprotosender").addFilter(
+        lambda record: not record.getMessage().startswith(RETRY_LOG_PREFIX)
+    )
     logging.getLogger("core").info(
         "AuraGram %s started (%s)", APP_VERSION, "installed" if IS_FROZEN else "from source"
     )

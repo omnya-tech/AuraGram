@@ -1177,6 +1177,7 @@
     "MSG_VISION_NO_KEY": "Describing pictures needs a Gemini key of your own. Get one free at aistudio.google.com/apikey, then enter it under Settings, on the «Connection and picture descriptions» tab.",
     "ERR_VISION_KEY": "The Gemini key is wrong or not enabled. Check it in the settings.",
     "ERR_VISION_QUOTA": "Your Gemini key has run out of quota or made too many requests. Try again in a while.",
+    "ERR_VISION_BUSY": "Google's picture description service is very busy right now. Try again in a while.",
     "ERR_VISION_FAILED": "The picture could not be described",
     "ERR_VISION_NO_ANSWER": "Gemini gave no description for this picture",
     "ERR_VISION_TOO_BIG": "The picture is too large to send for describing",

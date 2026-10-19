@@ -30,10 +30,19 @@ class TypeAhead:
 
     def __init__(self, list_box, row_text=None):
         self.list_box = list_box
-        self.row_text = row_text or list_box.GetString
+        self.known_by = row_text
         self.typed = ""
         self.last_typed = 0.0
         list_box.Bind(wx.EVT_CHAR, self.on_char)
+
+    def row_text(self, index):
+        # A row with nothing behind it (one that says the list is loading, say) is known by what it says.
+        if self.known_by is not None:
+            try:
+                return self.known_by(index)
+            except (IndexError, KeyError):
+                pass
+        return self.list_box.GetString(index)
 
     def is_typing(self):
         """Whether a word is being typed right now, so a space belongs to it."""

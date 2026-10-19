@@ -502,7 +502,7 @@ class VisionRulesTest(unittest.TestCase):
         self.assertEqual(self.failure(self.http_error(403)), c.ERR_VISION_KEY_KEY)
         self.assertEqual(self.failure(self.http_error(429)), c.ERR_VISION_QUOTA_KEY)
         self.assertEqual(self.failure(self.http_error(400)), c.ERR_VISION_FAILED_KEY)
-        self.assertEqual(self.failure(self.http_error(500)), c.ERR_VISION_FAILED_KEY)
+        self.assertEqual(self.failure(self.http_error(503)), c.ERR_VISION_BUSY_KEY)
         self.assertEqual(self.failure(urllib.error.URLError("offline")), c.ERR_CONNECTION_KEY)
 
     def test_a_retired_model_gives_way_to_the_next(self):
@@ -517,6 +517,18 @@ class VisionRulesTest(unittest.TestCase):
             self.assertEqual(vision.describe_image(self.path, "key", "Describe"), "A dog.")
         self.assertIn(c.GEMINI_MODELS[0] + ":", asked[0])
         self.assertIn(c.GEMINI_MODELS[1] + ":", asked[1])
+
+    def test_a_busy_model_gives_way_to_the_next(self):
+        asked = []
+
+        def urlopen(request, timeout):
+            asked.append(request.full_url)
+            if len(asked) == 1:
+                raise self.http_error(503, b'{"error": {"status": "UNAVAILABLE"}}')
+            return Response(answer("A bird."))
+        with mock.patch.object(vision.urllib.request, "urlopen", urlopen), self.assertLogs("core.vision", "WARNING"):
+            self.assertEqual(vision.describe_image(self.path, "key", "Describe"), "A bird.")
+        self.assertEqual(len(asked), 2)
 
     def test_when_every_model_is_gone_it_says_so(self):
         with self.assertLogs("core.vision", "WARNING"):
