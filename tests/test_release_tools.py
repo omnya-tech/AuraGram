@@ -488,7 +488,7 @@ class VisionRulesTest(unittest.TestCase):
         self.assertEqual(parts[1], {"text": "Describe"})
 
     def failure(self, raised):
-        with mock.patch.object(vision.urllib.request, "urlopen", side_effect=raised):
+        with mock.patch.object(vision.urllib.request, "urlopen", side_effect=raised),                 mock.patch.object(vision.time, "sleep"):
             with self.assertRaises(vision.VisionError) as caught:
                 vision.describe_image(self.path, "key", "Describe")
         return caught.exception.error_key
@@ -503,7 +503,9 @@ class VisionRulesTest(unittest.TestCase):
         self.assertEqual(self.failure(self.http_error(429)), c.ERR_VISION_QUOTA_KEY)
         self.assertEqual(self.failure(self.http_error(400)), c.ERR_VISION_FAILED_KEY)
         self.assertEqual(self.failure(self.http_error(503)), c.ERR_VISION_BUSY_KEY)
-        self.assertEqual(self.failure(urllib.error.URLError("offline")), c.ERR_CONNECTION_KEY)
+        # Google's service out of reach is not Telegram out of reach.
+        self.assertEqual(self.failure(urllib.error.URLError("offline")), c.ERR_VISION_UNREACHABLE_KEY)
+        self.assertEqual(self.failure(TimeoutError("The read operation timed out")), c.ERR_VISION_BUSY_KEY)
 
     def test_a_retired_model_gives_way_to_the_next(self):
         asked = []
@@ -527,8 +529,28 @@ class VisionRulesTest(unittest.TestCase):
                 raise self.http_error(503, b'{"error": {"status": "UNAVAILABLE"}}')
             return Response(answer("A bird."))
         with mock.patch.object(vision.urllib.request, "urlopen", urlopen), self.assertLogs("core.vision", "WARNING"):
-            self.assertEqual(vision.describe_image(self.path, "key", "Describe"), "A bird.")
+            self.assertEqual(vision.describe_image(self.path, "key", "Describe", wait=lambda seconds: None), "A bird.")
         self.assertEqual(len(asked), 2)
+
+    def test_a_busy_model_is_asked_again_then_googles_own_list_is_tried(self):
+        asked, waits = [], []
+
+        def urlopen(request, timeout):
+            asked.append(request.full_url)
+            if request.full_url == c.GEMINI_MODELS_URL:
+                return Response(json.dumps({"models": [
+                    {"name": "models/" + c.GEMINI_MODELS[0], "supportedGenerationMethods": ["generateContent"]},
+                    {"name": "models/gemini-9-flash-lite", "supportedGenerationMethods": ["generateContent"]},
+                    {"name": "models/text-embedding", "supportedGenerationMethods": ["embedContent"]},
+                ]}).encode())
+            if "gemini-9-flash-lite" in request.full_url:
+                return Response(answer("A boat."))
+            raise self.http_error(503, b'{"error": {"status": "UNAVAILABLE"}}')
+        with mock.patch.object(vision.urllib.request, "urlopen", urlopen), self.assertLogs("core.vision", "WARNING"):
+            self.assertEqual(vision.describe_image(self.path, "key", "Describe", wait=waits.append), "A boat.")
+        # Each of its own models twice, then the list, then the one model there it had not asked.
+        self.assertEqual(len(asked), 2 * len(c.GEMINI_MODELS) + 2)
+        self.assertEqual(waits, [c.GEMINI_BUSY_WAIT_SECONDS] * len(c.GEMINI_MODELS))
 
     def test_when_every_model_is_gone_it_says_so(self):
         with self.assertLogs("core.vision", "WARNING"):

@@ -1529,7 +1529,12 @@ SETTINGS_TAB_SERVICES_KEY = "SETTINGS_TAB_SERVICES"
 
 # Describing pictures with Google's Gemini, on the user's own API key.
 # Asked in this order: Google retires models now and then, and the next one still answers.
-GEMINI_MODELS = ("gemini-3.8-flash", "gemini-3.6-flash", "gemini-2.5-flash")
+GEMINI_MODELS = ("gemini-3.8-flash", "gemini-3.6-flash")
+# When those cannot answer: the other models whose names have this in them, as Google lists them.
+GEMINI_MODEL_KIND = "flash"
+# A model too busy to answer is asked once more after a moment; its busy spells are often short.
+GEMINI_BUSY_TRIES = 2
+GEMINI_BUSY_WAIT_SECONDS = 3
 GEMINI_MODEL = GEMINI_MODELS[0]
 GEMINI_ENDPOINT_FORMAT = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 # Where a key is tried without sending any picture: the list of models it may use.
@@ -1559,6 +1564,7 @@ MSG_VISION_NO_KEY_KEY = "MSG_VISION_NO_KEY"
 ERR_VISION_KEY_KEY = "ERR_VISION_KEY"
 ERR_VISION_QUOTA_KEY = "ERR_VISION_QUOTA"
 ERR_VISION_BUSY_KEY = "ERR_VISION_BUSY"
+ERR_VISION_UNREACHABLE_KEY = "ERR_VISION_UNREACHABLE"
 ERR_VISION_FAILED_KEY = "ERR_VISION_FAILED"
 ERR_VISION_NO_ANSWER_KEY = "ERR_VISION_NO_ANSWER"
 ERR_VISION_TOO_BIG_KEY = "ERR_VISION_TOO_BIG"
