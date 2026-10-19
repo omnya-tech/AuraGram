@@ -1,12 +1,13 @@
 import wx
 from ui.layout import prepare_window
+from ui.member_row import member_row
 from core.speech import speak
 from core.constants import (
     APP_TITLE_KEY, MSG_LOADING_KEY, STATUS_READY_KEY, CHAT_KIND_USER, CHAT_KIND_GROUP, CHAT_KIND_SUPERGROUP,
     CHAT_KIND_CHANNEL, INFO_TITLE_FORMAT_KEY, INFO_SUMMARY_LABEL_KEY, INFO_KIND_FORMAT_KEY,
     INFO_USERNAME_FORMAT_KEY, INFO_MEMBERS_COUNT_FORMAT_KEY, INFO_ROLE_MANAGER_KEY, INFO_ROLE_VIEWER_KEY,
     INFO_PHONE_FORMAT_KEY, INFO_COMMON_CHATS_FORMAT_KEY, INFO_MEMBERS_LABEL_KEY, INFO_MEMBER_SEARCH_LABEL_KEY,
-    INFO_MEMBER_ROLE_FORMAT_KEY, INFO_MEMBERS_FOUND_FORMAT_KEY, BTN_SEARCH_MEMBERS_KEY, BTN_CLOSE_KEY,
+    INFO_MEMBERS_FOUND_FORMAT_KEY, BTN_SEARCH_MEMBERS_KEY, BTN_CLOSE_KEY,
     INFO_INVITE_LABEL_KEY, CONTEXT_COPY_INVITE_KEY, MSG_INVITE_COPIED_KEY, MEMBERS_CURRENT
 )
 
@@ -152,8 +153,4 @@ class ChatInfoDialog(wx.Dialog):
         speak(self.i18n.get_string(INFO_MEMBERS_FOUND_FORMAT_KEY).format(count=len(members)))
 
     def format_member(self, member):
-        if not member["role"]:
-            return member["name"]
-        return self.i18n.get_string(INFO_MEMBER_ROLE_FORMAT_KEY).format(
-            name=member["name"], role=self.i18n.get_string(member["role"])
-        )
+        return member_row(self, self.i18n, member)

@@ -1037,6 +1037,7 @@
     "INFO_MEMBER_SEARCH_LABEL": "Search members by name:",
     "INFO_MEMBERS_LABEL": "Members:",
     "INFO_MEMBER_ROLE_FORMAT": "{name}, {role}",
+    "MEMBER_BOT": "bot",
     "INFO_MEMBERS_FOUND_FORMAT": "{count} members",
     "BTN_SEARCH_MEMBERS": "Search",
     "BTN_SAVE": "Save changes",

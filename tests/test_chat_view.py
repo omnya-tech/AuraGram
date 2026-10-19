@@ -45,6 +45,24 @@ class ReadOnlyInfoTest(WindowTestCase):
         self.assertIn("Mona", " ".join(rows))
         self.assertIn(self.text(c.MEMBER_ROLE_OWNER), rows[0])
 
+    def test_each_member_says_whether_they_are_online(self):
+        members = list(MEMBERS)
+        members[1] = make_member(11, "Mona", MEMBERS[1].participant)
+        members[1].status = types.UserStatusOnline(expires=NOW)
+        members[2] = make_member(12, "Zed")
+        members[2].status = types.UserStatusRecently()
+        helper = make_member(13, "Helper bot")
+        helper.bot = True
+        FakeTelegramClient.members = members + [helper]
+        dialog = ChatInfoDialog(self.frame, self.i18n, self.manager, self.frame.all_dialogs[0])
+        self.addCleanup(dialog.Destroy)
+        self.assertTrue(pump(lambda: len(dialog.members) == 4))
+        rows = dialog.members_list.GetItems()
+        role = self.text(c.INFO_MEMBER_ROLE_FORMAT_KEY).format
+        self.assertEqual(rows[1], role(name=role(name="Mona", role=self.text(c.MEMBER_ROLE_ADMIN)), role=self.text(c.STATUS_ONLINE_KEY)))
+        self.assertEqual(rows[2], role(name="Zed", role=self.text("STATUS_RECENTLY")))
+        self.assertEqual(rows[3], role(name="Helper bot", role=self.text(c.MEMBER_BOT_KEY)))
+
     def test_invite_link_is_shown_and_copies(self):
         dialog = self.info(0)
         self.assertTrue(pump(lambda: dialog.invite_link is not None))

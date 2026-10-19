@@ -1574,6 +1574,9 @@ class TelegramManager(threading.Thread):
                 # The custom title shown beside an admin's name.
                 "title": self.member_admins[user.id][1],
                 "is_self": bool(user.is_self),
+                "is_bot": bool(getattr(user, "bot", False)),
+                # Online, or when last seen, as far as the member lets it be known.
+                "status": self._describe_status(getattr(user, "status", None)),
             }
             for user in participants
         ]

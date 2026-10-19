@@ -1037,6 +1037,7 @@
     "INFO_MEMBER_SEARCH_LABEL": "بحث في الأعضاء بالاسم:",
     "INFO_MEMBERS_LABEL": "الأعضاء:",
     "INFO_MEMBER_ROLE_FORMAT": "{name}، {role}",
+    "MEMBER_BOT": "بوت",
     "INFO_MEMBERS_FOUND_FORMAT": "عدد الأعضاء: {count}",
     "BTN_SEARCH_MEMBERS": "بحث",
     "BTN_SAVE": "حفظ التغييرات",

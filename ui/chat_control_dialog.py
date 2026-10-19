@@ -1,5 +1,6 @@
 import wx
 from ui.layout import prepare_window
+from ui.member_row import member_row
 from core.speech import speak
 from ui.admin_log_dialog import AdminLogDialog
 from ui.invite_links_dialog import InviteLinksDialog
@@ -20,7 +21,7 @@ from core.constants import (
     INFO_TITLE_FORMAT_KEY, INFO_SUMMARY_LABEL_KEY, INFO_KIND_FORMAT_KEY,
     INFO_USERNAME_FORMAT_KEY, INFO_MEMBERS_COUNT_FORMAT_KEY, INFO_ROLE_MANAGER_KEY,
     INFO_ROLE_VIEWER_KEY, INFO_NAME_LABEL_KEY, INFO_ABOUT_LABEL_KEY,
-    INFO_MEMBER_SEARCH_LABEL_KEY, INFO_MEMBERS_LABEL_KEY, INFO_MEMBER_ROLE_FORMAT_KEY,
+    INFO_MEMBER_SEARCH_LABEL_KEY, INFO_MEMBERS_LABEL_KEY,
     INFO_MEMBERS_FOUND_FORMAT_KEY, BTN_SEARCH_MEMBERS_KEY, BTN_SAVE_KEY, BTN_CLOSE_KEY,
     ERR_TITLE_REQUIRED_KEY, CONTROL_TITLE_FORMAT_KEY, GROUP_ONLY_RIGHTS, RIGHTS_OFF_BY_DEFAULT, MEMBER_ACTION_RESTRICT,
     MEMBER_ACTION_TITLE, MEMBER_ACTION_DELETE_MESSAGES, MSG_RESTRICT_PROMPT_FORMAT_KEY,
@@ -457,11 +458,7 @@ class ChatControlDialog(wx.Dialog):
         self.load_members()
 
     def format_member(self, member):
-        if not member["role"]:
-            return member["name"]
-        return self.i18n.get_string(INFO_MEMBER_ROLE_FORMAT_KEY).format(
-            name=member["name"], role=self.i18n.get_string(member["role"])
-        )
+        return member_row(self, self.i18n, member)
 
     def on_save(self, event):
         title = self.title_input.GetValue().strip()
