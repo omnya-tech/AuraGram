@@ -9,7 +9,7 @@ from core.constants import (
     EVENT_NEW_MESSAGE, EVENT_MESSAGE_EDITED, EVENT_MESSAGES_DELETED, ANNOUNCE_FORMAT_KEY,
     SOUND_MESSAGE, SOUND_MESSAGE_IN_CHAT, ANNOUNCE_WHEN_FOREGROUND, ANNOUNCE_WHEN_BACKGROUND,
     ANNOUNCE_WHAT_SENDER, ANNOUNCE_WHAT_WHOLE, ANNOUNCE_SENDER_FORMAT_KEY, EVENT_MESSAGES_READ, EVENT_USER_STATUS, EVENT_TYPING, TYPING_ACTION_TYPING, TYPING_ACTION_CANCEL, TYPING_ACTION_KEYS,
-    MSG_TYPING_FORMAT_KEY, TYPING_SHOWN_MS, EVENT_DRAFT
+    MSG_TYPING_FORMAT_KEY, TYPING_SHOWN_MS, EVENT_DRAFT, PREVIEW_SENDER_FORMAT_KEY
 )
 
 class LiveUpdatesMixin:
@@ -71,6 +71,9 @@ class LiveUpdatesMixin:
         sender_only = what == ANNOUNCE_WHAT_SENDER
         # To the end if asked, with its line breaks as pauses; otherwise only how it begins.
         said = " ".join(self.message_text(message).split()) if what == ANNOUNCE_WHAT_WHOLE else self.message_snippet(message)
+        if message.get("service") and message["sender"] and message["sender"] != source:
+            # Telegram's own news says what was done; who did it is said first, as on the message's row.
+            said = self.i18n.get_string(PREVIEW_SENDER_FORMAT_KEY).format(sender=message["sender"], text=said)
         text = self.i18n.get_string(ANNOUNCE_SENDER_FORMAT_KEY if sender_only else ANNOUNCE_FORMAT_KEY).format(
             source=source, text=said
         )

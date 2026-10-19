@@ -25,13 +25,14 @@ from core.constants import (
     ERR_TITLE_REQUIRED_KEY, CONTROL_TITLE_FORMAT_KEY, GROUP_ONLY_RIGHTS, RIGHTS_OFF_BY_DEFAULT, MEMBER_ACTION_RESTRICT,
     MEMBER_ACTION_TITLE, MEMBER_ACTION_DELETE_MESSAGES, MSG_RESTRICT_PROMPT_FORMAT_KEY,
     MSG_RESTRICT_DURATION_KEY, RESTRICT_DURATIONS, MSG_ADMIN_TITLE_PROMPT_FORMAT_KEY, BTN_ADMIN_SETTINGS_KEY,
-    INFO_PHONE_FORMAT_KEY, INFO_COMMON_CHATS_FORMAT_KEY
+    INFO_PHONE_FORMAT_KEY, INFO_COMMON_CHATS_FORMAT_KEY, BTN_APPROVE_ALL_KEY, BTN_DECLINE_ALL_KEY,
+    MSG_CONFIRM_APPROVE_ALL_FORMAT_KEY, MSG_CONFIRM_DECLINE_ALL_FORMAT_KEY, MSG_ALL_APPROVED_KEY, MSG_ALL_DECLINED_KEY
 )
 
 class ChatControlDialog(wx.Dialog):
     """The management window for a group or channel: edit its name and description, act on its
     members, open its invite links, member permissions, admin log, and admin settings. Opened
-    from the read-only info window by an admin. Read-only, defensively, for anyone who is not."""
+    from the chat's menu by its owner or an admin. Read-only, defensively, for anyone who is not."""
 
     def __init__(self, parent, i18n, telegram_manager, dialog):
         super().__init__(
@@ -111,6 +112,14 @@ class ChatControlDialog(wx.Dialog):
         self.admin_btn = wx.Button(self, label=self.i18n.get_string(BTN_ADMIN_SETTINGS_KEY))
         self.admin_btn.Bind(wx.EVT_BUTTON, self.on_admin_settings)
         buttons.Add(self.admin_btn, flag=wx.RIGHT|wx.BOTTOM, border=10)
+        # Shown only while the list is of join requests, and there are some.
+        self.approve_all_btn = wx.Button(self, label=self.i18n.get_string(BTN_APPROVE_ALL_KEY))
+        self.approve_all_btn.Bind(wx.EVT_BUTTON, lambda event: self.decide_all(True))
+        self.decline_all_btn = wx.Button(self, label=self.i18n.get_string(BTN_DECLINE_ALL_KEY))
+        self.decline_all_btn.Bind(wx.EVT_BUTTON, lambda event: self.decide_all(False))
+        for button in (self.approve_all_btn, self.decline_all_btn):
+            button.Hide()
+            buttons.Add(button, flag=wx.RIGHT|wx.BOTTOM, border=10)
         buttons.Add(wx.Button(self, wx.ID_CANCEL, self.i18n.get_string(BTN_CLOSE_KEY)), flag=wx.BOTTOM, border=10)
         sizer.Add(buttons, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.TOP, border=10)
 
@@ -272,9 +281,33 @@ class ChatControlDialog(wx.Dialog):
         ) as links_dialog:
             links_dialog.ShowModal()
 
+    def showing_requests(self):
+        return self.list_modes[max(self.list_choice.GetSelection(), 0)] == MEMBERS_REQUESTS
+
+    def decide_all(self, approved):
+        question_key = MSG_CONFIRM_APPROVE_ALL_FORMAT_KEY if approved else MSG_CONFIRM_DECLINE_ALL_FORMAT_KEY
+        answer = wx.MessageBox(
+            self.i18n.get_string(question_key).format(chat=self.info["title"]), self.i18n.get_string(APP_TITLE_KEY),
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION, self
+        )
+        if answer != wx.YES:
+            return
+        done_key = MSG_ALL_APPROVED_KEY if approved else MSG_ALL_DECLINED_KEY
+        self.telegram_manager.decide_all_requests(
+            self.dialog_id, approved, self.on_ui_thread(lambda result: self.on_all_decided(done_key))
+        )
+
+    def on_all_decided(self, done_key):
+        speak(self.i18n.get_string(done_key))
+        self.load_members()
+
     def show_members(self, members):
         self.members = members
         self.members_list.Set([self.format_member(member) for member in members])
+        has_requests = self.showing_requests() and bool(members)
+        for button in (self.approve_all_btn, self.decline_all_btn):
+            button.Show(has_requests)
+        self.Layout()
         if members:
             self.members_list.SetSelection(0)
         speak(self.i18n.get_string(INFO_MEMBERS_FOUND_FORMAT_KEY).format(count=len(members)))

@@ -1,5 +1,6 @@
 import wx
 from ui.layout import prepare_window
+from ui.text_dialog import TextDialog
 from core.speech import speak
 from core.constants import (
     APP_TITLE_KEY, MSG_LOADING_KEY, BTN_CLOSE_KEY, MSG_INVITE_COPIED_KEY,
@@ -9,7 +10,9 @@ from core.constants import (
     MSG_NEW_LINK_NAME_PROMPT_KEY, MSG_NEW_LINK_APPROVAL_KEY, MSG_LINK_CREATED_KEY,
     MSG_CONFIRM_REVOKE_LINK_KEY, MSG_LINK_REVOKED_KEY, MSG_NEW_LINK_EXPIRY_KEY, LINK_EXPIRY_CHOICES,
     MSG_NEW_LINK_LIMIT_KEY, ERR_LINK_LIMIT_KEY, INVITE_LINK_EXPIRES_FORMAT_KEY, INVITE_LINK_LIMIT_FORMAT_KEY,
-    DATE_TIME_FORMAT
+    DATE_TIME_FORMAT, BTN_DELETE_REVOKED_KEY, MSG_CONFIRM_DELETE_REVOKED_FORMAT_KEY, MSG_NO_REVOKED_KEY,
+    MSG_REVOKED_DELETED_KEY, BTN_LINK_JOINERS_KEY, LINK_JOINERS_TITLE_FORMAT_KEY, LINK_JOINED_FORMAT_KEY,
+    LINK_WAITING_FORMAT_KEY, LINK_NOBODY_KEY
 )
 
 class InviteLinksDialog(wx.Dialog):
@@ -32,7 +35,8 @@ class InviteLinksDialog(wx.Dialog):
         sizer.Add(self.links_list, proportion=1, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
         buttons = wx.BoxSizer(wx.HORIZONTAL)
         for label_key, handler in (
-            (BTN_COPY_LINK_KEY, self.on_copy), (BTN_NEW_LINK_KEY, self.on_new), (BTN_REVOKE_LINK_KEY, self.on_revoke),
+            (BTN_COPY_LINK_KEY, self.on_copy), (BTN_LINK_JOINERS_KEY, self.on_joiners), (BTN_NEW_LINK_KEY, self.on_new),
+            (BTN_REVOKE_LINK_KEY, self.on_revoke), (BTN_DELETE_REVOKED_KEY, self.on_delete_revoked),
         ):
             button = wx.Button(self, label=i18n.get_string(label_key))
             button.Bind(wx.EVT_BUTTON, handler)
@@ -104,6 +108,24 @@ class InviteLinksDialog(wx.Dialog):
         wx.TheClipboard.Close()
         speak(self.i18n.get_string(MSG_INVITE_COPIED_KEY))
 
+    def on_joiners(self, event):
+        link = self.selected_link()
+        if link is not None:
+            self.telegram_manager.load_link_joiners(
+                self.dialog_id, link["link"], self.on_ui_thread(lambda joiners: self.show_joiners(link, joiners))
+            )
+
+    def show_joiners(self, link, joiners):
+        text = self.i18n.get_string
+        lines = [
+            text(key).format(count=len(joiners[name]), names="، ".join(joiners[name]))
+            for name, key in (("joined", LINK_JOINED_FORMAT_KEY), ("waiting", LINK_WAITING_FORMAT_KEY))
+            if joiners[name]
+        ] or [text(LINK_NOBODY_KEY)]
+        name = text(INVITE_LINK_MAIN_KEY) if link["permanent"] else link["title"] or text(INVITE_LINK_UNNAMED_KEY)
+        with TextDialog(self, self.i18n, text(LINK_JOINERS_TITLE_FORMAT_KEY).format(name=name), "\n".join(lines)) as joiners_dialog:
+            joiners_dialog.ShowModal()
+
     def on_new(self, event):
         title = self.i18n.get_string(APP_TITLE_KEY)
         with wx.TextEntryDialog(self, self.i18n.get_string(MSG_NEW_LINK_NAME_PROMPT_KEY), title) as name_dialog:
@@ -155,6 +177,23 @@ class InviteLinksDialog(wx.Dialog):
         self.telegram_manager.revoke_invite_link(
             self.dialog_id, link["link"], self.on_ui_thread(lambda result: self.on_changed(MSG_LINK_REVOKED_KEY))
         )
+
+    def on_delete_revoked(self, event):
+        """Clear away the links already revoked, once the user knows how many there are."""
+        self.telegram_manager.count_revoked_links(self.dialog_id, self.on_ui_thread(self.confirm_delete_revoked))
+
+    def confirm_delete_revoked(self, count):
+        if not count:
+            speak(self.i18n.get_string(MSG_NO_REVOKED_KEY))
+            return
+        answer = wx.MessageBox(
+            self.i18n.get_string(MSG_CONFIRM_DELETE_REVOKED_FORMAT_KEY).format(count=count),
+            self.i18n.get_string(APP_TITLE_KEY), wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING, self
+        )
+        if answer == wx.YES:
+            self.telegram_manager.delete_revoked_links(
+                self.dialog_id, self.on_ui_thread(lambda result: self.on_changed(MSG_REVOKED_DELETED_KEY))
+            )
 
     def on_changed(self, message_key):
         speak(self.i18n.get_string(message_key))

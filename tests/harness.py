@@ -112,6 +112,11 @@ class FakeTelegramClient:
     discussions = {}  # (channel peer id, post id) -> (discussion group, id of the post's twin there)
     send_as = []      # who GetSendAsRequest says this account may write as
     full_chat = {}    # extra attributes of what GetFullChannelRequest answers
+    join_requests = []  # users waiting to be let into a chat
+    revoked_invites = 0  # how many revoked links GetExportedChatInvitesRequest counts
+    admin_log = []    # events iter_admin_log yields
+    link_joiners = {}  # (link, waiting for approval) -> users who came by it
+    emoji_sets = []   # titles of the emoji packs added to the account
     stats = None      # what the statistics requests answer; None for a chat that has none
     stories = None    # what GetAllStoriesRequest answers, where a test sets it
     two_step_password = None  # the account's two-step verification password, if it has one
@@ -144,6 +149,11 @@ class FakeTelegramClient:
         cls.two_step_password = None
         cls.stories = None
         cls.full_chat = {}
+        cls.join_requests = []
+        cls.revoked_invites = 0
+        cls.admin_log = []
+        cls.link_joiners = {}
+        cls.emoji_sets = []
         cls.discussion_groups = []
         cls.common_chats = []
         cls.discussions = {}
@@ -330,7 +340,16 @@ class FakeTelegramClient:
     async def get_participants(self, entity, limit=None, search="", filter=None):
         if filter is types.ChannelParticipantsKicked:
             return list(self.banned)
+        if filter is types.ChannelParticipantsAdmins:
+            return [member for member in self.members if isinstance(
+                getattr(member, "participant", None), (types.ChannelParticipantAdmin, types.ChannelParticipantCreator)
+            )]
         return [member for member in self.members if search.lower() in member.first_name.lower()]
+
+    async def iter_admin_log(self, entity, limit=None, **narrowed):
+        self.calls.append(("admin_log", narrowed))
+        for event in self.admin_log:
+            yield event
 
     async def kick_participant(self, entity, user):
         self.calls.append(("kick", user.user_id))
@@ -442,7 +461,24 @@ class FakeTelegramClient:
         if name == "ExportMessageLinkRequest":
             return Record(link="https://t.me/c/%d/%d" % (request.channel.channel_id, request.id))
         if name == "GetExportedChatInvitesRequest":
+            if request.revoked:
+                return Record(count=self.revoked_invites, invites=[])
             return Record(invites=list(self.invites))
+        if name == "DeleteRevokedExportedChatInvitesRequest":
+            type(self).revoked_invites = 0
+        if name == "GetChatInviteImportersRequest" and request.link:
+            users = self.link_joiners.get((request.link, bool(request.requested)), [])
+            return Record(importers=[Record(user_id=user.id) for user in users], users=list(users))
+        if name == "GetEmojiStickersRequest":
+            return Record(sets=[Record(id=index, access_hash=1, title=title) for index, title in enumerate(self.emoji_sets)])
+        if name == "GetChatInviteImportersRequest":
+            return Record(
+                importers=[Record(user_id=user.id) for user in self.join_requests], users=list(self.join_requests)
+            )
+        if name == "HideAllChatJoinRequestsRequest":
+            type(self).join_requests = []
+        if name == "GetBoostsStatusRequest":
+            return Record(level=2, boosts=7, next_level_boosts=10, boost_url="https://t.me/boost/x")
         if name == "ExportChatInviteRequest":
             self.invites.append(types.ChatInviteExported(
                 link="https://t.me/+new%d" % len(self.invites), admin_id=10, date=NOW,

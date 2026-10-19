@@ -1,19 +1,18 @@
 import wx
 from ui.layout import prepare_window
 from core.speech import speak
-from ui.chat_control_dialog import ChatControlDialog
 from core.constants import (
     APP_TITLE_KEY, MSG_LOADING_KEY, STATUS_READY_KEY, CHAT_KIND_USER, CHAT_KIND_GROUP, CHAT_KIND_SUPERGROUP,
     CHAT_KIND_CHANNEL, INFO_TITLE_FORMAT_KEY, INFO_SUMMARY_LABEL_KEY, INFO_KIND_FORMAT_KEY,
     INFO_USERNAME_FORMAT_KEY, INFO_MEMBERS_COUNT_FORMAT_KEY, INFO_ROLE_MANAGER_KEY, INFO_ROLE_VIEWER_KEY,
     INFO_PHONE_FORMAT_KEY, INFO_COMMON_CHATS_FORMAT_KEY, INFO_MEMBERS_LABEL_KEY, INFO_MEMBER_SEARCH_LABEL_KEY,
     INFO_MEMBER_ROLE_FORMAT_KEY, INFO_MEMBERS_FOUND_FORMAT_KEY, BTN_SEARCH_MEMBERS_KEY, BTN_CLOSE_KEY,
-    INFO_INVITE_LABEL_KEY, CONTEXT_COPY_INVITE_KEY, MSG_INVITE_COPIED_KEY, BTN_MANAGE_KEY, MEMBERS_CURRENT
+    INFO_INVITE_LABEL_KEY, CONTEXT_COPY_INVITE_KEY, MSG_INVITE_COPIED_KEY, MEMBERS_CURRENT
 )
 
 class ChatInfoDialog(wx.Dialog):
     """A chat's details, for reading only: a summary, its invite link, and its members to look through.
-    Nothing here changes anything. An admin gets a "Manage" button that opens the control window."""
+    Nothing here changes anything: management has its own entry in the chat's menu, for admins only."""
 
     def __init__(self, parent, i18n, telegram_manager, dialog):
         super().__init__(
@@ -28,9 +27,6 @@ class ChatInfoDialog(wx.Dialog):
         self.info = None
         self.members = []
         self.invite_link = None
-        # Passed up to the caller when management, opened from here, renames or deletes the chat.
-        self.saved_title = None
-        self.deleted = False
         self.init_ui()
         self.load_info()
 
@@ -70,15 +66,10 @@ class ChatInfoDialog(wx.Dialog):
         self.members_controls = [self.search_label, self.search_input, self.search_btn,
                                  self.members_label, self.members_list]
 
-        buttons = wx.BoxSizer(wx.HORIZONTAL)
-        self.manage_btn = wx.Button(self, label=self.i18n.get_string(BTN_MANAGE_KEY))
-        self.manage_btn.Bind(wx.EVT_BUTTON, self.on_manage)
-        buttons.Add(self.manage_btn, flag=wx.RIGHT, border=10)
-        buttons.Add(wx.Button(self, wx.ID_CANCEL, self.i18n.get_string(BTN_CLOSE_KEY)))
-        sizer.Add(buttons, flag=wx.ALL, border=10)
+        sizer.Add(wx.Button(self, wx.ID_CANCEL, self.i18n.get_string(BTN_CLOSE_KEY)), flag=wx.ALL, border=10)
 
         # Hidden until the details arrive and say what this chat has.
-        for control in self.invite_controls + self.members_controls + [self.manage_btn]:
+        for control in self.invite_controls + self.members_controls:
             control.Hide()
         self.SetSizer(sizer)
         self.CenterOnParent()
@@ -126,8 +117,6 @@ class ChatInfoDialog(wx.Dialog):
 
         for control in self.members_controls:
             control.Show(not is_user)
-        is_admin = info["can_edit"] or info["can_ban"] or info["can_promote"] or info["can_invite"]
-        self.manage_btn.Show(is_admin and not is_user)
         self.Layout()
         if not is_user:
             self.load_members()
@@ -168,17 +157,3 @@ class ChatInfoDialog(wx.Dialog):
         return self.i18n.get_string(INFO_MEMBER_ROLE_FORMAT_KEY).format(
             name=member["name"], role=self.i18n.get_string(member["role"])
         )
-
-    def on_manage(self, event):
-        with ChatControlDialog(self, self.i18n, self.telegram_manager, self.dialog) as control:
-            control.ShowModal()
-            self.saved_title, self.deleted = control.saved_title, control.deleted
-        if self.deleted:
-            # Nothing is left to show.
-            self.EndModal(wx.ID_CANCEL)
-            return
-        if self.saved_title:
-            # Renamed from the control window: carry the new name up, and show it here.
-            self.dialog = dict(self.dialog, title=self.saved_title)
-            self.SetTitle(self.i18n.get_string(INFO_TITLE_FORMAT_KEY).format(title=self.saved_title))
-        self.load_info()

@@ -47,11 +47,14 @@ class AdminTestCase(WindowTestCase):
 class ChatSettingsTest(AdminTestCase):
     def test_each_kind_of_chat_shows_only_its_own_settings(self):
         group, channel = set(self.admin(0).controls), set(self.admin(1).controls)
-        shared = {c.SETTING_USERNAME, c.SETTING_PROTECTED, c.SETTING_TTL, c.SETTING_REACTIONS}
-        self.assertEqual(channel, shared | {c.SETTING_SIGNATURES})
+        shared = {
+            c.SETTING_USERNAME, c.SETTING_PROTECTED, c.SETTING_TTL, c.SETTING_REACTIONS,
+            c.SETTING_NAME_COLOR, c.SETTING_PROFILE_COLOR,
+        }
+        self.assertEqual(channel, shared | {c.SETTING_SIGNATURES, c.SETTING_SIGNATURE_PROFILES, c.SETTING_AUTOTRANSLATION})
         self.assertEqual(group, shared | {
             c.SETTING_SLOW_MODE, c.SETTING_HISTORY_HIDDEN, c.SETTING_JOIN_TO_SEND,
-            c.SETTING_JOIN_REQUEST, c.SETTING_FORUM,
+            c.SETTING_JOIN_REQUEST, c.SETTING_FORUM, c.SETTING_ANTISPAM, c.SETTING_HIDE_MEMBERS,
         })
 
     def test_only_what_was_changed_is_sent(self):
@@ -98,8 +101,8 @@ class ChatSettingsTest(AdminTestCase):
         dialog = self.admin(2)
         self.assertFalse(any(control.IsEnabled() for control in dialog.controls.values()))
         enabled = {key for key, button in dialog.buttons.items() if button.IsEnabled()}
-        # This admin may only invite.
-        self.assertEqual(enabled, {c.BTN_ADD_MEMBERS_KEY})
+        # This admin may only invite, and see the boosts every admin may see.
+        self.assertEqual(enabled, {c.BTN_ADD_MEMBERS_KEY, c.BTN_BOOSTS_KEY})
 
     def test_photo_and_new_members(self):
         dialog = self.admin(0)
@@ -175,14 +178,18 @@ class MemberAdminTest(AdminTestCase):
         return next(member for member in self.dialog.members if member["name"] == name)
 
     def test_member_is_limited_to_what_stays_ticked_for_as_long_as_chosen(self):
-        FakeChooser.selections = [c.MEMBER_PERMISSIONS.index("send_messages")]
+        FakeChooser.selections = [c.MEMBER_PERMISSIONS.index("send_plain")]
         FakeChooser.selection = 2
         self.dialog.manage_member(self.member("Zed"), c.MEMBER_ACTION_RESTRICT)
-        self.assertTrue(pump(lambda: self.calls("permissions")))
-        target, allowed = self.calls("permissions")[0][1:]
-        self.assertEqual(target, 12)
-        self.assertEqual(allowed, {name: name == "send_messages" for name in c.MEMBER_PERMISSIONS})
-        self.assertEqual(self.calls("until"), [("until", 12, datetime.timedelta(days=1))])
+        self.assertTrue(pump(lambda: self.requests("EditBannedRequest")))
+        request = self.requests("EditBannedRequest")[0]
+        self.assertEqual(request.participant.user_id, 12)
+        rights = request.banned_rights
+        # Text only: every kind of media is taken away, and so media as a whole, but not writing.
+        self.assertFalse(rights.send_plain or rights.send_messages or rights.view_messages)
+        self.assertTrue(rights.send_photos and rights.send_voices and rights.send_media and rights.invite_users)
+        ahead = rights.until_date - datetime.datetime.now(datetime.timezone.utc)
+        self.assertAlmostEqual(ahead.total_seconds(), datetime.timedelta(days=1).total_seconds(), delta=60)
 
     def test_new_title_keeps_every_right_the_admin_has(self):
         mona = self.member("Mona")

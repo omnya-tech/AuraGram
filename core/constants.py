@@ -110,6 +110,37 @@ MENU_LOGOUT_KEY = "MENU_LOGOUT"
 MENU_EXIT_KEY = "MENU_EXIT"
 MSG_CONFIRM_LOGOUT_KEY = "MSG_CONFIRM_LOGOUT"
 MEDIA_FORMAT_KEY = "MEDIA_FORMAT"
+# What a message from Telegram itself says, by the kind of its action: the locale key of the words,
+# written to follow the name of whoever did it. Kinds not here are told as MEDIA_SERVICE.
+SERVICE_KEYS = {
+    "MessageActionChatJoinedByLink": "SERVICE_JOINED_BY_LINK",
+    "MessageActionChatJoinedByRequest": "SERVICE_JOINED_BY_REQUEST",
+    "MessageActionChatEditTitle": "SERVICE_EDIT_TITLE_FORMAT",
+    "MessageActionChatEditPhoto": "SERVICE_EDIT_PHOTO",
+    "MessageActionChatDeletePhoto": "SERVICE_DELETE_PHOTO",
+    "MessageActionChatCreate": "SERVICE_CHAT_CREATE_FORMAT",
+    "MessageActionChannelCreate": "SERVICE_CHANNEL_CREATE_FORMAT",
+    "MessageActionPinMessage": "SERVICE_PIN",
+    "MessageActionChatMigrateTo": "SERVICE_MIGRATE",
+    "MessageActionChannelMigrateFrom": "SERVICE_MIGRATE",
+    "MessageActionHistoryClear": "SERVICE_HISTORY_CLEAR",
+    "MessageActionScreenshotTaken": "SERVICE_SCREENSHOT",
+    "MessageActionTopicCreate": "SERVICE_TOPIC_CREATE_FORMAT",
+    "MessageActionTopicEdit": "SERVICE_TOPIC_EDIT",
+    "MessageActionSetMessagesTTL": "SERVICE_TTL",
+    "MessageActionContactSignUp": "SERVICE_SIGN_UP",
+    "MessageActionInviteToGroupCall": "SERVICE_CALL_INVITE",
+    "MessageActionPhoneCall": "SERVICE_PHONE_CALL",
+}
+# These depend on more than their kind: who was added or removed, and whether a call has ended.
+SERVICE_JOINED_KEY = "SERVICE_JOINED"
+SERVICE_ADDED_FORMAT_KEY = "SERVICE_ADDED_FORMAT"
+SERVICE_LEFT_KEY = "SERVICE_LEFT"
+SERVICE_REMOVED_FORMAT_KEY = "SERVICE_REMOVED_FORMAT"
+SERVICE_CALL_STARTED_KEY = "SERVICE_CALL_STARTED"
+SERVICE_CALL_ENDED_KEY = "SERVICE_CALL_ENDED"
+SERVICE_NAMES_SEPARATOR_KEY = "SERVICE_NAMES_SEPARATOR"
+MEDIA_SERVICE_KEY = "MEDIA_SERVICE"
 
 # (Telethon message attribute, locale key), most specific first.
 MEDIA_KINDS = (
@@ -207,6 +238,7 @@ MENU_NEXT_UNREAD_KEY = "MENU_NEXT_UNREAD"
 MENU_NEXT_VIEW_KEY = "MENU_NEXT_VIEW"
 MENU_PREVIOUS_VIEW_KEY = "MENU_PREVIOUS_VIEW"
 MENU_CHAT_INFO_KEY = "MENU_CHAT_INFO"
+MENU_CHAT_MANAGE_KEY = "MENU_CHAT_MANAGE"
 MENU_CHAT_READ_KEY = "MENU_CHAT_READ"
 MENU_CHAT_PIN_KEY = "MENU_CHAT_PIN"
 MENU_CHAT_MUTE_KEY = "MENU_CHAT_MUTE"
@@ -753,10 +785,16 @@ ADMIN_LOG_EMPTY_KEY = "ADMIN_LOG_EMPTY"
 ADMIN_LOG_KEY_PREFIX = "ADMIN_LOG_"
 
 # What ordinary members may do in a group; each has a "MEMBER_PERMISSION_<name>" locale string.
+# What ordinary members may do, each kind of media on its own, as Telegram's own apps offer it.
 MEMBER_PERMISSIONS = (
-    "send_messages", "send_media", "send_stickers", "send_gifs", "embed_link_previews", "send_polls",
-    "invite_users", "pin_messages", "change_info",
+    "send_plain", "send_photos", "send_videos", "send_roundvideos", "send_audios", "send_voices", "send_docs",
+    "send_stickers", "send_gifs", "embed_link_previews", "send_polls", "invite_users", "pin_messages",
+    "change_info", "manage_topics",
 )
+# The kinds of media among them: Telegram also keeps one flag for all of them together.
+MEDIA_PERMISSIONS = ("send_photos", "send_videos", "send_roundvideos", "send_audios", "send_voices", "send_docs")
+# Every way of writing: with none of them left, a member may not write at all.
+SENDING_PERMISSIONS = ("send_plain",) + MEDIA_PERMISSIONS + ("send_stickers", "send_gifs", "send_polls")
 MEMBER_PERMISSION_KEY_PREFIX = "MEMBER_PERMISSION_"
 BTN_MEMBER_PERMISSIONS_KEY = "BTN_MEMBER_PERMISSIONS"
 MSG_CHOOSE_PERMISSIONS_FORMAT_KEY = "MSG_CHOOSE_PERMISSIONS_FORMAT"
@@ -973,10 +1011,80 @@ SETTING_FORUM = "forum"
 SETTING_SLOW_MODE = "slow_mode"
 SETTING_TTL = "ttl"
 SETTING_REACTIONS = "reactions"
+# A channel's posts signed with the author's account, not only their name.
+SETTING_SIGNATURE_PROFILES = "signature_profiles"
+# Telegram's own spam filter, for large groups.
+SETTING_ANTISPAM = "antispam"
+# The member list hidden from members.
+SETTING_HIDE_MEMBERS = "hide_members"
+# A channel's posts translated by Telegram for subscribers who read another language.
+SETTING_AUTOTRANSLATION = "autotranslation"
+# The colour of the chat's name, and of its profile, in Telegram's palette.
+SETTING_NAME_COLOR = "name_color"
+SETTING_PROFILE_COLOR = "profile_color"
 ADMIN_SWITCHES = (
-    SETTING_SIGNATURES, SETTING_HISTORY_HIDDEN, SETTING_PROTECTED, SETTING_JOIN_TO_SEND,
-    SETTING_JOIN_REQUEST, SETTING_FORUM,
+    SETTING_SIGNATURES, SETTING_SIGNATURE_PROFILES, SETTING_HISTORY_HIDDEN, SETTING_PROTECTED, SETTING_JOIN_TO_SEND,
+    SETTING_JOIN_REQUEST, SETTING_FORUM, SETTING_ANTISPAM, SETTING_HIDE_MEMBERS, SETTING_AUTOTRANSLATION,
 )
+# Telegram's colours by number: the first seven are for names, all eight for profiles.
+CHAT_COLOR_KEYS = (
+    "COLOR_RED", "COLOR_ORANGE", "COLOR_VIOLET", "COLOR_GREEN", "COLOR_CYAN", "COLOR_BLUE", "COLOR_PINK", "COLOR_GRAY",
+)
+COLOR_DEFAULT_KEY = "COLOR_DEFAULT"
+# The account that deletes what Telegram's anti-spam takes for spam, in the admin log.
+ANTISPAM_USER_ID = 5434988373
+# A group's own sticker set, the boosts of a channel or group, all join requests at once,
+# invite links already revoked, and the admin log narrowed down.
+BTN_GROUP_STICKERS_KEY = "BTN_GROUP_STICKERS"
+MSG_CHOOSE_GROUP_STICKERS_FORMAT_KEY = "MSG_CHOOSE_GROUP_STICKERS_FORMAT"
+GROUP_STICKERS_NONE_KEY = "GROUP_STICKERS_NONE"
+MSG_GROUP_STICKERS_SAVED_KEY = "MSG_GROUP_STICKERS_SAVED"
+MSG_NO_STICKER_SETS_KEY = "MSG_NO_STICKER_SETS"
+BTN_GROUP_EMOJI_KEY = "BTN_GROUP_EMOJI"
+MSG_CHOOSE_GROUP_EMOJI_FORMAT_KEY = "MSG_CHOOSE_GROUP_EMOJI_FORMAT"
+MSG_GROUP_EMOJI_SAVED_KEY = "MSG_GROUP_EMOJI_SAVED"
+MSG_NO_EMOJI_SETS_KEY = "MSG_NO_EMOJI_SETS"
+BTN_LINK_JOINERS_KEY = "BTN_LINK_JOINERS"
+LINK_JOINERS_TITLE_FORMAT_KEY = "LINK_JOINERS_TITLE_FORMAT"
+LINK_JOINED_FORMAT_KEY = "LINK_JOINED_FORMAT"
+LINK_WAITING_FORMAT_KEY = "LINK_WAITING_FORMAT"
+LINK_NOBODY_KEY = "LINK_NOBODY"
+BTN_NOT_SPAM_KEY = "BTN_NOT_SPAM"
+MSG_CONFIRM_NOT_SPAM_KEY = "MSG_CONFIRM_NOT_SPAM"
+MSG_NOT_SPAM_REPORTED_KEY = "MSG_NOT_SPAM_REPORTED"
+ADMIN_LOG_ANTISPAM_FORMAT_KEY = "ADMIN_LOG_ANTISPAM_FORMAT"
+ADMIN_LOG_DELETED_TEXT_FORMAT_KEY = "ADMIN_LOG_DELETED_TEXT_FORMAT"
+BTN_BOOSTS_KEY = "BTN_BOOSTS"
+BOOSTS_TITLE_KEY = "BOOSTS_TITLE"
+BOOSTS_LEVEL_FORMAT_KEY = "BOOSTS_LEVEL_FORMAT"
+BOOSTS_COUNT_FORMAT_KEY = "BOOSTS_COUNT_FORMAT"
+BOOSTS_NEXT_FORMAT_KEY = "BOOSTS_NEXT_FORMAT"
+BOOSTS_TOP_KEY = "BOOSTS_TOP"
+BOOSTS_LINK_FORMAT_KEY = "BOOSTS_LINK_FORMAT"
+BTN_APPROVE_ALL_KEY = "BTN_APPROVE_ALL"
+BTN_DECLINE_ALL_KEY = "BTN_DECLINE_ALL"
+MSG_CONFIRM_APPROVE_ALL_FORMAT_KEY = "MSG_CONFIRM_APPROVE_ALL_FORMAT"
+MSG_CONFIRM_DECLINE_ALL_FORMAT_KEY = "MSG_CONFIRM_DECLINE_ALL_FORMAT"
+MSG_ALL_APPROVED_KEY = "MSG_ALL_APPROVED"
+MSG_ALL_DECLINED_KEY = "MSG_ALL_DECLINED"
+BTN_DELETE_REVOKED_KEY = "BTN_DELETE_REVOKED"
+MSG_CONFIRM_DELETE_REVOKED_FORMAT_KEY = "MSG_CONFIRM_DELETE_REVOKED_FORMAT"
+MSG_NO_REVOKED_KEY = "MSG_NO_REVOKED"
+MSG_REVOKED_DELETED_KEY = "MSG_REVOKED_DELETED"
+ADMIN_LOG_KIND_LABEL_KEY = "ADMIN_LOG_KIND_LABEL"
+ADMIN_LOG_ADMIN_LABEL_KEY = "ADMIN_LOG_ADMIN_LABEL"
+ADMIN_LOG_ALL_ADMINS_KEY = "ADMIN_LOG_ALL_ADMINS"
+ADMIN_LOG_EVENTS_LABEL_KEY = "ADMIN_LOG_EVENTS_LABEL"
+# Each kind of event the log can be narrowed to: its text, and what Telegram is asked for.
+ADMIN_LOG_FILTERS = {
+    "ADMIN_LOG_FILTER_ALL": (),
+    "ADMIN_LOG_FILTER_MEMBERS": ("join", "leave", "invite"),
+    "ADMIN_LOG_FILTER_BANS": ("restrict", "unrestrict", "ban", "unban"),
+    "ADMIN_LOG_FILTER_ADMINS": ("promote", "demote"),
+    "ADMIN_LOG_FILTER_INFO": ("info", "settings"),
+    "ADMIN_LOG_FILTER_MESSAGES": ("pinned", "edit", "delete"),
+    "ADMIN_LOG_FILTER_CALLS": ("group_call",),
+}
 REACTIONS_ALL = "REACTIONS_ALL"
 REACTIONS_NONE = "REACTIONS_NONE"
 REACTIONS_SOME = "REACTIONS_SOME"
@@ -991,6 +1099,8 @@ ADMIN_CHOICES = {
         (31 * 24 * 60 * 60, "TTL_1_MONTH"),
     ),
     SETTING_REACTIONS: ((REACTIONS_ALL, REACTIONS_ALL), (REACTIONS_NONE, REACTIONS_NONE)),
+    SETTING_NAME_COLOR: ((None, COLOR_DEFAULT_KEY),) + tuple(enumerate(CHAT_COLOR_KEYS[:7])),
+    SETTING_PROFILE_COLOR: ((None, COLOR_DEFAULT_KEY),) + tuple(enumerate(CHAT_COLOR_KEYS)),
 }
 CHOICE_KEPT_FORMAT_KEY = "CHOICE_KEPT_FORMAT"
 MSG_ADMIN_SETTINGS_SAVED_KEY = "MSG_ADMIN_SETTINGS_SAVED"
@@ -1075,9 +1185,13 @@ PINNED_FORMAT_KEY = "PINNED_FORMAT"
 MSG_CONFIRM_DELETE_OTHER_KEY = "MSG_CONFIRM_DELETE_OTHER"
 
 CONTEXT_INFO_KEY = "CONTEXT_INFO"
+CONTEXT_INFO_GROUP_KEY = "CONTEXT_INFO_GROUP"
+CONTEXT_INFO_CHANNEL_KEY = "CONTEXT_INFO_CHANNEL"
+CONTEXT_MANAGE_GROUP_KEY = "CONTEXT_MANAGE_GROUP"
+CONTEXT_MANAGE_CHANNEL_KEY = "CONTEXT_MANAGE_CHANNEL"
+MSG_NOT_ADMIN_KEY = "MSG_NOT_ADMIN"
 INFO_TITLE_FORMAT_KEY = "INFO_TITLE_FORMAT"
 CONTROL_TITLE_FORMAT_KEY = "CONTROL_TITLE_FORMAT"
-BTN_MANAGE_KEY = "BTN_MANAGE"
 INFO_INVITE_LABEL_KEY = "INFO_INVITE_LABEL"
 INFO_SUMMARY_LABEL_KEY = "INFO_SUMMARY_LABEL"
 INFO_KIND_FORMAT_KEY = "INFO_KIND_FORMAT"

@@ -1,11 +1,12 @@
-"""The read-only info window: a summary, the invite link, members to view, and a way through to management."""
+"""The read-only info window: a summary, the invite link and members to view. Management is apart from it,
+in the chat's menu, for those who run the chat."""
 from unittest import mock
 
 import wx
 from telethon.tl import types
 
 import core.constants as c
-import ui.chat_info_dialog
+import ui.chat_list
 from tests.harness import NOW, FakeTelegramClient, WindowTestCase, make_channel, make_member, make_user, pump
 from ui.chat_info_dialog import ChatInfoDialog
 
@@ -56,9 +57,24 @@ class ReadOnlyInfoTest(WindowTestCase):
         self.assertEqual(data.GetText(), dialog.invite_link)
         self.assertEqual(self.spoken[-1], self.text(c.MSG_INVITE_COPIED_KEY))
 
-    def test_admin_gets_a_manage_button_that_opens_the_control_window(self):
-        dialog = self.info(0)
-        self.assertTrue(dialog.manage_btn.IsShown())
+    def test_info_has_no_way_into_management(self):
+        self.assertFalse(hasattr(self.info(0), "manage_btn"))
+
+    def menu(self, row):
+        self.frame.dialogs_list.SetSelection(row)
+        self.frame.on_dialog_context_menu(self.context_event(self.frame.dialogs_list))
+        return list(self.menu_labels)
+
+    def test_owner_gets_management_apart_from_the_info(self):
+        labels = self.menu(0)
+        info, manage = self.text(c.CONTEXT_INFO_GROUP_KEY), self.text(c.CONTEXT_MANAGE_GROUP_KEY)
+        self.assertIn(info, labels)
+        # Away from the info, just before the entries that cannot be undone.
+        self.assertEqual(labels.index(manage), labels.index(self.text(c.CONTEXT_CLEAR_HISTORY_KEY)) - 1)
+        self.assertNotIn(manage, self.menu(1))
+        self.assertIn(self.text(c.CONTEXT_INFO_KEY), self.menu(1))
+
+    def test_management_opens_and_carries_a_new_name_back_to_the_list(self):
         opened = []
 
         class FakeControl:
@@ -75,27 +91,29 @@ class ReadOnlyInfoTest(WindowTestCase):
             def ShowModal(self):
                 return wx.ID_OK
 
-        with mock.patch.object(ui.chat_info_dialog, "ChatControlDialog", FakeControl):
-            dialog.on_manage(None)
+        with mock.patch.object(ui.chat_list, "ChatControlDialog", FakeControl):
+            self.frame.manage_chat(self.frame.dialogs[0])
         self.assertEqual(len(opened), 1)
-        # A rename done in management is carried back and the window reloads under the new name.
-        self.assertEqual(dialog.saved_title, "Renamed")
-        self.assertIn("Renamed", dialog.GetTitle())
+        self.assertEqual(self.frame.dialogs[0]["title"], "Renamed")
+        self.assertIn("Renamed", self.frame.dialogs_list.GetString(0))
+
+    def test_management_is_refused_where_this_account_does_not_run_the_chat(self):
+        self.frame.manage_chat(self.frame.dialogs[1])
+        self.assertEqual(self.frame.GetStatusBar().GetStatusText(), self.text(c.MSG_NOT_ADMIN_KEY))
 
     def test_private_chat_shows_no_members_and_no_invite_link_and_no_manage(self):
         dialog = self.info(1)
         self.assertFalse(dialog.members_list.IsShown())
         self.assertFalse(dialog.invite_field.IsShown())
-        self.assertFalse(dialog.manage_btn.IsShown())
 
 
 class SubscriberInfoTest(WindowTestCase):
     # A channel this account only follows: not its creator, with no admin rights.
     chats = [(make_channel(5, "BigChannel", group=False), 0, False)]
 
-    def test_subscriber_sees_info_but_no_manage_button(self):
+    def test_subscriber_sees_info_but_no_management(self):
         dialog = ChatInfoDialog(self.frame, self.i18n, self.manager, self.frame.all_dialogs[0])
         self.addCleanup(dialog.Destroy)
         self.assertTrue(pump(lambda: dialog.info is not None))
-        self.assertFalse(dialog.manage_btn.IsShown())
+        self.assertFalse(self.frame.dialogs[0]["is_admin"])
         self.assertIn(self.text(c.INFO_ROLE_VIEWER_KEY), dialog.summary.GetValue())

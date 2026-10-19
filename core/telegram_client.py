@@ -25,6 +25,10 @@ from telethon.utils import get_display_name, get_input_peer, get_peer_id, parse_
 from core.config import load_credentials
 from core.proxy import client_arguments
 from core.constants import (
+    MEDIA_PERMISSIONS, SENDING_PERMISSIONS, SETTING_ANTISPAM, SETTING_HIDE_MEMBERS, SETTING_SIGNATURE_PROFILES,
+    SETTING_AUTOTRANSLATION, SETTING_NAME_COLOR, SETTING_PROFILE_COLOR, ANTISPAM_USER_ID,
+    SERVICE_KEYS, SERVICE_JOINED_KEY, SERVICE_ADDED_FORMAT_KEY, SERVICE_LEFT_KEY, SERVICE_REMOVED_FORMAT_KEY,
+    SERVICE_CALL_STARTED_KEY, SERVICE_CALL_ENDED_KEY, MEDIA_SERVICE_KEY,
     APP_VERSION, CLIENT_DEVICE_MODEL, CLIENT_SYSTEM_FORMAT,
     SESSION_NAME, EMPTY_STRING, DIALOGS_LIMIT, MESSAGES_LIMIT,
     STEP_PHONE, STEP_CODE, STEP_PASSWORD, STEP_DONE,
@@ -93,11 +97,10 @@ CHAT_FILE_FILTERS = (
 )
 ADMIN_LOG_ACTION_PREFIX = "ChannelAdminLogEventAction"
 
-# Every member permission Telethon's edit_permissions sets. The ones the app
-# does not offer are still passed back unchanged when saving.
-ALL_MEMBER_PERMISSIONS = MEMBER_PERMISSIONS + ("view_messages", "send_games", "send_inline")
-# Where Telegram's flag is named differently from Telethon's argument.
+# Where Telegram's flag is named differently from the permission's name in the app.
 BANNED_RIGHT_NAMES = {"embed_link_previews": "embed_links"}
+# Telegram's flags that are not shown as permissions but are kept as they are when saving.
+KEPT_BANNED_RIGHTS = ("send_games", "send_inline", "send_reactions", "edit_rank", "manage_linked_peers")
 
 # Privacy settings offered in the app, by the name the UI uses for each.
 # Telegram's name for each kind of chat that has a default notification setting.
@@ -144,6 +147,9 @@ class TelegramManager(threading.Thread):
         self.entities = {}
         # Members of the chat whose member list was loaded last.
         self.member_entities = {}
+        # The admins load_admins listed, apart from the members, whose list is loaded anew more often.
+        self.admin_entities = {}
+        self.emoji_sets = {}
         # user id -> (admin rights as Telegram holds them, custom title), for the same list.
         self.member_admins = {}
         # chat id -> id of the newest message of ours the other side has read, where Telegram told us.
@@ -345,9 +351,49 @@ class TelegramManager(threading.Thread):
     def send_poll(self, dialog_id, question, options, on_result, reply_to=None):
         self._request(on_result, self._send_poll_async, dialog_id, question, options, reply_to)
 
-    def load_admin_log(self, dialog_id, on_result):
-        """The result is the recent admin actions in a channel or large group, newest first."""
-        self._request(on_result, self._load_admin_log_async, dialog_id)
+    def load_admin_log(self, dialog_id, on_result, kinds=(), admin_id=None):
+        """The result is the recent admin actions in a channel or large group, newest first. `kinds` narrows
+        them to some of Telegram's kinds of event (ADMIN_LOG_FILTERS); `admin_id` to one admin's, from load_admins."""
+        self._request(on_result, self._load_admin_log_async, dialog_id, kinds, admin_id)
+
+    def load_admins(self, dialog_id, on_result):
+        """The result is the chat's admins as [{"id", "name"}]."""
+        self._request(on_result, self._load_admins_async, dialog_id)
+
+    def decide_all_requests(self, dialog_id, approved, on_result):
+        """Approve every request to join, or decline every one."""
+        self._request(on_result, self._decide_all_requests_async, dialog_id, approved)
+
+    def count_revoked_links(self, dialog_id, on_result):
+        """The result is how many invite links this account made for the chat and then revoked."""
+        self._request(on_result, self._count_revoked_links_async, dialog_id)
+
+    def delete_revoked_links(self, dialog_id, on_result):
+        self._request(on_result, self._delete_revoked_links_async, dialog_id)
+
+    def set_group_stickers(self, dialog_id, set_id, on_result):
+        """Give a large group one of the sticker sets load_sticker_sets listed; None for none of its own."""
+        self._request(on_result, self._set_group_stickers_async, dialog_id, set_id)
+
+    def load_emoji_sets(self, on_result):
+        """The result is the emoji packs added to the account as [{"id", "title"}]."""
+        self._request(on_result, self._load_emoji_sets_async)
+
+    def set_group_emoji(self, dialog_id, set_id, on_result):
+        """Give a large group one of the packs load_emoji_sets listed; None for none of its own."""
+        self._request(on_result, self._set_group_emoji_async, dialog_id, set_id)
+
+    def load_link_joiners(self, dialog_id, link, on_result):
+        """The result is {"joined": [names], "waiting": [names]} for one of the chat's invite links."""
+        self._request(on_result, self._load_link_joiners_async, dialog_id, link)
+
+    def report_not_spam(self, dialog_id, message_id, on_result):
+        """Tell Telegram its anti-spam deleted a message (from the admin log) by mistake."""
+        self._request(on_result, self._report_not_spam_async, dialog_id, message_id)
+
+    def load_boosts(self, dialog_id, on_result):
+        """The result is {"level", "boosts", "next" (boosts the next level needs in all, None at the top), "link"}."""
+        self._request(on_result, self._load_boosts_async, dialog_id)
 
     def leave_chat(self, dialog_id, on_result):
         """Leaves a group or channel; for a private chat, deletes it from this account's list."""
@@ -866,6 +912,8 @@ class TelegramManager(threading.Thread):
             "joined": not getattr(entity, "left", False),
             # A group split into topics.
             "is_forum": bool(getattr(entity, "forum", False)),
+            # The owner or an admin of a group or channel, who gets its management.
+            "is_admin": not is_user and bool(getattr(entity, "creator", False) or getattr(entity, "admin_rights", None)),
             # Text left unsent in this chat, as saved on the account by any device.
             "draft": draft,
             # For a person: when they were last around. Bots and this account itself have none.
@@ -1034,21 +1082,42 @@ class TelegramManager(threading.Thread):
         return getattr(entity, "default_banned_rights", None)
 
     def _allowed_by(self, banned_rights):
-        """Every permission Telethon can set -> whether members have it, read from Telegram's "banned" flags."""
-        return {
-            name: not getattr(banned_rights, BANNED_RIGHT_NAMES.get(name, name), False)
-            for name in ALL_MEMBER_PERMISSIONS
-        }
+        """The MEMBER_PERMISSIONS members have, read from Telegram's "banned" flags. A flag for a whole
+        group of them (all writing, all media) takes each of them away."""
+        def banned(field):
+            return bool(getattr(banned_rights, field, False))
+        allowed = set()
+        for name in MEMBER_PERMISSIONS:
+            taken = banned(BANNED_RIGHT_NAMES.get(name, name)) \
+                or (name in SENDING_PERMISSIONS and banned("send_messages")) \
+                or (name in MEDIA_PERMISSIONS and banned("send_media"))
+            if not taken:
+                allowed.add(name)
+        return allowed
+
+    def _banned_rights(self, allowed, current=None, until=None):
+        """Telegram's "banned" flags for members who may do what `allowed` names, and nothing more of it.
+        The flags for whole groups of permissions follow from those; the ones the app shows no
+        permission for are kept from `current`, or, without it, go with stickers, as in Telegram's own apps."""
+        flags = {BANNED_RIGHT_NAMES.get(name, name): name not in allowed for name in MEMBER_PERMISSIONS}
+        flags["send_media"] = not any(name in allowed for name in MEDIA_PERMISSIONS)
+        flags["send_messages"] = not any(name in allowed for name in SENDING_PERMISSIONS)
+        for field in KEPT_BANNED_RIGHTS:
+            if current is not None:
+                flags[field] = getattr(current, field, None)
+            elif field in ("send_games", "send_inline"):
+                flags[field] = "send_stickers" not in allowed
+        return types.ChatBannedRights(until_date=until, view_messages=False, **flags)
 
     async def _load_member_permissions_async(self, dialog_id):
-        allowed = self._allowed_by(await self._default_rights(dialog_id))
-        return {name for name in MEMBER_PERMISSIONS if allowed[name]}
+        return self._allowed_by(await self._default_rights(dialog_id))
 
     async def _save_member_permissions_async(self, dialog_id, allowed):
-        # Start from what is set now, so permissions this app does not show stay as they are.
-        permissions = self._allowed_by(await self._default_rights(dialog_id))
-        permissions.update({name: name in allowed for name in MEMBER_PERMISSIONS})
-        await self.client.edit_permissions(self.entities[dialog_id], **permissions)
+        # Telegram's flags the app shows no permission for stay as they are now.
+        current = await self._default_rights(dialog_id)
+        await self.client(functions.messages.EditChatDefaultBannedRightsRequest(
+            peer=self.entities[dialog_id], banned_rights=self._banned_rights(allowed, current)
+        ))
 
     async def _forward_message_async(self, from_dialog_id, message_id, to_dialog_id):
         await self.client.forward_messages(
@@ -1539,7 +1608,11 @@ class TelegramManager(threading.Thread):
         }
         if is_channel:
             values[SETTING_USERNAME] = getattr(entity, "username", None) or EMPTY_STRING
+            values[SETTING_NAME_COLOR] = getattr(getattr(entity, "color", None), "color", None)
+            values[SETTING_PROFILE_COLOR] = getattr(getattr(entity, "profile_color", None), "color", None)
             if entity.megagroup:
+                values[SETTING_ANTISPAM] = bool(getattr(full, "antispam", False))
+                values[SETTING_HIDE_MEMBERS] = bool(getattr(full, "participants_hidden", False))
                 values[SETTING_SLOW_MODE] = getattr(full, "slowmode_seconds", None) or 0
                 values[SETTING_HISTORY_HIDDEN] = bool(getattr(full, "hidden_prehistory", False))
                 values[SETTING_JOIN_TO_SEND] = bool(getattr(entity, "join_to_send", False))
@@ -1547,6 +1620,8 @@ class TelegramManager(threading.Thread):
                 values[SETTING_FORUM] = bool(getattr(entity, "forum", False))
             else:
                 values[SETTING_SIGNATURES] = bool(getattr(entity, "signatures", False))
+                values[SETTING_SIGNATURE_PROFILES] = bool(getattr(entity, "signature_profiles", False))
+                values[SETTING_AUTOTRANSLATION] = bool(getattr(entity, "autotranslation", False))
         rights = getattr(entity, "admin_rights", None)
         is_owner = bool(getattr(entity, "creator", False))
         if is_channel:
@@ -1559,6 +1634,14 @@ class TelegramManager(threading.Thread):
             "can_invite": is_owner or bool(rights and rights.invite_users),
             "can_view_stats": bool(getattr(full, "can_view_stats", False)),
             "can_manage_topics": is_owner or bool(rights and getattr(rights, "manage_topics", False)),
+            # A large group's own sticker set: whether it may be set, and which it is now.
+            "can_set_stickers": bool(getattr(full, "can_set_stickers", False)),
+            "stickers": getattr(getattr(full, "stickerset", None), "title", None),
+            # A large group's own emoji pack, which needs boosts; Telegram says so if there are too few.
+            "is_large_group": is_channel and bool(entity.megagroup),
+            "emoji": getattr(getattr(full, "emojiset", None), "title", None),
+            # Boosts belong to channels and large groups, and are shown to their admins.
+            "has_boosts": is_channel and (is_owner or rights is not None),
             # The emoji allowed as reactions, where the chat allows only some.
             "reactions": [
                 reaction.emoticon
@@ -1577,7 +1660,9 @@ class TelegramManager(threading.Thread):
         entity = self.entities[dialog_id]
         channel_requests = {
             SETTING_USERNAME: lambda value: functions.channels.UpdateUsernameRequest(entity, value.lstrip("@")),
-            SETTING_SIGNATURES: lambda value: functions.channels.ToggleSignaturesRequest(entity, signatures_enabled=value),
+            SETTING_ANTISPAM: lambda value: functions.channels.ToggleAntiSpamRequest(entity, value),
+            SETTING_HIDE_MEMBERS: lambda value: functions.channels.ToggleParticipantsHiddenRequest(entity, value),
+            SETTING_AUTOTRANSLATION: lambda value: functions.channels.ToggleAutotranslationRequest(entity, value),
             SETTING_HISTORY_HIDDEN: lambda value: functions.channels.TogglePreHistoryHiddenRequest(entity, value),
             SETTING_JOIN_TO_SEND: lambda value: functions.channels.ToggleJoinToSendRequest(entity, value),
             SETTING_JOIN_REQUEST: lambda value: functions.channels.ToggleJoinRequestRequest(entity, value),
@@ -1589,6 +1674,28 @@ class TelegramManager(threading.Thread):
                 entity, types.ChatReactionsAll() if value == REACTIONS_ALL else types.ChatReactionsNone()
             ),
         }
+        # The author's account goes with the signature: both are one switch to Telegram.
+        if SETTING_SIGNATURES in changes or SETTING_SIGNATURE_PROFILES in changes:
+            signatures = changes.pop(SETTING_SIGNATURES, None)
+            profiles = changes.pop(SETTING_SIGNATURE_PROFILES, None)
+            entity_now = await self.client.get_entity(entity)
+            if signatures is None:
+                signatures = bool(getattr(entity_now, "signatures", False))
+            if profiles is None:
+                profiles = bool(getattr(entity_now, "signature_profiles", False))
+            await self.client(functions.channels.ToggleSignaturesRequest(
+                entity, signatures_enabled=signatures, profiles_enabled=profiles and signatures
+            ))
+        # A colour keeps the emoji drawn behind it, which Telegram would otherwise drop.
+        for name, field in ((SETTING_NAME_COLOR, "color"), (SETTING_PROFILE_COLOR, "profile_color")):
+            if name in changes:
+                color = changes.pop(name)
+                entity_now = await self.client.get_entity(entity)
+                emoji_id = getattr(getattr(entity_now, field, None), "background_emoji_id", None)
+                await self.client(functions.channels.UpdateColorRequest(
+                    entity, for_profile=name == SETTING_PROFILE_COLOR or None, color=color,
+                    background_emoji_id=emoji_id if color is not None else None
+                ))
         for name, value in changes.items():
             await self.client(channel_requests[name](value))
 
@@ -1668,10 +1775,10 @@ class TelegramManager(threading.Thread):
         elif action == MEMBER_ACTION_TITLE:
             await self._set_admin_async(entity, user, user_id, title=title)
         elif action == MEMBER_ACTION_RESTRICT:
-            until = datetime.timedelta(seconds=seconds) if seconds else None
-            await self.client.edit_permissions(
-                entity, user, until, **{name: name in rights for name in MEMBER_PERMISSIONS}
-            )
+            until = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=seconds) if seconds else None
+            await self.client(functions.channels.EditBannedRequest(
+                channel=entity, participant=user, banned_rights=self._banned_rights(rights, until=until)
+            ))
         elif action == MEMBER_ACTION_DELETE_MESSAGES:
             await self.client(functions.channels.DeleteParticipantHistoryRequest(channel=entity, participant=user))
         elif action == MEMBER_ACTION_DEMOTE:
@@ -1910,6 +2017,8 @@ class TelegramManager(threading.Thread):
             "text": message.message or EMPTY_STRING,
             # Words for an attachment that has no text of its own: a sticker's emoji, a contact's name and number.
             "detail": self._describe_detail(message),
+            # For a message from Telegram itself: (locale key, its fields), what happened; None otherwise.
+            "service": self._describe_service(message, sender),
             # What an attached file is: {"name", "size", "duration"}; None for a message without one.
             "file": self._describe_file(message),
             "media": self._describe_media(message),
@@ -1956,6 +2065,29 @@ class TelegramManager(threading.Thread):
             # Seconds, for sound and video.
             "duration": getattr(attached, "duration", None) or 0,
         }
+
+    def _describe_service(self, message, sender):
+        """What a message from Telegram itself says happened, as (locale key, fields); None for any other message."""
+        action = getattr(message, "action", None)
+        if action is None:
+            return None
+        kind = type(action).__name__
+        title = getattr(action, "title", None) or EMPTY_STRING
+        # Those the action names: who was added or removed.
+        names = [get_display_name(entity) for entity in getattr(message, "action_entities", None) or []]
+        sender_id = getattr(sender, "id", None)
+        if kind == "MessageActionChatAddUser":
+            others = [name for entity, name in zip(message.action_entities or [], names) if entity.id != sender_id]
+            return (SERVICE_ADDED_FORMAT_KEY, {"names": others}) if others else (SERVICE_JOINED_KEY, {})
+        if kind == "MessageActionChatDeleteUser":
+            if getattr(action, "user_id", None) == sender_id:
+                return SERVICE_LEFT_KEY, {}
+            return SERVICE_REMOVED_FORMAT_KEY, {"names": names}
+        if kind == "MessageActionGroupCall":
+            return (SERVICE_CALL_ENDED_KEY if getattr(action, "duration", None) else SERVICE_CALL_STARTED_KEY), {}
+        if kind in SERVICE_KEYS:
+            return SERVICE_KEYS[kind], {"title": title}
+        return MEDIA_SERVICE_KEY, {}
 
     def _describe_detail(self, message):
         contact = getattr(message, "contact", None)
@@ -2225,12 +2357,84 @@ class TelegramManager(threading.Thread):
         )
         await self.client.send_message(self.entities[dialog_id], file=types.InputMediaPoll(poll), reply_to=reply_to)
 
-    async def _load_admin_log_async(self, dialog_id):
+    async def _load_admins_async(self, dialog_id):
+        admins = []
+        for user in await self.client.get_participants(self.entities[dialog_id], filter=types.ChannelParticipantsAdmins):
+            self.admin_entities[user.id] = get_input_peer(user)
+            admins.append({"id": user.id, "name": get_display_name(user)})
+        return admins
+
+    async def _decide_all_requests_async(self, dialog_id, approved):
+        await self.client(functions.messages.HideAllChatJoinRequestsRequest(peer=self.entities[dialog_id], approved=approved))
+
+    async def _count_revoked_links_async(self, dialog_id):
+        result = await self.client(functions.messages.GetExportedChatInvitesRequest(
+            peer=self.entities[dialog_id], admin_id=types.InputUserSelf(), limit=INVITE_LINKS_LIMIT, revoked=True
+        ))
+        return getattr(result, "count", None) or len(getattr(result, "invites", []))
+
+    async def _delete_revoked_links_async(self, dialog_id):
+        await self.client(functions.messages.DeleteRevokedExportedChatInvitesRequest(
+            peer=self.entities[dialog_id], admin_id=types.InputUserSelf()
+        ))
+
+    async def _set_group_stickers_async(self, dialog_id, set_id):
+        sticker_set = types.InputStickerSetEmpty() if set_id is None else self.sticker_sets[set_id]
+        await self.client(functions.channels.SetStickersRequest(channel=self.entities[dialog_id], stickerset=sticker_set))
+
+    async def _load_emoji_sets_async(self):
+        result = await self.client(functions.messages.GetEmojiStickersRequest(hash=0))
+        self.emoji_sets = {
+            emoji_set.id: types.InputStickerSetID(id=emoji_set.id, access_hash=emoji_set.access_hash)
+            for emoji_set in result.sets
+        }
+        return [{"id": emoji_set.id, "title": emoji_set.title} for emoji_set in result.sets]
+
+    async def _set_group_emoji_async(self, dialog_id, set_id):
+        emoji_set = types.InputStickerSetEmpty() if set_id is None else self.emoji_sets[set_id]
+        await self.client(functions.channels.SetEmojiStickersRequest(channel=self.entities[dialog_id], stickerset=emoji_set))
+
+    async def _load_link_joiners_async(self, dialog_id, link):
+        joiners = {}
+        for name, requested in (("joined", None), ("waiting", True)):
+            result = await self.client(functions.messages.GetChatInviteImportersRequest(
+                peer=self.entities[dialog_id], link=link, requested=requested,
+                offset_date=None, offset_user=types.InputUserEmpty(), limit=MEMBERS_LIMIT
+            ))
+            users = {user.id: user for user in result.users}
+            joiners[name] = [
+                get_display_name(users[importer.user_id]) for importer in result.importers if importer.user_id in users
+            ]
+        return joiners
+
+    async def _report_not_spam_async(self, dialog_id, message_id):
+        await self.client(functions.channels.ReportAntiSpamFalsePositiveRequest(
+            channel=self.entities[dialog_id], msg_id=message_id
+        ))
+
+    async def _load_boosts_async(self, dialog_id):
+        status = await self.client(functions.premium.GetBoostsStatusRequest(peer=self.entities[dialog_id]))
+        return {
+            "level": status.level, "boosts": status.boosts,
+            "next": getattr(status, "next_level_boosts", None), "link": getattr(status, "boost_url", None) or EMPTY_STRING,
+        }
+
+    async def _load_admin_log_async(self, dialog_id, kinds=(), admin_id=None):
         events = []
-        async for event in self.client.iter_admin_log(self.entities[dialog_id], limit=ADMIN_LOG_LIMIT):
+        narrowed = {kind: True for kind in kinds}
+        if admin_id is not None:
+            narrowed["admins"] = [self.admin_entities[admin_id]]
+        async for event in self.client.iter_admin_log(self.entities[dialog_id], limit=ADMIN_LOG_LIMIT, **narrowed):
+            # A deleted message is kept in the log, and anti-spam's mistakes can be reported from there.
+            deleted = getattr(event.action, "message", None) if isinstance(
+                event.action, types.ChannelAdminLogEventActionDeleteMessage
+            ) else None
             events.append({
                 "user": get_display_name(event.user) if event.user else EMPTY_STRING,
                 "date": event.date,
+                "message_id": getattr(deleted, "id", None),
+                "text": getattr(deleted, "message", None) or EMPTY_STRING,
+                "by_antispam": getattr(event, "user_id", None) == ANTISPAM_USER_ID,
                 # E.g. "ChannelAdminLogEventActionParticipantInvite" -> "ParticipantInvite".
                 "action": type(event.action).__name__.replace(ADMIN_LOG_ACTION_PREFIX, EMPTY_STRING),
             })

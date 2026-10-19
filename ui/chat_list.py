@@ -5,6 +5,7 @@ from ui.chat_picker_dialog import ChatPickerDialog
 from ui.type_ahead import attach_to_lists
 from ui.global_search_dialog import GlobalSearchDialog
 from ui.chat_info_dialog import ChatInfoDialog
+from ui.chat_control_dialog import ChatControlDialog
 from core.chat_views import ARCHIVE_VIEW, build_views, contacts_first_online, is_online
 from core import shortcuts
 from core.constants import (
@@ -12,7 +13,8 @@ from core.constants import (
     MSG_PREVIEW_REMOVED_FORMAT_KEY, MENU_CHAT_JOIN_KEY,
     CATEGORY_GROUPS, CATEGORY_BROADCASTS, CONTEXT_LEAVE_KEY, CONTEXT_DELETE_CHAT_KEY,
     MSG_CONFIRM_LEAVE_KEY, MSG_CONFIRM_DELETE_CHAT_KEY, MSG_LEFT_KEY, MSG_VIEW_COUNT_FORMAT_KEY,
-    MSG_CHOOSE_CONTACT_KEY, MSG_NO_CONTACTS_KEY, MSG_FIND_CHAT_PROMPT_KEY, CONTEXT_INFO_KEY,
+    MSG_CHOOSE_CONTACT_KEY, MSG_NO_CONTACTS_KEY, MSG_FIND_CHAT_PROMPT_KEY, CONTEXT_INFO_KEY, CONTEXT_INFO_GROUP_KEY, CONTEXT_INFO_CHANNEL_KEY,
+    CONTEXT_MANAGE_GROUP_KEY, CONTEXT_MANAGE_CHANNEL_KEY, MSG_NOT_ADMIN_KEY,
     MSG_CHAT_SAVED_KEY, CONTEXT_OPEN_KEY, CONTEXT_MARK_READ_KEY, CONTEXT_MUTE_KEY,
     CONTEXT_UNMUTE_KEY, MSG_MARKED_READ_KEY, MSG_MUTED_KEY, MSG_UNMUTED_KEY, DIALOGS_LIMIT,
     MSG_LOAD_MORE_DIALOGS_KEY, MSG_FIND_PROMPT_KEY, MSG_NOT_FOUND_KEY, APP_TITLE_KEY,
@@ -777,7 +779,10 @@ class ChatListMixin:
             ]))
         archive_key = CONTEXT_UNARCHIVE_KEY if dialog["archived"] else CONTEXT_ARCHIVE_KEY
         entries.append((archive_key, lambda event: self.set_chat_archived(dialog, not dialog["archived"])))
-        entries.append((CONTEXT_INFO_KEY, lambda event: self.show_chat_info(dialog)))
+        info_key = {CATEGORY_GROUPS: CONTEXT_INFO_GROUP_KEY, CATEGORY_BROADCASTS: CONTEXT_INFO_CHANNEL_KEY}.get(
+            dialog["category"], CONTEXT_INFO_KEY
+        )
+        entries.append((info_key, lambda event: self.show_chat_info(dialog)))
         if not self.is_private_chat(dialog):
             entries.append((CONTEXT_COPY_INVITE_KEY, lambda event: self.copy_invite_link(dialog)))
         if not dialog["joined"]:
@@ -788,6 +793,10 @@ class ChatListMixin:
             entries.append((contact_key, lambda event: self.toggle_contact(dialog)))
         if self.is_private_chat(dialog):
             entries.append((CONTEXT_BLOCK_KEY, lambda event: self.toggle_blocked(dialog)))
+        # Management only for those who run the chat, apart from the everyday entries.
+        if dialog.get("is_admin"):
+            manage_key = CONTEXT_MANAGE_CHANNEL_KEY if dialog["category"] == CATEGORY_BROADCASTS else CONTEXT_MANAGE_GROUP_KEY
+            entries.append((manage_key, lambda event: self.manage_chat(dialog)))
         entries.append((CONTEXT_CLEAR_HISTORY_KEY, lambda event: self.clear_history(dialog)))
         # Last, away from the everyday entries: it cannot be undone.
         is_private = self.is_private_chat(dialog)
@@ -854,11 +863,19 @@ class ChatListMixin:
     def show_chat_info(self, dialog):
         with ChatInfoDialog(self, self.i18n, self.telegram_manager, dialog) as info_dialog:
             info_dialog.ShowModal()
-            deleted, new_title = info_dialog.deleted, info_dialog.saved_title
+
+    def manage_chat(self, dialog):
+        """The management window of a group or channel this account runs."""
+        if not dialog.get("is_admin"):
+            self.notify(MSG_NOT_ADMIN_KEY)
+            return
+        with ChatControlDialog(self, self.i18n, self.telegram_manager, dialog) as control:
+            control.ShowModal()
+            deleted, new_title = control.deleted, control.saved_title
         if deleted:
             self.on_chat_left(None, dialog)
             return
-        # Nothing to do unless management (opened from the info window) actually renamed the chat.
+        # Nothing to do unless management actually renamed the chat.
         if not new_title:
             return
         index = self.find_dialog_index(dialog["id"])

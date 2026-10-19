@@ -18,7 +18,11 @@ from core.constants import (
     MSG_CONFIRM_DELETE_TOPIC_FORMAT_KEY, MSG_TOPIC_SAVED_KEY, BTN_DISCUSSION_KEY,
     MSG_CHOOSE_DISCUSSION_KEY, DISCUSSION_NONE_KEY, MSG_DISCUSSION_SAVED_KEY, BTN_CHOOSE_REACTIONS_KEY,
     MSG_CHOOSE_REACTIONS_KEY, REACTION_EMOJIS, REACTION_NAME_KEY_PREFIX, REACTION_CHOICE_FORMAT_KEY,
-    SETTING_FORUM, SETTING_SIGNATURES, GENERAL_TOPIC_ID, TOPIC_PIN_KEY, TOPIC_UNPIN_KEY, TOPIC_PINNED_FORMAT_KEY
+    SETTING_FORUM, SETTING_SIGNATURES, GENERAL_TOPIC_ID, TOPIC_PIN_KEY, TOPIC_UNPIN_KEY, TOPIC_PINNED_FORMAT_KEY,
+    BTN_GROUP_STICKERS_KEY, MSG_CHOOSE_GROUP_STICKERS_FORMAT_KEY, GROUP_STICKERS_NONE_KEY, MSG_GROUP_STICKERS_SAVED_KEY,
+    MSG_NO_STICKER_SETS_KEY, BTN_GROUP_EMOJI_KEY, MSG_CHOOSE_GROUP_EMOJI_FORMAT_KEY, MSG_GROUP_EMOJI_SAVED_KEY,
+    MSG_NO_EMOJI_SETS_KEY, BTN_BOOSTS_KEY, BOOSTS_TITLE_KEY, BOOSTS_LEVEL_FORMAT_KEY, BOOSTS_COUNT_FORMAT_KEY,
+    BOOSTS_NEXT_FORMAT_KEY, BOOSTS_TOP_KEY, BOOSTS_LINK_FORMAT_KEY
 )
 
 
@@ -59,6 +63,8 @@ class ChatAdminDialog(wx.Dialog):
             ((BTN_SAVE_KEY, self.on_save), (BTN_CHAT_PHOTO_KEY, self.on_photo), (BTN_ADD_MEMBERS_KEY, self.on_add_members)),
             ((BTN_CHOOSE_REACTIONS_KEY, self.on_reactions), (BTN_MANAGE_TOPICS_KEY, self.on_topics), (BTN_DISCUSSION_KEY, self.on_discussion)),
             ((BTN_STATS_KEY, self.on_stats), (BTN_TRANSFER_KEY, self.on_transfer), (BTN_DELETE_CHAT_KEY, self.on_delete)),
+            ((BTN_GROUP_STICKERS_KEY, self.on_group_stickers), (BTN_GROUP_EMOJI_KEY, self.on_group_emoji),
+             (BTN_BOOSTS_KEY, self.on_boosts)),
         )
         for row in rows:
             row_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -142,6 +148,9 @@ class ChatAdminDialog(wx.Dialog):
             (BTN_MANAGE_TOPICS_KEY, bool(values.get(SETTING_FORUM)) and settings["can_manage_topics"]),
             # Comments belong to broadcast channels, which are the chats that sign their posts.
             (BTN_DISCUSSION_KEY, SETTING_SIGNATURES in values and settings["can_edit"]),
+            (BTN_GROUP_STICKERS_KEY, settings["can_set_stickers"] and settings["can_edit"]),
+            (BTN_GROUP_EMOJI_KEY, settings["is_large_group"] and settings["can_edit"]),
+            (BTN_BOOSTS_KEY, settings["has_boosts"]),
         ):
             self.buttons[label_key].Enable(usable)
         self.Layout()
@@ -179,6 +188,62 @@ class ChatAdminDialog(wx.Dialog):
         speak(self.i18n.get_string(MSG_ADMIN_SETTINGS_SAVED_KEY))
         # Read back: Telegram may have turned something else on or off along with it.
         self.load()
+
+    def on_group_stickers(self, event):
+        self.telegram_manager.load_sticker_sets(self.on_ui_thread(self.choose_group_stickers))
+
+    def choose_group_stickers(self, sticker_sets):
+        self.choose_group_set(
+            sticker_sets, self.settings["stickers"], MSG_NO_STICKER_SETS_KEY, MSG_CHOOSE_GROUP_STICKERS_FORMAT_KEY,
+            self.telegram_manager.set_group_stickers, MSG_GROUP_STICKERS_SAVED_KEY
+        )
+
+    def on_group_emoji(self, event):
+        self.telegram_manager.load_emoji_sets(self.on_ui_thread(self.choose_group_emoji))
+
+    def choose_group_emoji(self, emoji_sets):
+        self.choose_group_set(
+            emoji_sets, self.settings["emoji"], MSG_NO_EMOJI_SETS_KEY, MSG_CHOOSE_GROUP_EMOJI_FORMAT_KEY,
+            self.telegram_manager.set_group_emoji, MSG_GROUP_EMOJI_SAVED_KEY
+        )
+
+    def choose_group_set(self, sets, current, empty_key, prompt_key, save, saved_key):
+        """Pick one of the account's sticker or emoji sets for the whole group, or none."""
+        text = self.i18n.get_string
+        if not sets:
+            self.show_message(text(empty_key))
+            return
+        with wx.SingleChoiceDialog(
+            self, text(prompt_key).format(current=current or text(GROUP_STICKERS_NONE_KEY)), text(APP_TITLE_KEY),
+            [text(GROUP_STICKERS_NONE_KEY)] + [one_set["title"] for one_set in sets]
+        ) as sets_dialog:
+            if sets_dialog.ShowModal() != wx.ID_OK:
+                return
+            index = sets_dialog.GetSelection()
+        set_id = None if index == 0 else sets[index - 1]["id"]
+        save(self.dialog_id, set_id, self.on_ui_thread(lambda result: self.on_group_set_saved(saved_key)))
+
+    def on_group_set_saved(self, saved_key):
+        speak(self.i18n.get_string(saved_key))
+        self.load()
+
+    def on_boosts(self, event):
+        self.telegram_manager.load_boosts(self.dialog_id, self.on_ui_thread(self.show_boosts))
+
+    def show_boosts(self, boosts):
+        text = self.i18n.get_string
+        lines = [
+            text(BOOSTS_LEVEL_FORMAT_KEY).format(level=boosts["level"]),
+            text(BOOSTS_COUNT_FORMAT_KEY).format(count=boosts["boosts"]),
+        ]
+        if boosts["next"]:
+            lines.append(text(BOOSTS_NEXT_FORMAT_KEY).format(needed=max(boosts["next"] - boosts["boosts"], 0)))
+        else:
+            lines.append(text(BOOSTS_TOP_KEY))
+        if boosts["link"]:
+            lines.append(text(BOOSTS_LINK_FORMAT_KEY).format(link=boosts["link"]))
+        with TextDialog(self, self.i18n, text(BOOSTS_TITLE_KEY), "\n".join(lines)) as boosts_dialog:
+            boosts_dialog.ShowModal()
 
     def on_photo(self, event):
         with wx.FileDialog(

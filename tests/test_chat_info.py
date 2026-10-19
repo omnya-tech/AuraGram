@@ -83,6 +83,10 @@ class OwnedGroupTest(ChatInfoTestCase):
         self.assertIn("Zed", self.boxes[-1])
         self.assertIn("MyGroup", self.boxes[-1])
         self.assertEqual(self.calls("permissions"), [])
+        self.assertEqual(self.saved_rights(), [])
+
+    def saved_rights(self):
+        return [call[1].banned_rights for call in self.calls("EditChatDefaultBannedRightsRequest")]
 
     def test_ban_mute_and_kick_reach_the_right_member(self):
         self.dialog.manage_member(self.member("Zed"), c.MEMBER_ACTION_BAN)
@@ -133,15 +137,15 @@ class OwnedGroupTest(ChatInfoTestCase):
         self.assertEqual(self.dialog.members[0]["name"], "Mona")
 
     def test_member_permissions_change_only_what_was_edited(self):
-        # Everything is allowed to start with; take away sending media.
-        FakeChooser.selections = [i for i, name in enumerate(c.MEMBER_PERMISSIONS) if name != "send_media"]
+        # Everything is allowed to start with; take away sending photos.
+        FakeChooser.selections = [i for i, name in enumerate(c.MEMBER_PERMISSIONS) if name != "send_photos"]
         self.dialog.on_member_permissions(None)
-        self.assertTrue(pump(lambda: self.calls("permissions")))
-        target, permissions = self.calls("permissions")[0][1:]
-        self.assertIsNone(target)
-        self.assertFalse(permissions["send_media"])
-        self.assertTrue(all(value for name, value in permissions.items() if name != "send_media"))
-        self.assertEqual(set(permissions), set(telegram_client.ALL_MEMBER_PERMISSIONS))
+        self.assertTrue(pump(lambda: self.saved_rights()))
+        rights = self.saved_rights()[0]
+        self.assertTrue(rights.send_photos)
+        # Other media are still allowed, so media as a whole is, and writing.
+        self.assertFalse(rights.send_media or rights.send_messages or rights.send_videos or rights.view_messages)
+        self.assertFalse(rights.invite_users or rights.embed_links)
 
     def test_unchanged_member_permissions_are_not_saved(self):
         FakeChooser.selections = list(range(len(c.MEMBER_PERMISSIONS)))
@@ -218,12 +222,12 @@ class RestrictedGroupPermissionsTest(ChatInfoTestCase):
     def test_hidden_restrictions_survive_a_save(self):
         FakeChooser.selections = [i for i, name in enumerate(c.MEMBER_PERMISSIONS) if name != "invite_users"]
         self.dialog.on_member_permissions(None)
-        self.assertTrue(pump(lambda: self.calls("permissions")))
-        permissions = self.calls("permissions")[0][2]
-        self.assertFalse(permissions["send_games"])
-        self.assertFalse(permissions["send_inline"])
-        self.assertFalse(permissions["invite_users"])
-        self.assertTrue(permissions["send_messages"])
+        saved = lambda: [call[1].banned_rights for call in self.calls("EditChatDefaultBannedRightsRequest")]
+        self.assertTrue(pump(saved))
+        rights = saved()[0]
+        self.assertTrue(rights.send_games and rights.send_inline)
+        self.assertTrue(rights.invite_users)
+        self.assertFalse(rights.send_messages or rights.send_stickers)
 
 
 class SubscriberTest(ChatInfoTestCase):

@@ -181,7 +181,7 @@ class WindowsForTheEyesTest(WindowTestCase):
             dialog.SendSizeEvent()
             pump(timeout=0.1)
             area = dialog.GetClientSize()
-            buttons = [child for child in dialog.GetChildren() if isinstance(child, wx.Button)]
+            buttons = [child for child in dialog.GetChildren() if isinstance(child, wx.Button) and child.IsShown()]
             self.assertEqual(len(buttons), 7)
             for button in buttons:
                 rect = button.GetRect()

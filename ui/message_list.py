@@ -19,7 +19,7 @@ from core.constants import (
     CONTEXT_OPEN_MEDIA_KEY, MSG_SEARCH_MESSAGES_PROMPT_KEY, MSG_SEARCH_RESULTS_FORMAT_KEY,
     MSG_SEARCH_NO_RESULTS_KEY, MSG_SEARCH_CLOSED_KEY, MEDIA_VOICE, MESSAGES_LIMIT,
     MSG_LOAD_OLDER_KEY, MSG_DOWNLOADING_KEY, DOWNLOADABLE_MEDIA, SAFE_OPEN_EXTENSIONS,
-    PLAYABLE_MEDIA, HEARD_KEPT, MSG_FETCHING_SOUND_KEY,
+    PLAYABLE_MEDIA, HEARD_KEPT, MSG_FETCHING_SOUND_KEY, SERVICE_NAMES_SEPARATOR_KEY,
     SNIPPET_LENGTH, REPLY_PREFIX_FORMAT_KEY, APP_TITLE_KEY, MESSAGE_FORMAT_KEY, SENDER_YOU_KEY,
     MESSAGE_NO_SENDER_FORMAT_KEY, MESSAGE_NO_SENDER_NO_TIME_FORMAT, CATEGORY_BROADCASTS,
     MSG_NO_TEXT_KEY, MSG_LOADING_KEY, STATUS_READY_KEY, TIME_FORMAT, DATE_TIME_FORMAT,
@@ -721,6 +721,14 @@ class MessageListMixin:
         )
 
     def message_text(self, message):
+        service = message.get("service")
+        if service is not None:
+            # Telegram's own news: said in words, after the name of whoever did it.
+            key, fields = service
+            fields = dict(fields)
+            if "names" in fields:
+                fields["names"] = self.i18n.get_string(SERVICE_NAMES_SEPARATOR_KEY).join(fields["names"])
+            return self.i18n.get_string(key).format(**fields)
         if message["poll"]:
             return self.poll_text(message["poll"])
         text = message["text"] or message["detail"]
