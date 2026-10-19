@@ -6,6 +6,8 @@ from core import audio
 from core.settings import SETTING_MARK_READ_ON_OPEN, SETTING_MESSAGE_STATS, SETTING_TIME_STYLE
 from ui.layout import duration_text, file_kind, file_size
 from core.constants import (
+    CONTEXT_MORE_KEY, CONTEXT_TRANSLATE_KEY, CONTEXT_AUDIENCE_KEY, CONTEXT_VOICE_SPEED_KEY, CONTEXT_REMIND_KEY,
+    CONTEXT_UNMARK_ALL_KEY, CONTEXT_REPORT_KEY, PLAYABLE_MEDIA,
     PREVIEW_FORMAT_KEY, CONTEXT_COPY_LINK_KEY, CONTEXT_SAVE_AS_KEY, CONTEXT_DESCRIBE_IMAGE_KEY, DESCRIBABLE_MEDIA,
     CONTEXT_MESSAGE_SENDER_FORMAT_KEY,
     MESSAGE_STATS_BEFORE, STATS_AFTER_FORMAT, STATS_BEFORE_FORMAT, STATS_SEPARATOR, TIME_STYLE_NUMBERS,
@@ -363,6 +365,20 @@ class MessageListMixin:
         entries.append((CONTEXT_READ_MESSAGE_KEY, self.on_read_message_menu))
         is_marked = message["id"] in self.marked
         entries.append((CONTEXT_UNSELECT_KEY if is_marked else CONTEXT_SELECT_KEY, self.on_mark_menu))
+        more = []
+        if message["text"]:
+            more.append((CONTEXT_TRANSLATE_KEY, self.on_translate_menu))
+        if message["outgoing"] and not self.is_private_chat(chat):
+            more.append((CONTEXT_AUDIENCE_KEY, self.on_audience_menu))
+        if message["media"] in PLAYABLE_MEDIA:
+            more.append((CONTEXT_VOICE_SPEED_KEY, self.on_voice_speed_menu))
+        more.append((CONTEXT_REMIND_KEY, self.on_remind_menu))
+        if self.marked:
+            more.append((CONTEXT_UNMARK_ALL_KEY, self.on_unmark_all_menu))
+        if not message["outgoing"]:
+            more.append((CONTEXT_REPORT_KEY, self.on_report_menu))
+        # Less often wanted: one step aside, so the menu stays short.
+        entries.append((CONTEXT_MORE_KEY, more))
         if self.can_delete(message):
             entries.append((CONTEXT_DELETE_KEY, self.on_delete_menu))
         self.show_context_menu(entries)

@@ -13,7 +13,8 @@ from core.constants import (
     MSG_PREVIEW_REMOVED_FORMAT_KEY, MENU_CHAT_JOIN_KEY,
     CATEGORY_GROUPS, CATEGORY_BROADCASTS, CONTEXT_LEAVE_KEY, CONTEXT_DELETE_CHAT_KEY,
     MSG_CONFIRM_LEAVE_KEY, MSG_CONFIRM_DELETE_CHAT_KEY, MSG_LEFT_KEY, MSG_VIEW_COUNT_FORMAT_KEY,
-    MSG_CHOOSE_CONTACT_KEY, MSG_NO_CONTACTS_KEY, MSG_FIND_CHAT_PROMPT_KEY, CONTEXT_INFO_KEY, CONTEXT_INFO_GROUP_KEY, CONTEXT_INFO_CHANNEL_KEY,
+    MSG_CHOOSE_CONTACT_KEY, MSG_NO_CONTACTS_KEY, MSG_FIND_CHAT_PROMPT_KEY, CONTEXT_INFO_KEY, CONTEXT_SEND_KEY, CONTEXT_SEND_FILE_KEY,
+    CONTEXT_SEND_STICKER_KEY, CONTEXT_SEND_CONTACT_KEY, CONTEXT_SEND_LOCATION_KEY, CONTEXT_SEND_POLL_KEY, CONTEXT_INFO_GROUP_KEY, CONTEXT_INFO_CHANNEL_KEY,
     CONTEXT_MANAGE_GROUP_KEY, CONTEXT_MANAGE_CHANNEL_KEY, MSG_NOT_ADMIN_KEY,
     MSG_CHAT_SAVED_KEY, CONTEXT_OPEN_KEY, CONTEXT_MARK_READ_KEY, CONTEXT_MUTE_KEY,
     CONTEXT_UNMUTE_KEY, MSG_MARKED_READ_KEY, MSG_MUTED_KEY, MSG_UNMUTED_KEY, DIALOGS_LIMIT,
@@ -763,6 +764,17 @@ class ChatListMixin:
         if dialog is None:
             return
         entries = [(CONTEXT_OPEN_KEY, self.on_open_dialog)]
+        if dialog["can_send"] and dialog["joined"]:
+            entries.append((CONTEXT_SEND_KEY, [
+                (label_key, lambda event, handler=handler: self.send_from_list(dialog, handler))
+                for label_key, handler in (
+                    (CONTEXT_SEND_FILE_KEY, self.on_send_file_menu),
+                    (CONTEXT_SEND_STICKER_KEY, self.on_send_sticker_menu),
+                    (CONTEXT_SEND_CONTACT_KEY, self.on_send_contact_menu),
+                    (CONTEXT_SEND_LOCATION_KEY, self.on_send_location_menu),
+                    (CONTEXT_SEND_POLL_KEY, self.on_new_poll_menu),
+                )
+            ]))
         # Each entry names the change it makes, so the menu also tells the chat's current state.
         if dialog["unread"] or dialog["marked_unread"]:
             entries.append((CONTEXT_MARK_READ_KEY, lambda event: self.mark_dialog_read(dialog)))
@@ -803,6 +815,16 @@ class ChatListMixin:
         leave_key = CONTEXT_DELETE_CHAT_KEY if is_private else CONTEXT_LEAVE_KEY
         entries.append((leave_key, lambda event: self.leave_chat(dialog, is_private)))
         self.show_context_menu(entries)
+
+    def send_from_list(self, dialog, handler):
+        """Open the chat, so what is sent shows where it went, then send to it."""
+        index = self.find_dialog_index(dialog["id"])
+        if index == wx.NOT_FOUND:
+            return
+        self.dialogs_list.SetSelection(index)
+        self.open_selected_dialog(True)
+        # Once the menu it was picked from has closed.
+        wx.CallAfter(handler, None)
 
     def copy_invite_link(self, dialog):
         """Put the chat's public or main invite link on the clipboard, to paste or share anywhere."""

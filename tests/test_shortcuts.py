@@ -163,7 +163,10 @@ class ShortcutsWindowTest(WindowTestCase):
         entries = [item for menu, _ in self.frame.GetMenuBar().GetMenus() for item in menu.GetMenuItems()
                    if not item.IsSeparator()]
         self.assertEqual(len(entries), len(self.frame.menu_items))
-        self.assertEqual(set(self.frame.menu_items) | {c.SHORTCUT_SHOW_WINDOW}, set(shortcuts.COMMANDS))
+        # The message's and the send commands live in their own menus instead, and answer their shortcuts from there.
+        own = {entry[0] for entry in self.frame.message_entries() + self.frame.send_entries() if entry is not None}
+        self.assertFalse(own & set(self.frame.menu_items))
+        self.assertEqual(set(self.frame.menu_items) | own | {c.SHORTCUT_SHOW_WINDOW}, set(shortcuts.COMMANDS))
         table = shortcuts.defaults()
         for command, accelerator in self.menu_accelerators().items():
             self.assertEqual(accelerator, table[command])
@@ -190,10 +193,12 @@ class ShortcutsWindowTest(WindowTestCase):
         self.assertIn("Ctrl+Alt+F7", self.row(dialog, c.MENU_REPLY_KEY))
         self.assertIn("Ctrl+Alt+F7", self.spoken[-1])
         # Nothing changes outside the dialog until it is accepted.
-        self.assertEqual(self.menu_accelerators()[c.MENU_REPLY_KEY], "Ctrl+R")
+        reply = self.frame.on_reply_menu
+        self.assertIn("Ctrl+R", self.frame.menu_less_shortcuts)
         dialog.apply_app_settings()
         self.frame.apply_shortcuts()
-        self.assertEqual(self.menu_accelerators()[c.MENU_REPLY_KEY], "Ctrl+Alt+F7")
+        self.assertNotIn("Ctrl+R", self.frame.menu_less_shortcuts)
+        self.assertEqual(self.frame.menu_less_shortcuts["Ctrl+Alt+F7"], reply)
         self.assertEqual(shortcuts.current(s.Settings())[c.MENU_REPLY_KEY], "Ctrl+Alt+F7")
 
     def test_a_shortcut_another_command_has_is_moved_only_if_the_user_agrees(self):
@@ -270,8 +275,7 @@ class ShortcutsWindowTest(WindowTestCase):
         table[c.MENU_EDIT_KEY] = "Ctrl+Alt+F7"
         shortcuts.store(self.frame.settings, table)
         self.frame.apply_shortcuts()
-        self.assertEqual(self.frame.menu_items[c.MENU_REPLY_KEY].GetItemLabel(), self.text(c.MENU_REPLY_KEY))
-        self.assertIsNone(self.frame.menu_items[c.MENU_REPLY_KEY].GetAccel())
+        self.assertNotIn("Ctrl+R", self.frame.menu_less_shortcuts)
         text = self.frame.shortcuts_text()
         self.assertIn(self.text(c.SHORTCUTS_HELP_LINE_FORMAT_KEY).format(
             shortcut="Ctrl+Alt+F7", command=self.text(c.MENU_EDIT_KEY)
@@ -282,22 +286,46 @@ class ShortcutsWindowTest(WindowTestCase):
     def test_enter_with_other_keys_sends_unless_a_menu_entry_has_that_shortcut(self):
         self.open_chat(0)
         sent = []
-        self.frame.on_send_message = lambda event, silent=False: sent.append(self.frame.message_input.GetValue())
+        self.frame.on_send_message = lambda event, silent=False: sent.append((self.frame.message_input.GetValue(), silent))
         self.frame.message_input.SetValue("hello")
 
         def press_alt_enter():
             with mock.patch.object(wx.Window, "FindFocus", return_value=self.frame.message_input):
                 self.frame.ProcessEvent(key_event(wx.WXK_RETURN, alt=True))
 
-        # The menu's own way of sending without a sound: not for the field to act on.
+        # The writing field menu's own way of sending without a sound, not a plain send.
         press_alt_enter()
-        self.assertEqual(sent, [])
+        self.assertEqual(sent, [("hello", True)])
         table = shortcuts.defaults()
         table[c.MENU_SEND_SILENT_KEY] = ""
         shortcuts.store(self.frame.settings, table)
         self.frame.apply_shortcuts()
         press_alt_enter()
-        self.assertEqual(sent, ["hello"])
+        self.assertEqual(sent[1:], [("hello", False)])
+
+    def test_the_writing_field_menu_holds_the_send_commands_and_their_shortcuts(self):
+        self.open_chat(0)
+        self.frame.on_input_context_menu(None)
+        table = shortcuts.defaults()
+        self.assertEqual(self.menu_labels[0], self.text(c.MENU_SEND_FILE_KEY))
+        self.assertIn(self.text(c.MENU_SEND_STICKER_KEY), self.menu_labels)
+        # Then the editing a text field's own menu would have offered.
+        self.assertEqual(self.menu_labels[-4:], [
+            self.text(key) for key in (c.CONTEXT_CUT_KEY, c.CONTEXT_COPY_KEY, c.CONTEXT_PASTE_KEY, c.BTN_SELECT_ALL_KEY)
+        ])
+        # Not in the menu bar, yet its shortcut works from the message list too, and the guide tells it.
+        asked = []
+        self.frame.on_send_sticker_menu = lambda event: asked.append(True)
+        self.frame.apply_shortcuts()
+        modifiers, key = shortcuts.split(table[c.MENU_SEND_STICKER_KEY])
+        with mock.patch.object(wx.Window, "FindFocus", return_value=self.frame.messages_list):
+            self.frame.ProcessEvent(key_event(
+                ord(key), control="Ctrl" in modifiers, alt="Alt" in modifiers, shift="Shift" in modifiers
+            ))
+        self.assertEqual(asked, [True])
+        intro, sections = self.frame.shortcuts_guide()
+        send = dict(sections)[self.text(c.INPUT_MENU_TITLE_KEY)]
+        self.assertIn((table[c.MENU_SEND_STICKER_KEY], self.text(c.MENU_SEND_STICKER_KEY)), send)
 
     def test_the_way_back_from_any_program_follows_the_setting(self):
         asked = []

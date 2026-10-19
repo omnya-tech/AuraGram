@@ -339,10 +339,12 @@ class ChatPreviewAndMenuTest(WindowTestCase):
 
     def test_menu_follows_the_order_of_telegram_desktop(self):
         self.assertEqual(self.menu(0), [self.text(key) for key in (
-            c.CONTEXT_OPEN_KEY, c.CONTEXT_MARK_READ_KEY, c.CONTEXT_PIN_CHAT_KEY, c.CONTEXT_MUTE_KEY,
+            # Sending straight from the list comes right after opening, in a submenu.
+            c.CONTEXT_OPEN_KEY, c.CONTEXT_SEND_KEY, c.CONTEXT_MARK_READ_KEY, c.CONTEXT_PIN_CHAT_KEY, c.CONTEXT_MUTE_KEY,
             c.CONTEXT_ARCHIVE_KEY, c.CONTEXT_INFO_KEY, c.CONTEXT_DELETE_CONTACT_KEY, c.CONTEXT_BLOCK_KEY,
             c.CONTEXT_CLEAR_HISTORY_KEY, c.CONTEXT_DELETE_CHAT_KEY,
         )])
+        # A channel this account cannot post in offers nothing to send.
         self.assertEqual(self.menu(1)[1], self.text(c.CONTEXT_MARK_UNREAD_KEY))
         self.assertEqual(self.menu(1)[-1], self.text(c.CONTEXT_LEAVE_KEY))
 
@@ -351,7 +353,7 @@ class ChatPreviewAndMenuTest(WindowTestCase):
         self.frame.mark_dialog_unread(sara)
         self.assertTrue(pump(lambda: sara["marked_unread"]))
         self.assertEqual(self.rows()[3], "Sara، غير مقروءة. أنت: see you")
-        self.assertEqual(self.menu(3)[1], self.text(c.CONTEXT_MARK_READ_KEY))
+        self.assertEqual(self.menu(3)[2], self.text(c.CONTEXT_MARK_READ_KEY))
         self.frame.mark_dialog_read(sara)
         self.assertTrue(pump(lambda: len(self.calls("MarkDialogUnreadRequest")) == 2))
         self.assertEqual([call[1].unread for call in self.calls("MarkDialogUnreadRequest")], [True, False])
@@ -364,7 +366,7 @@ class ChatPreviewAndMenuTest(WindowTestCase):
         self.assertTrue(pump(lambda: self.rows()[0].startswith("Sara، مثبتة")))
         self.assertEqual(self.frame.dialogs_list.GetSelection(), 0)
         self.assertTrue(self.calls("ToggleDialogPinRequest")[0][1].pinned)
-        self.assertEqual(self.menu(0)[2], self.text(c.CONTEXT_UNPIN_CHAT_KEY))
+        self.assertEqual(self.menu(0)[3], self.text(c.CONTEXT_UNPIN_CHAT_KEY))
         self.frame.set_chat_pinned(sara, False)
         self.assertTrue(pump(lambda: not sara["pinned"]))
         self.assertTrue(self.rows()[0].startswith("Sara."))
@@ -453,8 +455,27 @@ class MessageMenuAndRecordingTest(WindowTestCase):
         self.assertEqual(self.menu(1), [self.text(key) for key in (
             c.CONTEXT_REACT_KEY, c.CONTEXT_REPLY_KEY, c.CONTEXT_EDIT_KEY, c.CONTEXT_PIN_KEY,
             c.CONTEXT_FORWARD_KEY, c.CONTEXT_COPY_KEY, c.CONTEXT_READ_MESSAGE_KEY,
-            c.CONTEXT_SELECT_KEY, c.CONTEXT_DELETE_KEY,
+            c.CONTEXT_SELECT_KEY, c.CONTEXT_MORE_KEY, c.CONTEXT_DELETE_KEY,
         )])
+
+    def test_less_used_commands_wait_one_step_aside_under_more(self):
+        self.open_chat(0)
+        self.frame.messages_list.SetSelection(1)
+        self.frame.PopupMenu = lambda menu, *args: self.menu_labels.__setitem__(slice(None), [
+            sub.GetItemLabelText() for item in menu.GetMenuItems() if item.GetSubMenu()
+            for sub in item.GetSubMenu().GetMenuItems()
+        ])
+        self.frame.on_message_context_menu(self.context_event(self.frame.messages_list))
+        # One's own text message in a private chat: there is nobody else's reading to see, nothing to report.
+        self.assertEqual(self.menu_labels, [self.text(key) for key in (c.CONTEXT_TRANSLATE_KEY, c.CONTEXT_REMIND_KEY)])
+
+    def test_send_from_the_chat_list_opens_the_chat_then_sends(self):
+        asked = []
+        self.frame.on_send_location_menu = lambda event: asked.append(self.frame.current_dialog_id)
+        ali = self.frame.dialogs[0]
+        self.frame.send_from_list(ali, lambda event: self.frame.on_send_location_menu(event))
+        self.assertTrue(pump(lambda: asked))
+        self.assertEqual(asked, [ali["id"]])
 
     def test_media_message_offers_open_and_save_but_no_copy(self):
         self.open_chat(0)

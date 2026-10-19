@@ -30,11 +30,12 @@ from core.constants import (
     VIEW_LABEL_KEY, MSG_PRIVACY_SAVED_KEY, MENU_CHATS_KEY, MENU_NEW_CHAT_KEY, MENU_FIND_CHAT_KEY,
     MENU_FORWARD_KEY, MENU_PIN_KEY, MENU_SETTINGS_KEY, MSG_SETTINGS_SAVED_KEY,
     MSG_PROFILE_SAVED_KEY, ERR_FIRST_NAME_REQUIRED_KEY, MENU_RECORD_KEY, MENU_SEARCH_MESSAGES_KEY,
-    DIALOGS_LIMIT, MENU_MESSAGE_KEY, MENU_REPLY_KEY, MSG_REPLY_CANCELLED_KEY, MENU_EDIT_KEY,
+    DIALOGS_LIMIT, MENU_REPLY_KEY, MSG_REPLY_CANCELLED_KEY, MENU_EDIT_KEY,
     MENU_DELETE_KEY, MENU_SEND_FILE_KEY, MENU_SEARCH_KEY, MENU_FIND_KEY, MENU_FIND_NEXT_KEY,
     APP_TITLE_KEY, MAIN_TITLE_KEY, DIALOGS_LABEL_KEY, MESSAGES_LABEL_KEY, MESSAGE_INPUT_LABEL_KEY,
     BTN_SEND_MESSAGE_KEY, STATUS_READY_KEY, MENU_FILE_KEY, MENU_LOGOUT_KEY, MENU_EXIT_KEY,
-    MSG_CONFIRM_LOGOUT_KEY, MSG_LANGUAGE_RESTART_KEY, MENU_SEND_KEY, MENU_GO_KEY, MENU_GO_CHATS_KEY, MENU_GO_MESSAGES_KEY,
+    MSG_CONFIRM_LOGOUT_KEY, MSG_LANGUAGE_RESTART_KEY, CONTEXT_CUT_KEY, CONTEXT_PASTE_KEY, CONTEXT_COPY_KEY,
+    BTN_SELECT_ALL_KEY, INPUT_MENU_TITLE_KEY, ATTACH_COMMANDS, MESSAGE_MENU_TITLE_KEY, MENU_GO_KEY, MENU_GO_CHATS_KEY, MENU_GO_MESSAGES_KEY,
     MENU_GO_INPUT_KEY, MENU_NEXT_UNREAD_KEY, MENU_NEXT_VIEW_KEY, MENU_PREVIOUS_VIEW_KEY,
     MENU_CHAT_INFO_KEY, MENU_CHAT_MANAGE_KEY, MENU_CHAT_READ_KEY, MENU_CHAT_PIN_KEY, MENU_CHAT_MUTE_KEY, MENU_CHAT_ARCHIVE_KEY,
     MENU_CHAT_CLEAR_KEY, MENU_CHAT_LEAVE_KEY, MENU_COPY_KEY, MENU_COPY_LINK_KEY, MENU_OPEN_MEDIA_KEY,
@@ -98,6 +99,9 @@ class MainFrame(
         # Menu command -> its entry in the menu bar, and every shortcut those entries answer to.
         self.menu_items = {}
         self.menu_shortcuts = set()
+        # Shortcut -> handler, for the commands of the message's and the writing field's menus, which have
+        # no place in the menu bar.
+        self.menu_less_shortcuts = {}
         # Files from outside the app, waiting for the chat list to load before asking where they go.
         self.shared_paths = []
         # Whether this run has already looked for shortcuts that other programs hold.
@@ -235,6 +239,8 @@ class MainFrame(
         # Several lines, so a message can have line breaks; which key sends is decided in on_char_hook.
         self.message_input = wx.TextCtrl(self.panel, style=wx.TE_MULTILINE, size=(-1, MESSAGE_INPUT_HEIGHT))
         self.message_input.Bind(wx.EVT_TEXT, self.on_input_changed)
+        # The Applications key or a right click: what can be sent, in place of Windows' own editing menu.
+        self.message_input.Bind(wx.EVT_CONTEXT_MENU, self.on_input_context_menu)
         input_box.Add(self.message_input, proportion=1, flag=wx.EXPAND|wx.RIGHT, border=10)
         self.send_btn = OptionalButton(self.panel, label=self.i18n.get_string(BTN_SEND_MESSAGE_KEY))
         self.send_btn.Bind(wx.EVT_BUTTON, self.on_send_message)
@@ -383,14 +389,89 @@ class MainFrame(
         self.messages_label.SetLabel(label)
         self.messages_list.SetName(label)
 
-    def on_attach(self, event):
-        self.show_context_menu([
+    def message_entries(self):
+        """The commands for the selected message, which its own menu offers (the Applications key on it)
+        and which answer their shortcuts from anywhere in the window. None draws a line between groups."""
+        return (
+            (MENU_REPLY_KEY, self.on_reply_menu),
+            (MENU_EDIT_KEY, self.on_edit_menu),
+            (MENU_FORWARD_KEY, self.on_forward_menu),
+            (MENU_MESSAGE_SENDER_KEY, self.on_message_sender_menu),
+            (MENU_REACT_KEY, self.on_react_menu),
+            (MENU_PIN_KEY, self.on_pin_menu),
+            (MENU_DELETE_KEY, self.on_delete_menu),
+            None,
+            (MENU_READ_MESSAGE_KEY, self.on_read_message_menu),
+            (MENU_TRANSLATE_KEY, self.on_translate_menu),
+            (MENU_DESCRIBE_IMAGE_KEY, self.on_describe_image_menu),
+            (MENU_COPY_KEY, self.on_copy_message),
+            (MENU_COPY_LINK_KEY, self.on_copy_link_menu),
+            (MENU_OPEN_MEDIA_KEY, self.on_activate_message),
+            (MENU_SAVE_AS_KEY, self.on_save_as_menu),
+            (MENU_BUTTONS_KEY, self.on_buttons_menu),
+            (MENU_OPEN_LINK_KEY, self.on_open_link_menu),
+            (MENU_COMMENTS_KEY, self.on_comments_menu),
+            (MENU_AUDIENCE_KEY, self.on_audience_menu),
+            (MENU_MESSAGE_STATS_KEY, self.on_message_stats_menu),
+            (MENU_VOICE_SPEED_KEY, self.on_voice_speed_menu),
+            (MENU_REPORT_KEY, self.on_report_menu),
+            None,
+            (MENU_MARK_KEY, self.on_mark_menu),
+            (MENU_UNMARK_ALL_KEY, self.on_unmark_all_menu),
+            None,
+            (MENU_REMIND_KEY, self.on_remind_menu),
+        )
+
+    def send_entries(self):
+        """What can go with a message, or how it goes: the menu of the writing field, and of the
+        Attach button. None draws a line between groups of entries."""
+        return (
             (MENU_SEND_FILE_KEY, self.on_send_file_menu),
+            (MENU_RECORD_KEY, self.on_record_menu),
             (MENU_SEND_STICKER_KEY, self.on_send_sticker_menu),
             (MENU_SEND_CONTACT_KEY, self.on_send_contact_menu),
             (MENU_SEND_LOCATION_KEY, self.on_send_location_menu),
             (MENU_NEW_POLL_KEY, self.on_new_poll_menu),
-        ])
+            (MENU_SEND_SILENT_KEY, lambda event: self.on_send_message(event, silent=True)),
+            (MENU_SCHEDULE_KEY, self.on_schedule_menu),
+            None,
+            (MENU_MENTION_KEY, self.on_mention_menu),
+            (MENU_SEND_AS_KEY, self.on_send_as_menu),
+            None,
+            (MENU_CANCEL_UPLOAD_KEY, self.on_cancel_upload_menu),
+        )
+
+    def on_attach(self, event):
+        # Only what is attached to a message: the button is named for that.
+        self.show_send_menu(only=ATTACH_COMMANDS)
+
+    def on_input_context_menu(self, event):
+        self.show_send_menu(with_editing=True)
+
+    def show_send_menu(self, with_editing=False, only=None):
+        """The send commands, each with its shortcut; in the writing field, the usual editing ones after them,
+        since this menu takes the place of the one Windows gives a text field."""
+        table = shortcuts.current(self.settings)
+        menu = wx.Menu()
+        entries = [entry for entry in self.send_entries() if only is None or (entry is not None and entry[0] in only)]
+        if with_editing:
+            entries += [None] + [
+                (CONTEXT_CUT_KEY, lambda event: self.message_input.Cut()),
+                (CONTEXT_COPY_KEY, lambda event: self.message_input.Copy()),
+                (CONTEXT_PASTE_KEY, lambda event: self.paste_files() or self.message_input.Paste()),
+                (BTN_SELECT_ALL_KEY, lambda event: self.message_input.SelectAll()),
+            ]
+        for entry in entries:
+            if entry is None:
+                menu.AppendSeparator()
+                continue
+            label_key, handler = entry
+            label = self.i18n.get_string(label_key)
+            shortcut = table.get(label_key)
+            item = menu.Append(wx.ID_ANY, label + "\t" + shortcut if shortcut else label)
+            menu.Bind(wx.EVT_MENU, handler, item)
+        self.PopupMenu(menu)
+        menu.Destroy()
 
     def progress_reporter(self, format_key):
         """What to hand a transfer so that its progress shows here; called from the Telegram thread."""
@@ -508,6 +589,7 @@ class MainFrame(
                 (MENU_BLOCKED_KEY, self.on_blocked_menu),
                 (MENU_FOLDERS_KEY, self.on_folders_menu),
                 (MENU_MARK_ALL_READ_KEY, self.on_mark_all_read_menu),
+                (MENU_REMINDERS_KEY, self.on_reminders_menu),
                 None,
                 (MENU_CHAT_INFO_KEY, lambda event: on_chat(self.show_chat_info)),
                 (MENU_CHAT_MANAGE_KEY, lambda event: on_chat(self.manage_chat)),
@@ -546,51 +628,6 @@ class MainFrame(
                 (MENU_GO_TO_DATE_KEY, self.on_go_to_date_menu),
                 (MENU_GO_TO_REPLY_KEY, self.on_go_to_reply_menu),
             )),
-            (MENU_MESSAGE_KEY, (
-                (MENU_REPLY_KEY, self.on_reply_menu),
-                (MENU_EDIT_KEY, self.on_edit_menu),
-                (MENU_FORWARD_KEY, self.on_forward_menu),
-                (MENU_MESSAGE_SENDER_KEY, self.on_message_sender_menu),
-                (MENU_REACT_KEY, self.on_react_menu),
-                (MENU_PIN_KEY, self.on_pin_menu),
-                (MENU_DELETE_KEY, self.on_delete_menu),
-                None,
-                (MENU_READ_MESSAGE_KEY, self.on_read_message_menu),
-                (MENU_TRANSLATE_KEY, self.on_translate_menu),
-                (MENU_DESCRIBE_IMAGE_KEY, self.on_describe_image_menu),
-                (MENU_COPY_KEY, self.on_copy_message),
-                (MENU_COPY_LINK_KEY, self.on_copy_link_menu),
-                (MENU_OPEN_MEDIA_KEY, self.on_activate_message),
-                (MENU_SAVE_AS_KEY, self.on_save_as_menu),
-                (MENU_BUTTONS_KEY, self.on_buttons_menu),
-                (MENU_OPEN_LINK_KEY, self.on_open_link_menu),
-                (MENU_COMMENTS_KEY, self.on_comments_menu),
-                (MENU_AUDIENCE_KEY, self.on_audience_menu),
-                (MENU_MESSAGE_STATS_KEY, self.on_message_stats_menu),
-                (MENU_VOICE_SPEED_KEY, self.on_voice_speed_menu),
-                (MENU_REPORT_KEY, self.on_report_menu),
-                None,
-                (MENU_MARK_KEY, self.on_mark_menu),
-                (MENU_UNMARK_ALL_KEY, self.on_unmark_all_menu),
-                None,
-                (MENU_REMIND_KEY, self.on_remind_menu),
-                (MENU_REMINDERS_KEY, self.on_reminders_menu),
-            )),
-            (MENU_SEND_KEY, (
-                (MENU_SEND_FILE_KEY, self.on_send_file_menu),
-                (MENU_RECORD_KEY, self.on_record_menu),
-                (MENU_SEND_STICKER_KEY, self.on_send_sticker_menu),
-                (MENU_SEND_CONTACT_KEY, self.on_send_contact_menu),
-                (MENU_SEND_LOCATION_KEY, self.on_send_location_menu),
-                (MENU_NEW_POLL_KEY, self.on_new_poll_menu),
-                (MENU_SEND_SILENT_KEY, lambda event: self.on_send_message(event, silent=True)),
-                (MENU_SCHEDULE_KEY, self.on_schedule_menu),
-                None,
-                (MENU_MENTION_KEY, self.on_mention_menu),
-                (MENU_SEND_AS_KEY, self.on_send_as_menu),
-                None,
-                (MENU_CANCEL_UPLOAD_KEY, self.on_cancel_upload_menu),
-            )),
             (MENU_SEARCH_KEY, (
                 (MENU_FIND_KEY, self.on_find_menu),
                 (MENU_FIND_NEXT_KEY, self.on_find_next_menu),
@@ -627,7 +664,11 @@ class MainFrame(
         for command, item in self.menu_items.items():
             label = self.i18n.get_string(command)
             item.SetItemLabel(label + "\t" + table[command] if table[command] else label)
-        self.menu_shortcuts = {table[command] for command in self.menu_items} - {""}
+        self.menu_less_shortcuts = {
+            table[entry[0]]: entry[1] for entry in self.message_entries() + self.send_entries()
+            if entry is not None and table[entry[0]]
+        }
+        self.menu_shortcuts = ({table[command] for command in self.menu_items} | set(self.menu_less_shortcuts)) - {""}
         self.update_mouse_tooltips()
 
     def show_window_shortcut(self):
@@ -847,6 +888,7 @@ class MainFrame(
     def shortcuts_guide(self):
         """(the keys that never change, [(menu, [(shortcut, command), ...]), ...]) with the shortcuts as they are now."""
         sections = []
+        table = shortcuts.current(self.settings)
         for menu, title in self.GetMenuBar().GetMenus():
             rows = [
                 (item.GetItemLabel().partition("\t")[2], item.GetItemLabelText())
@@ -854,6 +896,17 @@ class MainFrame(
             ]
             if rows:
                 sections.append((wx.MenuItem.GetLabelText(title), rows))
+        # Where the Message and Send menus used to be: just before the search menu.
+        titles = [title for title, rows in sections]
+        search = wx.MenuItem.GetLabelText(self.i18n.get_string(MENU_SEARCH_KEY))
+        place = titles.index(search) if search in titles else len(sections)
+        for title_key, entries in ((INPUT_MENU_TITLE_KEY, self.send_entries()), (MESSAGE_MENU_TITLE_KEY, self.message_entries())):
+            rows = [
+                (table[entry[0]], self.i18n.get_string(entry[0]))
+                for entry in entries if entry is not None and table[entry[0]]
+            ]
+            if rows:
+                sections.insert(place, (self.i18n.get_string(title_key), rows))
         hotkey = self.show_window_shortcut()
         if hotkey:
             sections.append((
@@ -1073,6 +1126,11 @@ class MainFrame(
     def on_char_hook(self, event):
         is_enter = event.GetKeyCode() in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER)
         focused = wx.Window.FindFocus()
+        menu_less_command = self.menu_less_shortcuts.get(shortcuts.from_key_event(event))
+        if menu_less_command is not None:
+            # Not in the menu bar, so its shortcut is answered here, wherever the focus is in the window.
+            menu_less_command(event)
+            return
         sideways = event.GetKeyCode() in (wx.WXK_LEFT, wx.WXK_RIGHT, wx.WXK_NUMPAD_LEFT, wx.WXK_NUMPAD_RIGHT)
         if sideways and focused is self.dialogs_list and not event.HasAnyModifiers():
             # Up and down move through the chats; left and right go to the tab beside the current one,

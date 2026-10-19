@@ -118,15 +118,18 @@ class ReadingOptionsTest(WindowTestCase):
         self.press_enter(control=True)
         self.assertEqual(len(sent), 2)
 
-    def test_menu_ways_of_sending_are_left_to_the_menu(self):
+    def test_other_ways_of_sending_keep_their_own_shortcuts(self):
         self.open_chat(0)
-        sent = []
-        self.frame.on_send_message = lambda event, silent=False: sent.append(True)
+        sent, scheduled = [], []
+        self.frame.on_send_message = lambda event, silent=False: sent.append(silent)
+        self.frame.on_schedule_menu = lambda event: scheduled.append(True)
+        # The writing field's menu holds them, so its shortcuts are taken anew.
+        self.frame.apply_shortcuts()
         self.frame.message_input.SetValue("text")
-        # Alt+Enter sends silently and Ctrl+Shift+Enter schedules: neither is this handler's to take.
+        # Alt+Enter sends silently and Ctrl+Shift+Enter schedules, not a plain send nor a new line.
         self.press_enter(alt=True)
         self.press_enter(control=True, shift=True)
-        self.assertEqual((sent, self.frame.message_input.GetValue()), ([], "text"))
+        self.assertEqual((sent, scheduled, self.frame.message_input.GetValue()), ([True], [True], "text"))
 
     def test_a_message_with_line_breaks_is_sent_as_written(self):
         self.open_chat(0)
