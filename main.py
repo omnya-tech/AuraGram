@@ -1,7 +1,14 @@
 import sys
 from core import share
-from core.constants import CHECK_FLAG, QUIT_FLAG
+import time
+from core.constants import CHECK_FLAG, QUIT_FLAG, RESTART_FLAG, RESTART_WAIT_SECONDS, RESTART_POLL_SECONDS
 from ui.background import ask_running_copy_to_show, ask_running_copy_to_take_files, running_copy_window
+
+def wait_for_old_copy():
+    """Started by a copy restarting itself: give it time to close before taking over."""
+    deadline = time.monotonic() + RESTART_WAIT_SECONDS
+    while running_copy_window() and time.monotonic() < deadline:
+        time.sleep(RESTART_POLL_SECONDS)
 
 def hand_over_to_running_copy(arguments):
     """Bring forward the copy already running, handing it any files to send; False if none is running.
@@ -9,6 +16,8 @@ def hand_over_to_running_copy(arguments):
     Done before anything heavy is loaded: a click on the desktop icon while the program
     waits in the background then answers at once, instead of after loading Telegram and audio.
     """
+    if RESTART_FLAG in arguments:
+        wait_for_old_copy()
     if CHECK_FLAG in arguments or QUIT_FLAG in arguments or not running_copy_window():
         return False
     paths = share.files_among(arguments)
@@ -69,6 +78,10 @@ class MainApplication(wx.App):
         self.connection_state = None
         # Two copies would fight over the same Telegram session file.
         self.instance_checker = wx.SingleInstanceChecker(APP_NAME + "-" + wx.GetUserId())
+        # Taking over from a copy that restarted itself: it lets go of the session only once it has ended.
+        deadline = time.monotonic() + RESTART_WAIT_SECONDS
+        while RESTART_FLAG in sys.argv and self.instance_checker.IsAnotherRunning() and time.monotonic() < deadline:
+            time.sleep(RESTART_POLL_SECONDS)
         # Files to send, when started from Windows' "Send to" menu.
         self.shared_paths = share.files_among(sys.argv[1:])
         if self.instance_checker.IsAnotherRunning():

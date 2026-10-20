@@ -204,6 +204,10 @@ CHECK_FLAG = "--check"
 # to close properly, so its files can be replaced or removed.
 QUIT_FLAG = "--quit"
 QUIT_WAIT_SECONDS = 8
+# Given to the copy that takes over from one restarting itself: it waits for the old one to be gone.
+RESTART_FLAG = "--restarted"
+RESTART_WAIT_SECONDS = 20
+RESTART_POLL_SECONDS = 0.2
 CONNECT_CHECK_SECONDS = 20
 # Long enough for the first window to be drawn before the main window's code is loaded.
 MAIN_FRAME_PRELOAD_MS = 300

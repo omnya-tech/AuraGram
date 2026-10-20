@@ -1218,7 +1218,7 @@
     "ERR_NO_CONFIG": "لم يُعثر على رقم ومفتاح تطبيق تيليجرام.",
     "ERR_GENERAL": "حدث خطأ غير متوقع أثناء الاتصال بتيليجرام.",
     "SETTINGS_LANGUAGE_LABEL": "لغة البرنامج:",
-    "MSG_LANGUAGE_RESTART": "ستتغير لغة البرنامج عند إعادة تشغيل AuraGram.",
+    "MSG_LANGUAGE_RESTART": "تتغير لغة البرنامج بعد إعادة تشغيله. هل تريد إعادة تشغيل AuraGram الآن؟",
     "MENU_CHECK_UPDATES": "البحث عن إصدار جديد",
     "SETTINGS_CHECK_UPDATES": "البحث عن إصدار جديد عند فتح البرنامج",
     "MSG_UP_TO_DATE_FORMAT": "لديك أحدث إصدار: {current}",

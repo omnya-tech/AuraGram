@@ -96,3 +96,28 @@ class BackupTest(WindowTestCase):
             self.frame.on_import_settings_menu(None)
         self.assertEqual(self.frame.favorites, set(source.get(s.SETTING_FAVORITES)))
         self.assertEqual(self.spoken[-1], self.text(c.MSG_SETTINGS_IMPORTED_KEY))
+
+
+class LanguageRestartTest(WindowTestCase):
+    def test_a_new_language_offers_a_restart_and_yes_restarts(self):
+        import core.restart as restart
+        started, quit = [], []
+        self.frame.on_quit = lambda: quit.append(True)
+        with mock.patch.object(restart.subprocess, "Popen", lambda command, **kwargs: started.append(command)):
+            self.box_answer = wx.NO
+            self.frame.offer_restart()
+            self.assertEqual((started, quit), ([], []))
+            self.box_answer = wx.YES
+            self.frame.offer_restart()
+        self.assertIn(self.text(c.MSG_LANGUAGE_RESTART_KEY), self.boxes[-1])
+        self.assertEqual(len(started), 1)
+        self.assertEqual(started[0][-1], c.RESTART_FLAG)
+        self.assertEqual(quit, [True])
+
+    def test_the_new_copy_is_started_the_way_this_one_runs(self):
+        import sys
+        import core.restart as restart
+        self.assertEqual(restart.command()[0], sys.executable)
+        self.assertTrue(restart.command()[1].endswith("main.py"))
+        with mock.patch.object(restart, "IS_FROZEN", True):
+            self.assertEqual(restart.command(), [sys.executable, c.RESTART_FLAG])

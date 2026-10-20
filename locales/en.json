@@ -1218,7 +1218,7 @@
     "ERR_NO_CONFIG": "No Telegram API id and hash were found.",
     "ERR_GENERAL": "An unexpected error occurred while connecting to Telegram.",
     "SETTINGS_LANGUAGE_LABEL": "App language:",
-    "MSG_LANGUAGE_RESTART": "The app language will change when AuraGram is restarted.",
+    "MSG_LANGUAGE_RESTART": "The app's language changes once it restarts. Restart AuraGram now?",
     "MENU_CHECK_UPDATES": "Check for a new version",
     "SETTINGS_CHECK_UPDATES": "Check for a new version when the program opens",
     "MSG_UP_TO_DATE_FORMAT": "You have the latest version: {current}",

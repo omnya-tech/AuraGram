@@ -1,7 +1,7 @@
 import os
 import threading
 import wx
-from core import audio, diagnostics, key_conflicts, shortcut_guide, shortcuts, sounds, speech, updates, user_guide
+from core import audio, diagnostics, key_conflicts, restart, shortcut_guide, shortcuts, sounds, speech, updates, user_guide
 from core.speech import speak
 from core.settings import (
     SETTING_ACCOUNTS, SETTING_CURRENT_ACCOUNT,
@@ -894,10 +894,8 @@ class MainFrame(
                 privacy, self.on_ui_thread(lambda result: self.notify(MSG_PRIVACY_SAVED_KEY))
             )
         if language_changed:
-            wx.MessageBox(
-                self.i18n.get_string(MSG_LANGUAGE_RESTART_KEY), self.i18n.get_string(APP_TITLE_KEY),
-                wx.OK | wx.ICON_INFORMATION, self
-            )
+            # After the settings dialog is gone: a restart from inside it would leave it half closed.
+            wx.CallAfter(self.offer_restart)
         if profile is None:
             if privacy:
                 return
@@ -1192,10 +1190,20 @@ class MainFrame(
             self.on_hotkey_changed(new_hotkey)
         self.announce(self.i18n.get_string(MSG_SETTINGS_IMPORTED_KEY), FEEDBACK_RESULT)
         if self.settings.get(SETTING_LANGUAGE) != language:
-            wx.MessageBox(
-                self.i18n.get_string(MSG_LANGUAGE_RESTART_KEY), self.i18n.get_string(APP_TITLE_KEY),
-                wx.OK | wx.ICON_INFORMATION, self
-            )
+            self.offer_restart()
+
+    def offer_restart(self):
+        """A new language takes a fresh start: offer it now, Yes or No."""
+        if not self:
+            return
+        answer = wx.MessageBox(
+            self.i18n.get_string(MSG_LANGUAGE_RESTART_KEY), self.i18n.get_string(APP_TITLE_KEY),
+            wx.YES_NO | wx.YES_DEFAULT | wx.ICON_QUESTION, self
+        )
+        if answer != wx.YES:
+            return
+        restart.start_new_copy()
+        self.on_exit_menu(None)
 
     def on_logout_menu(self, event):
         answer = wx.MessageBox(
