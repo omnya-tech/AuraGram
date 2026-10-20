@@ -215,6 +215,9 @@ class TelegramManager(threading.Thread):
             pass
         self.loop.call_soon_threadsafe(self.loop.stop)
         self.join(timeout=STOP_TIMEOUT_SECONDS)
+        # Done with for good once its thread has ended; still running, it is left for the thread to finish.
+        if not self.is_alive() and not self.loop.is_running():
+            self.loop.close()
 
     def set_proxy(self, proxy):
         """Reach Telegram another way from now on. Connects again at once; signing in starts over

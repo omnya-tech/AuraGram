@@ -116,6 +116,7 @@ class FakeTelegramClient:
     revoked_invites = 0  # how many revoked links GetExportedChatInvitesRequest counts
     admin_log = []    # events iter_admin_log yields
     inline_results = {}  # bot username -> what its inline query answers
+    created = []      # channels and groups made by CreateChannelRequest
     link_joiners = {}  # (link, waiting for approval) -> users who came by it
     emoji_sets = []   # titles of the emoji packs added to the account
     stats = None      # what the statistics requests answer; None for a chat that has none
@@ -154,6 +155,7 @@ class FakeTelegramClient:
         cls.revoked_invites = 0
         cls.admin_log = []
         cls.inline_results = {}
+        cls.created = []
         cls.link_joiners = {}
         cls.emoji_sets = []
         cls.discussion_groups = []
@@ -493,8 +495,14 @@ class FakeTelegramClient:
             ))
         if name == "EditExportedChatInviteRequest":
             self.invites[:] = [invite for invite in self.invites if invite.link != request.link]
+        if name == "GetChannelsRequest":
+            made = [entity for entity, _, _ in self.chats] + list(self.created)
+            wanted = {getattr(channel, "channel_id", None) for channel in request.id}
+            return Record(chats=[entity for entity in made if entity.id in wanted])
         if name == "CreateChannelRequest":
-            return Record(chats=[make_channel(500, request.title, group=bool(request.megagroup), creator=True)])
+            made = make_channel(500, request.title, group=bool(request.megagroup), creator=True)
+            self.created.append(made)
+            return Record(chats=[made])
         if name == "GetFullChannelRequest":
             return Record(full_chat=Record(
                 about="about text", participants_count=len(self.members), exported_invite=None, **self.full_chat

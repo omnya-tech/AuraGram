@@ -44,7 +44,8 @@ class BackupTest(WindowTestCase):
         settings.apply_level(c.SPEECH_LEVEL_ADVANCED)
         path = self.path()
         settings.export_to(path, with_secrets=False)
-        stored = json.load(open(path, encoding="utf-8"))["settings"]
+        with open(path, encoding="utf-8") as file:
+            stored = json.load(file)["settings"]
         self.assertEqual(stored[s.SETTING_GEMINI_KEY], "")
         self.assertNotIn(s.WINDOW_PLACEMENT, stored)
 
