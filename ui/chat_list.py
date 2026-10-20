@@ -9,6 +9,7 @@ from ui.chat_control_dialog import ChatControlDialog
 from core.chat_views import ARCHIVE_VIEW, build_views, contacts_first_online, is_online
 from core import shortcuts
 from core.constants import (
+    FILE_LABEL_SEPARATOR_KEY,
     FEEDBACK_COUNT,
     FEEDBACK_COUNT,
     FEEDBACK_RESULT,
@@ -215,7 +216,7 @@ class ChatListMixin:
         preview = "" if self.showing_contacts() else self.dialog_preview(dialog)
         return self.i18n.get_string(DIALOG_FORMAT_KEY).format(
             title=title,
-            details="".join("، " + detail for detail in details),
+            details="".join(self.i18n.get_string(FILE_LABEL_SEPARATOR_KEY) + detail for detail in details),
             preview=". " + preview if preview else ""
         )
 

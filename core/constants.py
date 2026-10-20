@@ -204,6 +204,9 @@ CHECK_FLAG = "--check"
 # to close properly, so its files can be replaced or removed.
 QUIT_FLAG = "--quit"
 QUIT_WAIT_SECONDS = 8
+# Written by the installer beside the program: "ar" or "en", the language it was run in, which the
+# program first opens in for anyone who has not chosen one yet. The installer names it the same.
+INSTALL_LANGUAGE_FILE = "install_language.txt"
 # Given to the copy that takes over from one restarting itself: it waits for the old one to be gone.
 RESTART_FLAG = "--restarted"
 RESTART_WAIT_SECONDS = 20

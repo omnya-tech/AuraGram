@@ -13,6 +13,8 @@
 
 #define AppName "AuraGram"
 #define AppExe "AuraGram.exe"
+; Beside the program: the language the installer ran in (INSTALL_LANGUAGE_FILE in core/constants.py).
+#define InstallLanguageFile "install_language.txt"
 ; The values below are used when this file is compiled on its own, straight from
 ; Inno Setup; build.py passes the same ones. Keep the version equal to APP_VERSION
 ; in core/constants.py (a test fails if they drift apart).
@@ -165,6 +167,21 @@ function InitializeUninstall(): Boolean;
 begin
   CloseRunningProgram();
   Result := True;
+end;
+
+// The language the installer was run in is the one the program first opens in, for every
+// user of this computer who has not chosen one in its settings yet.
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Language: String;
+begin
+  if CurStep <> ssPostInstall then
+    Exit;
+  if ActiveLanguage = 'arabic' then
+    Language := 'ar'
+  else
+    Language := 'en';
+  SaveStringToFile(ExpandConstant('{app}\{#InstallLanguageFile}'), Language, False);
 end;
 
 // The Telegram session and settings live in the user's Roaming folder, not in

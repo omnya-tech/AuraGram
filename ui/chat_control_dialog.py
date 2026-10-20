@@ -6,6 +6,7 @@ from ui.admin_log_dialog import AdminLogDialog
 from ui.invite_links_dialog import InviteLinksDialog
 from ui.chat_admin_dialog import ChatAdminDialog
 from core.constants import (
+    FILE_LABEL_SEPARATOR_KEY,
     FEEDBACK_CONFIRM, FEEDBACK_COUNT, FEEDBACK_RESULT, FEEDBACK_UNAVAILABLE,
     APP_TITLE_KEY, MSG_LOADING_KEY, CHAT_KIND_USER, CHAT_KIND_GROUP,
     MEMBER_ROLE_OWNER, MEMBER_ROLE_ADMIN, MEMBER_ACTION_KICK, MEMBER_ACTION_BAN,
@@ -171,7 +172,7 @@ class ChatControlDialog(wx.Dialog):
         if info["phone"]:
             lines.append(text(INFO_PHONE_FORMAT_KEY).format(phone=info["phone"]))
         if info["common_chats"]:
-            lines.append(text(INFO_COMMON_CHATS_FORMAT_KEY).format(titles="، ".join(info["common_chats"])))
+            lines.append(text(INFO_COMMON_CHATS_FORMAT_KEY).format(titles=text(FILE_LABEL_SEPARATOR_KEY).join(info["common_chats"])))
         if info["members_count"] is not None:
             lines.append(text(INFO_MEMBERS_COUNT_FORMAT_KEY).format(count=info["members_count"]))
         is_user = info["kind"] == CHAT_KIND_USER

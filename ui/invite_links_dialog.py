@@ -3,6 +3,7 @@ from ui.layout import prepare_window
 from ui.text_dialog import TextDialog
 from core.speech import speak, say
 from core.constants import (
+    FILE_LABEL_SEPARATOR_KEY,
     FEEDBACK_CONFIRM, FEEDBACK_UNAVAILABLE,
     APP_TITLE_KEY, MSG_LOADING_KEY, BTN_CLOSE_KEY, MSG_INVITE_COPIED_KEY,
     INVITE_LINKS_TITLE_FORMAT_KEY, INVITE_LINKS_LABEL_KEY, INVITE_LINK_FORMAT_KEY,
@@ -119,7 +120,7 @@ class InviteLinksDialog(wx.Dialog):
     def show_joiners(self, link, joiners):
         text = self.i18n.get_string
         lines = [
-            text(key).format(count=len(joiners[name]), names="، ".join(joiners[name]))
+            text(key).format(count=len(joiners[name]), names=text(FILE_LABEL_SEPARATOR_KEY).join(joiners[name]))
             for name, key in (("joined", LINK_JOINED_FORMAT_KEY), ("waiting", LINK_WAITING_FORMAT_KEY))
             if joiners[name]
         ] or [text(LINK_NOBODY_KEY)]

@@ -3,6 +3,7 @@ from ui.layout import prepare_window
 from ui.member_row import member_row
 from core.speech import speak, say
 from core.constants import (
+    FILE_LABEL_SEPARATOR_KEY,
     FEEDBACK_CONFIRM, FEEDBACK_COUNT,
     APP_TITLE_KEY, MSG_LOADING_KEY, STATUS_READY_KEY, CHAT_KIND_USER, CHAT_KIND_GROUP, CHAT_KIND_SUPERGROUP,
     CHAT_KIND_CHANNEL, INFO_TITLE_FORMAT_KEY, INFO_SUMMARY_LABEL_KEY, INFO_KIND_FORMAT_KEY,
@@ -109,7 +110,7 @@ class ChatInfoDialog(wx.Dialog):
         if info["about"]:
             lines.append(info["about"])
         if info["common_chats"]:
-            lines.append(text(INFO_COMMON_CHATS_FORMAT_KEY).format(titles="، ".join(info["common_chats"])))
+            lines.append(text(INFO_COMMON_CHATS_FORMAT_KEY).format(titles=text(FILE_LABEL_SEPARATOR_KEY).join(info["common_chats"])))
         if info["members_count"] is not None:
             lines.append(text(INFO_MEMBERS_COUNT_FORMAT_KEY).format(count=info["members_count"]))
         is_user = info["kind"] == CHAT_KIND_USER

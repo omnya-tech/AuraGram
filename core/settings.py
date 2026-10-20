@@ -1,6 +1,8 @@
 import json
 import os
+import sys
 from core.constants import (
+    INSTALL_LANGUAGE_FILE, IS_FROZEN, BASE_DIR,
     FEEDBACK_KINDS, FEEDBACK_PERCENT, FEEDBACK_UNAVAILABLE, FEEDBACK_RESULT, FEEDBACK_CONFIRM,
     SPEECH_LEVELS, SPEECH_LEVEL_BEGINNER, SPEECH_LEVEL_INTERMEDIATE, SPEECH_LEVEL_ADVANCED,
     SETTINGS_FILE, READ_MODE, ENCODING_UTF8, THEMES, THEME_SYSTEM,
@@ -158,6 +160,17 @@ BACKUP_LEFT_OUT = (
     SETTING_CURRENT_ACCOUNT,
 )
 
+def installed_language():
+    """The language the installer was run in, if it left one beside the program; None otherwise."""
+    folder = os.path.dirname(sys.executable) if IS_FROZEN else BASE_DIR
+    try:
+        with open(os.path.join(folder, INSTALL_LANGUAGE_FILE), READ_MODE, encoding=ENCODING_UTF8) as file:
+            language = file.read().strip()
+    except OSError:
+        return None
+    return language if language in LANGUAGES else None
+
+
 class Settings:
     """The app's own preferences, kept in a JSON file on this computer only."""
 
@@ -165,6 +178,8 @@ class Settings:
         self.values = dict(DEFAULTS)
         for key, (allowed, default) in CHOICES.items():
             self.values[key] = default
+        # Until a language is chosen in the settings, the one the program was installed in.
+        self.values[SETTING_LANGUAGE] = installed_language() or DEFAULT_LANG
         self.values.update(TEXTS)
         self.values[SETTING_SHORTCUTS] = {}
         self.values[SHORTCUT_CONFLICTS_TOLD] = []

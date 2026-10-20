@@ -703,7 +703,7 @@ class MessageListMixin:
         if message["forwards"] is not None:
             lines.append(self.i18n.get_string(AUDIENCE_FORWARDS_FORMAT_KEY).format(count=message["forwards"]))
         if audience["readers"]:
-            lines.append(self.i18n.get_string(AUDIENCE_READERS_FORMAT_KEY).format(names="، ".join(audience["readers"])))
+            lines.append(self.i18n.get_string(AUDIENCE_READERS_FORMAT_KEY).format(names=self.i18n.get_string(FILE_LABEL_SEPARATOR_KEY).join(audience["readers"])))
         elif message["views"] is None:
             lines.append(self.i18n.get_string(
                 AUDIENCE_READERS_UNKNOWN_KEY if audience["readers"] is None else AUDIENCE_NO_READERS_KEY
@@ -741,13 +741,13 @@ class MessageListMixin:
                 details.append(self.i18n.get_string(POLL_VOTERS_FORMAT_KEY).format(count=option["voters"]))
             if details:
                 options.append(self.i18n.get_string(POLL_OPTION_FORMAT_KEY).format(
-                    text=option["text"], details="، ".join(details)
+                    text=option["text"], details=self.i18n.get_string(FILE_LABEL_SEPARATOR_KEY).join(details)
                 ))
             else:
                 options.append(option["text"])
         return self.i18n.get_string(POLL_FORMAT_KEY).format(
             closed=self.i18n.get_string(POLL_CLOSED_SUFFIX_KEY) if poll["closed"] else "",
-            question=poll["question"], options="، ".join(options)
+            question=poll["question"], options=self.i18n.get_string(FILE_LABEL_SEPARATOR_KEY).join(options)
         )
 
     def message_text(self, message):
@@ -834,7 +834,7 @@ class MessageListMixin:
         if message["comments"] is not None:
             stats.append(self.i18n.get_string(COMMENTS_FORMAT_KEY).format(count=message["comments"]))
         if message["reactions"]:
-            stats.append(self.i18n.get_string(REACTIONS_FORMAT_KEY).format(reactions="، ".join(
+            stats.append(self.i18n.get_string(REACTIONS_FORMAT_KEY).format(reactions=self.i18n.get_string(FILE_LABEL_SEPARATOR_KEY).join(
                 self.i18n.get_string(REACTION_COUNT_FORMAT_KEY).format(emoji=emoji, count=count)
                 for emoji, count in message["reactions"]
             )))
@@ -856,7 +856,7 @@ class MessageListMixin:
         if message["edited"]:
             text = self.i18n.get_string(EDITED_FORMAT_KEY).format(text=text)
         if message["buttons"]:
-            text = self.i18n.get_string(BUTTONS_FORMAT_KEY).format(text=text, buttons="، ".join(message["buttons"]))
+            text = self.i18n.get_string(BUTTONS_FORMAT_KEY).format(text=text, buttons=self.i18n.get_string(FILE_LABEL_SEPARATOR_KEY).join(message["buttons"]))
         stats = self.message_stats(message)
         stats_first = self.settings.get(SETTING_MESSAGE_STATS) == MESSAGE_STATS_BEFORE
         if stats and not stats_first:

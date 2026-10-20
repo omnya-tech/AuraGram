@@ -39,6 +39,28 @@ class LocaleParityTest(unittest.TestCase):
         self.assertEqual(self.load("ar")["TEXT_DIRECTION"], "rtl")
         self.assertEqual(self.load("en")["TEXT_DIRECTION"], "ltr")
 
+    def test_no_arabic_comma_is_written_into_the_code_for_english_to_show(self):
+        import glob
+        import os
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for path in glob.glob(os.path.join(root, "ui", "*.py")) + glob.glob(os.path.join(root, "core", "*.py")):
+            with open(path, encoding="utf-8") as file:
+                for number, line in enumerate(file, 1):
+                    # Read from what is typed it may be; written out for the user to read, it comes from the texts.
+                    if "،" in line and "replace" not in line and "re.compile" not in line:
+                        self.fail("%s:%d writes an Arabic comma whatever the language" % (os.path.basename(path), number))
+        self.assertEqual(I18NManager("en").get_string("FILE_LABEL_SEPARATOR"), ", ")
+
+    def test_each_language_writes_its_own_marks(self):
+        import re
+        arabic_marks = re.compile("[،؛؟«»]")
+        for key, text in I18NManager("en").strings.items():
+            # English quotes words "like this" and asks "?": the Arabic «», ، ؛ and ؟ are for the Arabic texts.
+            self.assertIsNone(arabic_marks.search(text), key)
+        for key, text in I18NManager("ar").strings.items():
+            # And Arabic asks with ؟ and lists with ، where a word of its own comes before them.
+            self.assertIsNone(re.search(r"[؀-ۿ]\s*[?;]|[؀-ۿ], ", text), key)
+
     def test_the_manager_loads_english(self):
         english = I18NManager("en")
         self.assertEqual(english.get_string("BTN_SEND_MESSAGE"), "Send")
@@ -65,6 +87,40 @@ class LanguageSettingTest(unittest.TestCase):
             json.dump({s.SETTING_LANGUAGE: "fr"}, file)
         with mock.patch.object(s, "SETTINGS_FILE", path):
             self.assertEqual(s.Settings().get(s.SETTING_LANGUAGE), "ar")
+
+
+class InstalledLanguageTest(unittest.TestCase):
+    def folder_with(self, text):
+        folder = tempfile.mkdtemp()
+        if text is not None:
+            with open(os.path.join(folder, c.INSTALL_LANGUAGE_FILE), "w", encoding="utf-8") as file:
+                file.write(text)
+        return folder
+
+    def settings(self, folder, saved=None):
+        path = os.path.join(tempfile.mkdtemp(), "settings.json")
+        if saved is not None:
+            with open(path, "w") as file:
+                json.dump(saved, file)
+        with mock.patch.object(s, "BASE_DIR", folder), mock.patch.object(s, "SETTINGS_FILE", path):
+            return s.Settings()
+
+    def test_the_program_first_opens_in_the_language_it_was_installed_in(self):
+        # As the installer writes it, or with a line end after it.
+        self.assertEqual(self.settings(self.folder_with("en\n")).get(s.SETTING_LANGUAGE), "en")
+        self.assertEqual(self.settings(self.folder_with("ar")).get(s.SETTING_LANGUAGE), "ar")
+
+    def test_a_language_chosen_in_the_settings_wins_and_nonsense_is_ignored(self):
+        self.assertEqual(self.settings(self.folder_with("en"), {s.SETTING_LANGUAGE: "ar"}).get(s.SETTING_LANGUAGE), "ar")
+        self.assertEqual(self.settings(self.folder_with("fr")).get(s.SETTING_LANGUAGE), "ar")
+        self.assertEqual(self.settings(self.folder_with(None)).get(s.SETTING_LANGUAGE), "ar")
+
+    def test_the_installer_writes_the_same_file_in_the_language_it_ran_in(self):
+        with open(os.path.join(c.BASE_DIR, "installer.iss"), encoding="utf-8") as file:
+            script = file.read()
+        self.assertIn('#define InstallLanguageFile "%s"' % c.INSTALL_LANGUAGE_FILE, script)
+        self.assertIn(r"{app}\{#InstallLanguageFile}", script)
+        self.assertIn("ActiveLanguage = 'arabic'", script)
 
 
 class LanguageDialogTest(WindowTestCase):
