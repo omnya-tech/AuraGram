@@ -102,6 +102,23 @@ class AccessibilityTest(WindowTestCase):
         say("in a window", c.FEEDBACK_CONFIRM)
         self.assertEqual(len(self.spoken), 1)
 
+    def test_the_settings_open_on_their_tabs(self):
+        dialog = SettingsDialog(self.frame, self.i18n, self.frame.settings, self.manager)
+        self.addCleanup(dialog.Destroy)
+        focused = []
+        dialog.notebook.SetFocus = lambda: focused.append("tabs")
+        dialog.shortcuts_list.SetFocus = lambda: focused.append("shortcuts")
+        pump(timeout=0.1)
+        self.assertEqual(focused, ["tabs"])
+        # Opened to change a shortcut, it starts on their list instead.
+        other = SettingsDialog(self.frame, self.i18n, self.frame.settings, self.manager)
+        self.addCleanup(other.Destroy)
+        other.notebook.SetFocus = lambda: focused.append("tabs")
+        other.shortcuts_list.SetFocus = lambda: focused.append("shortcuts")
+        other.show_shortcuts_page()
+        pump(timeout=0.1)
+        self.assertEqual(focused[1:], ["shortcuts", "shortcuts"])
+
     def test_a_level_ticks_its_share_and_ticking_by_hand_makes_it_custom(self):
         dialog = SettingsDialog(self.frame, self.i18n, self.frame.settings, self.manager)
         self.addCleanup(dialog.Destroy)

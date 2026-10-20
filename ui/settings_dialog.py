@@ -165,6 +165,10 @@ class SettingsDialog(wx.Dialog):
         self.SetSizer(sizer)
         self.CenterOnParent()
         self.Bind(wx.EVT_CHAR_HOOK, self.on_char_hook)
+        # Where the focus starts: the row of tabs, not the OK button Windows would put it on.
+        self.start_focus = notebook
+        # Once the window is up: before that, showing it moves the focus to its default button.
+        wx.CallAfter(self.focus_start)
 
         telegram_manager.load_profile(
             lambda profile, error_key: wx.CallAfter(self.on_profile_loaded, profile, error_key)
@@ -290,9 +294,14 @@ class SettingsDialog(wx.Dialog):
         self.show_shortcuts(0)
         return page
 
+    def focus_start(self):
+        if self:
+            self.start_focus.SetFocus()
+
     def show_shortcuts_page(self):
         """Open on the shortcuts, for whoever came to change one."""
         self.notebook.SetSelection(self.notebook.FindPage(self.shortcuts_page))
+        self.start_focus = self.shortcuts_list
         self.shortcuts_list.SetFocus()
 
     def shortcut_row(self, command):

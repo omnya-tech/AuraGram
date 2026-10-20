@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AuraGram user guide</title>
+<style>
+:root { --text: #1d1d1f; --muted: #555; --bg: #fdfcf9; --line: #ddd8cc; --key: #efe9dc; --link: #0b5cad; }
+@media (prefers-color-scheme: dark) {
+  :root { --text: #ecebe7; --muted: #b9b6ae; --bg: #1b1b1d; --line: #3a3934; --key: #2e2d29; --link: #7fb6f2; }
+}
+body { background: var(--bg); color: var(--text); font: 18px/1.7 "Segoe UI", Tahoma, Arial, sans-serif; margin: 0 auto; max-width: 54rem; padding: 1.5rem; }
+h1 { font-size: 1.9rem; margin-bottom: .2rem; }
+h2 { font-size: 1.45rem; margin-top: 2.6rem; border-bottom: 2px solid var(--line); padding-bottom: .3rem; }
+h3 { font-size: 1.15rem; margin-top: 1.7rem; }
+p.lead { color: var(--muted); }
+a { color: var(--link); }
+kbd { background: var(--key); border: 1px solid var(--line); border-radius: 4px; padding: 0 .35rem; font-family: inherit; white-space: nowrap; }
+.none { color: var(--muted); font-style: italic; }
+nav ol { columns: 2; }
+li { margin: .3rem 0; }
+.tip { border-inline-start: 4px solid var(--link); padding: .3rem .9rem; margin: 1rem 0; }
+.warn { border-inline-start: 4px solid #b5651d; padding: .3rem .9rem; margin: 1rem 0; }
+</style>
+</head>
+<body>
+<h1>AuraGram user guide</h1>
+<p class="lead">Version {{VERSION}}.</p>
+<p class="tip"><b>About the shortcuts in this guide:</b> every shortcut written here is the one the app comes with. You can change, remove or set back any of them in the settings, on the Shortcuts tab. If you have changed some, the shortcuts guide ({{MENU_SHORTCUTS}} unless you changed it) lists yours as they are now.</p>
+
+<nav aria-label="Contents">
+<h2 id="toc">Contents</h2>
+<ol>
+<li><a href="#about">What AuraGram is, and who it is for</a></li>
+<li><a href="#start">Installing and signing in</a></li>
+<li><a href="#window">The main window and moving around</a></li>
+<li><a href="#chats">The chat list</a></li>
+<li><a href="#reading">Reading messages</a></li>
+<li><a href="#writing">Writing and sending</a></li>
+<li><a href="#actions">What you can do with a message</a></li>
+<li><a href="#voice">Voice messages and files</a></li>
+<li><a href="#downloads">The download manager</a></li>
+<li><a href="#search">Searching</a></li>
+<li><a href="#channels">Channels, groups, topics and stories</a></li>
+<li><a href="#bots">Bots</a></li>
+<li><a href="#admin">Running channels and groups</a></li>
+<li><a href="#tools">Handy tools</a></li>
+<li><a href="#accounts">Accounts</a></li>
+<li><a href="#settings">Settings</a></li>
+<li><a href="#access">Accessibility and what the app says</a></li>
+<li><a href="#sighted">For sighted users: the mouse and buttons</a></li>
+<li><a href="#help">Help, updates and reporting a problem</a></li>
+<li><a href="#problems">If something goes wrong</a></li>
+</ol>
+</nav>
+
+<h2 id="about">What AuraGram is, and who it is for</h2>
+<p>AuraGram is a Telegram app for Windows, made first for people who use a screen reader, and fine too for those who see the screen and use a mouse. It has most of what Telegram's own apps do: chats, channels, groups, files, voice messages, administration and bots; and some things they do not, like a download manager, picture descriptions and message reminders.</p>
+<p>Three rules run through all of it:</p>
+<ul>
+<li><b>Everything from the keyboard.</b> No command needs the mouse. Every command has a place in the menus and a shortcut.</li>
+<li><b>You decide what is said.</b> The app tells you what happens, but how much it talks is your choice, from "everything" to "only what you must hear".</li>
+<li><b>No surprises.</b> What cannot be undone (deleting, leaving, clearing history) asks before it happens, and sits last in its menu, away from the rest.</li>
+</ul>
+<p>It has been tried with the NVDA screen reader. It is free, open-source software under the GNU GPL version 3.</p>
+
+<h2 id="start">Installing and signing in</h2>
+<h3>Installing</h3>
+<ol>
+<li>Run the installer. It first asks the app's language: Arabic or English. You can change it later in the settings.</li>
+<li>The app is installed for every user of the computer, and each user's data (account and settings) is kept in their own folder.</li>
+<li>At the end you may start the app straight away. The installer also adds AuraGram to File Explorer's Send to menu.</li>
+</ol>
+<p>To remove it: from the Start menu or Windows Settings. Removing asks whether your account data and settings go too, or stay.</p>
+
+<h3>Signing in, step by step</h3>
+<ol>
+<li><b>Country:</b> the first thing is the Country list. Usually your country is already chosen, from Windows' settings, with its code written in the number field. If not, move through the list with the arrows, or type the first letters of the country's name.</li>
+<li><b>Phone number:</b> Tab to the number field and type your number. Any of three ways is right:
+  <ul>
+  <li>The code is already there, and you type the rest after it.</li>
+  <li>You type the whole number with its code, like <code>+447700900123</code> or <code>00447700900123</code>; the country is chosen by itself and the screen reader says its name.</li>
+  <li>You type it the way you dial at home, like <code>07700900123</code>, then choose the country; the app puts the code in front and drops the 0.</li>
+  </ul>
+</li>
+<li>Press Enter, or the Send button.</li>
+<li><b>The code:</b> Telegram sends a code, usually five digits, most often inside the Telegram app on your phone (not by SMS); the app tells you where it went. Type it in its field, and it is sent as soon as the last digit is in, with no need for Enter.</li>
+<li>If it does not come: the button "I did not get the code: try another way" asks for it by SMS, then by a voice call where Telegram allows.</li>
+<li><b>Password:</b> with two-step verification on, the app asks for its password after the code.</li>
+</ol>
+<p class="tip">Where Telegram is blocked and the app cannot reach it, the "Proxy settings" button in the sign-in window lets you set a SOCKS5 or Telegram (MTProto) proxy first. You can paste the proxy's link and its details are filled in.</p>
+
+<h3>The first time the main window opens</h3>
+<p>The app asks: "How much should the app say as you use the keys?", offering three levels:</p>
+<ul>
+<li><b>Beginner:</b> nearly everything: what each key did, where you are, how many a list holds, and hints. Good for someone new to the app or to a screen reader.</li>
+<li><b>Intermediate:</b> the outcome of what you do, what cannot be done, and the connection.</li>
+<li><b>Advanced:</b> only what you must hear: what cannot be done, the end of what you asked for, and the connection.</li>
+</ul>
+<p>Choose what suits you; you can change it any time. Details in <a href="#access">Accessibility</a>.</p>
+
+<h3>The app works in the background</h3>
+<ul>
+<li>Closing the window with Alt+F4 does not end the app: it disappears and keeps running beside the clock, so messages and their notifications still come, and it tells you the shortcut that brings it back.</li>
+<li>From any other program, {{SHORTCUT_SHOW_WINDOW}} brings AuraGram forward. Opening it from the desktop icon while it runs in the background shows it at once.</li>
+<li>The app's icon beside the clock tells the connection state (connecting, online, offline), and its menu opens the app or quits it.</li>
+<li>To really quit: {{MENU_EXIT}}.</li>
+<li>Running in the background can be turned off in the settings, so closing the window quits.</li>
+</ul>
+
+<h2 id="window">The main window and moving around</h2>
+<h3>One screen at a time</h3>
+<p>The window shows one thing: either the <b>chat list</b>, or the <b>chat</b> you went into. That keeps moving around short and clear:</p>
+<ul>
+<li>Enter on a chat goes into it, onto the first message you have not read.</li>
+<li>Escape in a chat takes you back to the chat list, onto the chat you were in. What you typed and did not send stays as a draft for when you come back.</li>
+<li>The window's title carries the open chat's name and, in private chats, the other person's status (online, last seen).</li>
+</ul>
+<h3>Going straight somewhere</h3>
+<ul>
+<li>{{MENU_GO_CHATS}}: to the chat list.</li>
+<li>{{MENU_GO_MESSAGES}}: to the messages.</li>
+<li>{{MENU_GO_INPUT}}: to the writing field.</li>
+</ul>
+<h3>The Tab key</h3>
+<p>In a chat, Tab goes between the message list, the writing field, the Attach button, the Record button and the Search button. On purpose it passes by the view tabs, the rows of mouse buttons and the Send button (Enter sends), to keep the way short. To have Tab stop at everything, turn off "Short Tab navigation" on the Accessibility tab.</p>
+<h3>Menus</h3>
+<ul>
+<li><b>The menu bar</b> opens with Alt: File, Chats, View, Go, Search, Help. Each command shows its shortcut.</li>
+<li><b>The menu of what you are on</b> opens with the Applications key or Shift+F10: a chat in the chat list, a message, or the writing field. It offers only what works there.</li>
+<li>Message commands and send commands are not in the menu bar, to keep it short, but in the message's menu and the writing field's menu. Their shortcuts still work anywhere in the window.</li>
+<li>Submenus (like Send and More) open with the arrow pointing their way, and close with the other arrow or Escape.</li>
+</ul>
+<h3>Typing to move in any list</h3>
+<p>In any list in the app (chats, messages, members, settings...) type the first letter of a name to go to the first that starts with it, and type it again for the next. Type several letters quickly to reach a particular word.</p>
+
+<h2 id="chats">The chat list</h2>
+<h3>What each row says</h3>
+<p>In order: the chat's name, then whether it is a channel or a group (this can go before the name, or be left out, in the settings), then "unread" and how many, "pinned" and "muted" where so, then its latest message in full with who wrote it. When someone is typing or recording a voice message there, it shows on its row straight away.</p>
+<h3>Tabs</h3>
+<p>Above the list is a row of tabs:</p>
+<ul>
+<li><b>All:</b> every chat except archived ones.</li>
+<li><b>Unread:</b> only those with messages you have not read.</li>
+<li><b>Archive:</b> what you archived.</li>
+<li><b>Channels</b> and <b>Groups</b>.</li>
+<li><b>Favourites:</b> what you put there yourself, archived or not.</li>
+<li><b>Contacts:</b> all your contacts, written to before or not, those online now first, each one's status on their row.</li>
+<li>Then a tab for each of your Telegram <b>folders</b>.</li>
+</ul>
+<p>To move between them: left and right in the chat list, or {{MENU_NEXT_VIEW}} and {{MENU_PREVIOUS_VIEW}} from anywhere. The app says the tab's name and how many it holds.</p>
+<h3>A chat's menu</h3>
+<p>The Applications key on any chat opens its menu. In order:</p>
+<ul>
+<li><b>Open the chat.</b></li>
+<li><b>Send:</b> a submenu opened with the arrow: one or more files, a sticker, a contact, a location, a poll. The app opens the chat, then starts sending to it, so you see what went. Offered only in chats you can write in.</li>
+<li><b>Mark read or unread</b> ({{MENU_CHAT_READ}}): "unread" is a mark you set to come back to it later.</li>
+<li><b>Pin at the top</b> or unpin ({{MENU_CHAT_PIN}}).</li>
+<li><b>Add to favourites</b> or remove ({{MENU_CHAT_FAVORITE}}). Favourites are kept on this computer, not on Telegram, and travel with <a href="#settings">a copy of the settings</a>.</li>
+<li><b>Mute</b> for an hour, 8 hours, two days, or for good, or unmute ({{MENU_CHAT_MUTE}}).</li>
+<li><b>Archive</b> or bring back from the archive ({{MENU_CHAT_ARCHIVE}}).</li>
+<li><b>Information</b> about the chat, channel or group ({{MENU_CHAT_INFO}}): to read only, see <a href="#channels">Channels and groups</a>.</li>
+<li><b>Copy the invite link</b> of a channel or group ({{MENU_COPY_INVITE}}).</li>
+<li><b>Join</b> a channel or group you are only looking at ({{MENU_CHAT_JOIN}}).</li>
+<li>For people: <b>add to contacts</b> or delete ({{MENU_CHAT_CONTACT}}), and <b>block</b> or unblock ({{MENU_CHAT_BLOCK}}).</li>
+<li><b>Manage</b> ({{MENU_CHAT_MANAGE}}): offered only to a channel's or group's owner and admins. See <a href="#admin">Running channels and groups</a>.</li>
+<li><b>Clear history</b> ({{MENU_CHAT_CLEAR}}), then <b>leave</b> or <b>delete the chat</b> ({{MENU_CHAT_LEAVE}}). Both ask first, since neither can be undone.</li>
+</ul>
+<h3>Other chat commands (the Chats menu)</h3>
+<ul>
+<li><b>A new chat with a contact</b> ({{MENU_NEW_CHAT}}): your contacts in a list you can search by name.</li>
+<li><b>Find a chat</b> by a username like <code>@name</code>, a phone number, a t.me link or an invite link ({{MENU_FIND_CHAT}}). An invite link asks before joining.</li>
+<li><b>Saved messages</b> ({{MENU_SAVED}}): your chat with yourself.</li>
+<li><b>A new group</b> ({{MENU_NEW_GROUP}}) or <b>channel</b> ({{MENU_NEW_CHANNEL}}): asks its name, then an optional description, then opens it and says "The group ... was created" or "The channel ... was created".</li>
+<li><b>Add a contact by phone number</b> ({{MENU_ADD_CONTACT}}), and the <b>blocked list</b> to unblock anyone ({{MENU_BLOCKED}}).</li>
+<li><b>Folders</b> ({{MENU_FOLDERS}}): make one, name it, choose the kinds of chats in it or particular chats; change or delete it.</li>
+<li><b>Mark every chat read</b> ({{MENU_MARK_ALL_READ}}).</li>
+<li><b>The next chat with unread messages</b> ({{MENU_NEXT_UNREAD}}): opens it straight away.</li>
+<li><b>Reminders</b> ({{MENU_REMINDERS}}): see <a href="#tools">Handy tools</a>.</li>
+</ul>
+<p>The app shows the first page of your chats quickly; the last row, "Load more chats", fetches the next page with Enter and says how many came.</p>
+
+<h2 id="reading">Reading messages</h2>
+<h3>Moving between messages</h3>
+<ul>
+<li>Up and down go message by message; Home and End to the first and last shown.</li>
+<li>The first row, "Load older messages", fetches older ones with Enter without losing your place.</li>
+<li>Below the message list, the Selected message box shows the message in full, with its lines. If you do not need it, hide it in the settings.</li>
+<li>Read a message in full in a text window, line by line and word by word, and copy from it: {{MENU_READ_MESSAGE}}.</li>
+</ul>
+<h3>What a message's row says</h3>
+<ul>
+<li>The sender, then the text, then the time (its form can be changed or left out in the settings).</li>
+<li>With a file: its kind (photo, video, voice message, document...), name, size and length.</li>
+<li>"Forwarded from" and from where, "edited" if it was, the view count in channels, and reactions.</li>
+<li>On yours: "read" or "not read yet".</li>
+<li>Buttons a bot put under its message are read with it.</li>
+<li>Telegram's own messages are put in words: "joined", "left", "added so-and-so", "pinned a message", "changed the group's name", "started a voice chat".</li>
+</ul>
+<h3>Channels</h3>
+<ul>
+<li>Posts are not each led by the channel's name, so you hear the post straight away.</li>
+<li>Right arrow on a post says its statistics once: views, comments, forwards and reactions ({{MENU_MESSAGE_STATS}} does the same).</li>
+<li>Left arrow on a post opens its comments ({{MENU_COMMENTS}}).</li>
+</ul>
+<h3>Moving within a chat</h3>
+<ul>
+<li>To a date you type ({{MENU_GO_TO_DATE}}).</li>
+<li>To the message the selected one replies to ({{MENU_GO_TO_REPLY}}).</li>
+</ul>
+<h3>Views of a chat</h3>
+<p>Each shows one part of the chat on its own; Escape goes back to the whole chat:</p>
+<ul>
+<li>Pinned messages {{MESSAGE_VIEW_PINNED}}, scheduled ones {{MESSAGE_VIEW_SCHEDULED}}.</li>
+<li>Photos and videos {{MESSAGE_VIEW_PHOTOS}}, files {{MESSAGE_VIEW_FILES}}, voice messages {{MESSAGE_VIEW_VOICE}}, music {{MESSAGE_VIEW_MUSIC}}, links {{MESSAGE_VIEW_LINKS}}.</li>
+<li>Messages that mention you {{MESSAGE_VIEW_MENTIONS}}.</li>
+</ul>
+<h3>New messages</h3>
+<ul>
+<li>A new message comes with a tone, and the screen reader says it wherever you are, even with the app in the background. What is said of it, and when, is chosen on the Accessibility tab.</li>
+<li>The open chat is marked read when you open it (this can be turned off in the settings).</li>
+<li>Each chat can have a tone of its own, so you know where a message came from without looking ({{MENU_CHAT_TONE}}).</li>
+</ul>
+
+<h2 id="writing">Writing and sending</h2>
+<h3>Writing</h3>
+<ul>
+<li>Type in the writing field, then Enter to send and Shift+Enter for a new line. You can turn that round in the settings, so Enter is a new line and Ctrl+Enter sends.</li>
+<li>What you type and do not send is kept as a draft for each chat, reaches your other devices, and what you typed on another device arrives here.</li>
+<li>The other side sees "typing" while you type.</li>
+<li>Ctrl+V pastes text, and if what was copied is a picture or files, sends them.</li>
+</ul>
+<h3>Replying and editing</h3>
+<ul>
+<li>To reply: stand on the message and press {{MENU_REPLY}}; the focus goes to the writing field and it says "replying to...". Type and send. Escape cancels the reply.</li>
+<li>To edit: stand on your message and press {{MENU_EDIT}}; its text comes into the writing field. Change it and send.</li>
+</ul>
+<h3>The send menu</h3>
+<p>The Applications key (or a right click) in the writing field opens every way of sending with its shortcut, then Cut, Copy, Paste and Select all. The Attach button beside the field offers just what is attached to a message.</p>
+<ul>
+<li><b>One or more files</b> ({{MENU_SEND_FILE}}): choose one or several; the app tells each file's name, kind and size, asks for a caption to go with them, and for pictures or videos whether they go as an album or as files. While they go up, a row at the end of the chat says how much is up, and which file of how many.</li>
+<li><b>A voice message</b> ({{MENU_RECORD}}): once to start recording, once to stop and send. Cancel stops it without sending.</li>
+<li><b>A sticker</b> ({{MENU_SEND_STICKER}}): choose a set, then the sticker; each is read by the emoji it stands for.</li>
+<li><b>A contact</b> ({{MENU_SEND_CONTACT}}) from your contacts.</li>
+<li><b>A location</b> ({{MENU_SEND_LOCATION}}): type the latitude and longitude with a comma between, like <code>51.50, -0.12</code>.</li>
+<li><b>A poll</b> ({{MENU_NEW_POLL}}): the question, then the options one by one, then whether more than one answer may be chosen.</li>
+<li><b>Send without a sound</b> ({{MENU_SEND_SILENT}}): it arrives without ringing for the receiver.</li>
+<li><b>Schedule</b> ({{MENU_SCHEDULE}}): choose a time and it is sent then by itself. Scheduled messages are in their view ({{MESSAGE_VIEW_SCHEDULED}}), to cancel if you wish.</li>
+<li><b>Mention a member</b> of a group ({{MENU_MENTION}}): choose the member and their name is written in.</li>
+<li><b>Write as your channel</b> in a group ({{MENU_SEND_AS}}).</li>
+<li><b>Bot commands</b>: see <a href="#bots">Bots</a>.</li>
+<li><b>Stop files going up</b> ({{MENU_CANCEL_UPLOAD}}), or Enter on their row.</li>
+</ul>
+<h3>Sending files from File Explorer</h3>
+<ol>
+<li>Select one or more files in File Explorer.</li>
+<li>The Applications key or a right click, then Send to, then AuraGram.</li>
+<li>A list of your chats comes up, with search by name: choose one or more, then OK.</li>
+</ol>
+<p>It works with the app closed or in the background; it opens and sends.</p>
+
+<h2 id="actions">What you can do with a message</h2>
+<p>The Applications key on a message opens its menu, in an order close to Telegram's apps. It offers only what works on this message: no Edit on someone else's, no Open on a message without a file. Commands used less are in a More submenu opened with the arrow. Each has a shortcut that works anywhere in the chat.</p>
+<h3>The main commands</h3>
+<ul>
+<li><b>The buttons</b> under a bot's message ({{MENU_BUTTONS}}).</li>
+<li><b>Vote</b> in a poll: Enter on it.</li>
+<li><b>React</b> ({{MENU_REACT}}): the reactions the chat allows; choosing yours again takes it off.</li>
+<li><b>Reply</b> ({{MENU_REPLY}}) and <b>edit</b> ({{MENU_EDIT}}).</li>
+<li><b>Pin</b> in the chat or unpin ({{MENU_PIN}}).</li>
+<li><b>Write privately to its sender</b> ({{MENU_MESSAGE_SENDER}}).</li>
+<li><b>Forward</b> ({{MENU_FORWARD}}): to one or more chats at once, from a list you can search by name.</li>
+<li><b>Copy the text</b> ({{MENU_COPY}}), and <b>copy the message's link</b> in public channels and groups ({{MENU_COPY_LINK}}).</li>
+<li><b>Go to the message replied to</b> ({{MENU_GO_TO_REPLY}}).</li>
+<li><b>Open a link</b> in it ({{MENU_OPEN_LINK}}): with several, choose one. t.me links open inside the app.</li>
+<li>A post's <b>comments</b> ({{MENU_COMMENTS}}) and <b>statistics</b> ({{MENU_MESSAGE_STATS}}).</li>
+<li><b>Open the file</b> or picture ({{MENU_OPEN_MEDIA}}), and <b>save it to a folder you choose</b> ({{MENU_SAVE_AS}}).</li>
+<li><b>Describe the picture</b> with AI ({{MENU_DESCRIBE_IMAGE}}): a description of the picture and the text in it. It needs your own Gemini key in the settings, and no picture goes to Google unless you ask for it to be described.</li>
+<li><b>Read the message in full</b> in a window ({{MENU_READ_MESSAGE}}).</li>
+<li><b>Mark the message</b> or unmark it ({{MENU_MARK}}).</li>
+<li><b>Delete</b> ({{MENU_DELETE}}): asks whether for everyone or just for you.</li>
+</ul>
+<h3>Under More</h3>
+<ul>
+<li><b>Translate</b> into the app's language ({{MENU_TRANSLATE}}).</li>
+<li><b>Who read it and who reacted</b>, for your messages in groups ({{MENU_AUDIENCE}}).</li>
+<li><b>Change the playback speed</b> ({{MENU_VOICE_SPEED}}).</li>
+<li><b>Remind me of it</b> ({{MENU_REMIND}}).</li>
+<li><b>Unmark all messages</b> ({{MENU_UNMARK_ALL}}).</li>
+<li><b>Report it</b>, for others' messages ({{MENU_REPORT}}): Telegram asks the reason step by step.</li>
+</ul>
+<h3>Several messages at once</h3>
+<ol>
+<li>On each message you want, press {{MENU_MARK}}; the app says how many are marked and writes "marked" on its row.</li>
+<li>Deleting, forwarding or copying then works on all those marked.</li>
+<li>{{MENU_UNMARK_ALL}} unmarks them all, as does Escape.</li>
+</ol>
+
+<h2 id="voice">Voice messages and files</h2>
+<h3>Listening</h3>
+<ul>
+<li><b>Space</b> on a voice message or song plays it straight from Telegram without saving any file on your computer, and Space again stops it. Heard once, it plays again at once.</li>
+<li><b>Enter</b> on a voice message saves it to the downloads folder.</li>
+<li>Playback speed steps through its settings each time you press {{MENU_VOICE_SPEED}}, from the next message played.</li>
+</ul>
+<h3>Files and pictures</h3>
+<ul>
+<li>Enter on a file, picture or video downloads it and opens it with the usual program on your computer, with a progress bar while it comes.</li>
+<li>Save to a folder you choose: {{MENU_SAVE_AS}}. Open the downloads folder: {{MENU_OPEN_DOWNLOADS}}.</li>
+</ul>
+<h3>The microphone</h3>
+<p>The Microphone tab of the settings: which microphone if you have more than one, the recording level in ten steps from 25% to 500% or Automatic, four steps of noise reduction, and a Test button that records four seconds and plays them back with these settings before you save.</p>
+<p class="tip">If whoever listens says you are too quiet or too loud, raise or lower the recording level here and try again.</p>
+
+<h2 id="downloads">The download manager</h2>
+<p>To download many files of a chat or channel at once:</p>
+<ol>
+<li>Open the chat, or stand on it in the list, then {{MENU_DOWNLOAD_FILES}}.</li>
+<li>A list of every file in the chat comes up, each with its name, kind and size. Tick what you want with Space, or the Select all button; the app says how many are ticked.</li>
+<li>OK, and they come down one after another into a folder named after the chat inside the downloads folder, while you carry on.</li>
+</ol>
+<ul>
+<li>Where it has got to: {{MENU_DOWNLOAD_STATUS}} says which file of how many, its name, and how much of it is down.</li>
+<li>Stop what is left: {{MENU_CANCEL_DOWNLOADS}}.</li>
+<li>When done, a tone and a word saying how many came and how many could not.</li>
+</ul>
+<p>The Download manager tab of the settings: the downloads folder, a folder per chat or not, skipping files downloaded before, saying each file's name as it is done, the tone when all are done, ticking every file by itself when the list opens, and which kinds of files are listed.</p>
+
+<h2 id="search">Searching</h2>
+<h3>Within the app</h3>
+<ul>
+<li><b>Find in the list shown</b> ({{MENU_FIND}}): in the chat list it looks in names; in a chat, in the messages shown. The next: {{MENU_FIND_NEXT}}.</li>
+<li><b>Search all of the open chat's messages</b> on Telegram ({{MENU_SEARCH_MESSAGES}}): the results fill the list, and Escape goes back.</li>
+<li><b>Search every chat's messages</b> ({{MENU_SEARCH_ALL}}): each result with its chat's name; Enter opens it at that message.</li>
+</ul>
+<h3>Searching all of Telegram</h3>
+<p>{{MENU_GLOBAL_SEARCH}} opens a search window of its own, for channels, groups, people and bots you are not part of:</p>
+<ul>
+<li>Type what you look for and press Enter. Names need not be exact: it searches word by word and by first letters, and puts the closest first.</li>
+<li>Each result tells its kind, username and number of members.</li>
+<li>The Kind list narrows the results to channels, groups, people or bots, before searching or after.</li>
+<li>Buttons: Open, Join, and Show more for more results.</li>
+<li>Escape in a result you opened goes back to the results as they were, and Escape again closes the search.</li>
+</ul>
+<p>A channel or group opened from a search or a link without joining: the app says you are looking at it and how to join ({{MENU_CHAT_JOIN}}). Unless you join, it leaves your list once you leave it.</p>
+
+<h2 id="channels">Channels, groups, topics and stories</h2>
+<h3>The information window</h3>
+<p>{{MENU_CHAT_INFO}} shows, to read only: the kind of chat, its username, description, number of members, what you may do there, its invite link with a button to copy it, and the members with search by name. Each member is listed with their name, role (owner, admin) and status (online, last seen, bot). In private chats: the person's number if shown, and the groups you share.</p>
+<h3>Topics</h3>
+<p>Some groups are split into topics. {{MENU_TOPICS}} lists them, Enter opens one. All you do in a chat you do in a topic: read, reply, react, send files, voice and polls, and new messages show there as they come. Escape goes back to the group.</p>
+<h3>Comments on channel posts</h3>
+<p>Left arrow on a post, or {{MENU_COMMENTS}}, opens its comments as a chat: write, reply and react there. Escape goes back to the channel, at that post.</p>
+<h3>Stories</h3>
+<ul>
+<li>{{MENU_STORIES}} shows the stories of those you follow: choose the person, then the story, and it opens and counts as seen.</li>
+<li>{{MENU_POST_STORY}} posts a picture as a story: choose the picture, write a caption if you like, then who sees it: everyone, your contacts only, or close friends only. It stays up for 24 hours.</li>
+</ul>
+
+<h2 id="bots">Bots</h2>
+<h3>Starting a bot</h3>
+<ul>
+<li>When you first open a bot, its chat is empty but for one row: "Start the bot (Enter)". Press Enter on it, or {{MENU_BOT_START}}.</li>
+<li>Some bot links carry something after <code>?start=</code> (a referral, say). Opening such a link starts the bot with what it carries, so the bot knows where you came from.</li>
+</ul>
+<h3>Bot commands</h3>
+<ul>
+<li>{{MENU_BOT_COMMANDS}}, or a lone <code>/</code> in the writing field of a bot's chat, lists all its commands with what each does, like "/help: What I can do". Choose one and it is sent, leaving what you were typing as it was.</li>
+<li>In groups, the commands of the bots there are listed, each with its bot's name.</li>
+</ul>
+<h3>Bot buttons</h3>
+<ul>
+<li>One message's buttons: stand on it and press Enter or {{MENU_BUTTONS}}, then choose the button. If the bot answers with a short notice, it is said to you.</li>
+<li>The latest buttons the bot sent, from anywhere in the chat without looking for their message: {{MENU_BOT_KEYBOARD}}.</li>
+<li>A button that opens a link shows the link first, and opens it only if you agree.</li>
+<li>A "share my number" button asks before sending your number to the bot; a "share my location" button asks you to type the coordinates.</li>
+</ul>
+<h3>Inline bots</h3>
+<p>Some bots work from any chat without being opened, like <code>@gif</code> for animations:</p>
+<ol>
+<li>In any chat, type the bot's name and what you look for, like <code>@gif cats</code>.</li>
+<li>Press Enter. A list of what the bot found comes up, each result with its title and description, or its kind and number if it is a picture without a title.</li>
+<li>Choose one and it is sent in the chat. Close the list instead and what you typed stays, to change and search again.</li>
+</ol>
+<p>If the name after @ is no such bot (a person's, say), your message is sent as you typed it.</p>
+
+<h2 id="admin">Running channels and groups</h2>
+<p>Managing a chat ({{MENU_CHAT_MANAGE}}, or from the chat's menu) is offered only to the owner and admins, and offers only what your rights allow.</p>
+<h3>The management window</h3>
+<ul>
+<li>Change the name and description and save them.</li>
+<li><b>The member list</b>, with search by name, each member with role and status. The list above it switches to the banned or to join requests.</li>
+<li><b>The Applications key on a member</b> offers what can be done: remove, ban or unban, keep from writing or let write again, restrict to the permissions and for the time you choose, make an admin with chosen rights and a title, change an admin's title, dismiss as admin, or delete all their messages. Whatever cannot be undone asks first.</li>
+<li><b>Join requests:</b> approve or decline each, or the "Approve all requests" and "Decline all requests" buttons.</li>
+<li><b>Invite links:</b> all yours, with how many joined by each. Make a new one with a name, with or without approval, for a time, with a limit of joiners. Copy one, revoke it; "Who joined with this link" shows who joined and who waits; "Delete revoked links" clears them all.</li>
+<li><b>Members' permissions:</b> what every member may do: send text, photos, videos, round videos, audio, voice messages, files, stickers, GIFs, link previews, polls; add members; pin; change information; manage topics.</li>
+<li><b>The admin log</b> for the last 48 hours: who did what and when. Narrow it by kind of event and by admin; a deleted message's text shows in it. What anti-spam deleted by mistake has a "Not spam" button.</li>
+</ul>
+<h3>Manage settings</h3>
+<p>The "Manage settings" button in the management window opens what belongs to the channel or group itself, showing only what its kind has:</p>
+<ul>
+<li>A public username (so people can find it), auto-deleting messages after a time, protecting content from saving and forwarding, which reactions are allowed (all, none, or ones you choose).</li>
+<li>For groups: slow mode, hiding old messages from new members, only members may write, approving joins, splitting into topics, anti-spam, hiding the member list.</li>
+<li>For channels: signing posts with their author's name and showing their account, automatic translation for subscribers who read other languages, a discussion group for comments.</li>
+<li>The colour of the chat's name and of its profile.</li>
+<li>Buttons: change the picture, add members from your contacts, statistics, manage topics (create, rename, close, pin, delete), the group's sticker set and emoji pack, boosts and their link, transfer ownership, and delete the chat for everyone.</li>
+</ul>
+<p class="warn">Some features (colours, the emoji pack, automatic translation) need a certain boost level. Without it, Telegram refuses and the app says why. Transferring ownership and deleting for everyone ask for extra confirmation; deleting asks you to type the chat's name.</p>
+
+<h2 id="tools">Handy tools</h2>
+<h3>Reminders</h3>
+<ol>
+<li>Stand on a message and press {{MENU_REMIND}}.</li>
+<li>Choose: in a quarter of an hour, an hour, three hours, tomorrow morning, or a time you type.</li>
+<li>When it comes, the app says the message and offers to open it. One due while the app was closed comes when it opens.</li>
+</ol>
+<p>The reminders list ({{MENU_REMINDERS}}) shows them all with their times, and deletes any of them.</p>
+<h3>More tools</h3>
+<ul>
+<li><b>A tone for each chat</b> ({{MENU_CHAT_TONE}}): a sound file from your computer, or back to the usual tone.</li>
+<li><b>Save a whole chat</b> to a text file in the downloads folder, oldest first ({{MENU_EXPORT_CHAT}}).</li>
+<li><b>The connection</b> to Telegram ({{MENU_CONNECTION}}). The app reconnects by itself when it drops, and tells you when it drops and when it is back.</li>
+</ul>
+
+<h2 id="accounts">Accounts</h2>
+<h3>More than one account</h3>
+<ol>
+<li>{{MENU_ACCOUNTS}} lists your accounts on this computer, each with its name and number, the one in use marked "the account in use".</li>
+<li>Choose one to go to it: the app closes this one without signing out and opens the other, saying "The account in use is now ...".</li>
+<li>Or choose "Add another account", and the sign-in window comes up for a new number. Close it without finishing and you are back on the account you were on.</li>
+</ol>
+<p class="warn">One account runs at a time: the others' messages arrive only once you go to them.</p>
+<p>Signing out ({{MENU_LOGOUT}}) signs out of the account in use: with other accounts here the app goes on to the next of them, otherwise back to the sign-in window.</p>
+<h3>Account settings</h3>
+<p>Some tabs of the settings are about your account on Telegram itself, so they change on all your devices:</p>
+<ul>
+<li><b>Telegram account:</b> first and last name, bio, username; your picture, changed or deleted; two-step verification (turning it on, its password and recovery email); changing your phone number; notification settings for private chats, groups and channels; and deleting the account for good after three confirmations.</li>
+<li><b>Privacy:</b> who sees your last seen, your number, your picture; who may add you to groups, call you, and link your forwarded messages to your account.</li>
+<li><b>Connected devices:</b> every device signed in to your account, and ending any of their sessions.</li>
+</ul>
+
+<h2 id="settings">Settings</h2>
+<p>{{MENU_SETTINGS}} opens the settings on their row of tabs. Move between tabs with left and right, go into one with Tab; OK saves and Cancel leaves everything as it was.</p>
+<h3>The App tab</h3>
+<ul>
+<li>Running in the background when the window is closed, marking a chat read when opened, looking for updates when opened.</li>
+<li>The kind of chat (group or channel) in the chat list: after the name, before it, or not said.</li>
+<li>Where a post's statistics go: before the message or after it.</li>
+<li>How times are written: in numbers, the date in words with a 24-hour or 12-hour clock, or no time.</li>
+<li>The app's language: Arabic or English, from the next start.</li>
+</ul>
+<h3>The Accessibility tab</h3>
+<p>See <a href="#access">its own part</a>.</p>
+<h3>The Shortcuts tab</h3>
+<ul>
+<li>Every command in one list, each with its name and shortcut.</li>
+<li><b>Change:</b> press the button, then the new shortcut. If another command has it, you are asked whether to move it. If another program on your computer uses it, you are told.</li>
+<li><b>Remove</b> a shortcut, the <b>default</b> for this command, and <b>all shortcuts back to their defaults</b>.</li>
+<li><b>"Look in Windows for conflicts with other programs":</b> looks through running programs, desktop and Start menu shortcuts for any that clash with AuraGram's.</li>
+<li>The global shortcut that brings the app back from anywhere is among them.</li>
+</ul>
+<h3>The Tones tab</h3>
+<p>Every tone of the app (incoming, sent, start, recording...) can be replaced with a sound file of your own, tried, and set back. How loud tones are, from full to very low, and switching each tone on or off.</p>
+<h3>The Download manager and Microphone tabs</h3>
+<p>See <a href="#downloads">The download manager</a> and <a href="#voice">Voice messages</a>.</p>
+<h3>The Connection and picture descriptions tab</h3>
+<ul>
+<li><b>The Gemini key</b> for describing pictures: a free key from Google AI Studio, pasted here; "Try the key" checks it without sending any picture.</li>
+<li><b>Proxy:</b> none, SOCKS5, or Telegram's MTProto, with its details filled in from the proxy's link.</li>
+</ul>
+<h3>A copy of the settings</h3>
+<ul>
+<li>{{MENU_EXPORT_SETTINGS}} saves all your settings to a file: shortcuts, favourites, how much is said, tones, proxy and every option. It asks whether the passwords (the Gemini key and the proxy password) go too; do not say yes if the file will be given to anyone.</li>
+<li>{{MENU_IMPORT_SETTINGS}} brings them back from the file after asking, and the changes show at once. Handy on a new computer or after reinstalling Windows.</li>
+</ul>
+
+<h2 id="access">Accessibility and what the app says</h2>
+<h3>New messages</h3>
+<ul>
+<li>Whether new messages are said.</li>
+<li>When: always, only while AuraGram's window is the active one, or only while you are in another program or AuraGram is in the background.</li>
+<li>What: the sender and the start of the message, the sender and the whole message, or the sender only.</li>
+<li>Whether saying it cuts off what the screen reader is saying at that moment.</li>
+<li>Showing it on a braille display (not yet tried, for lack of braille displays here).</li>
+</ul>
+<h3>What the app says as you use the keys</h3>
+<p>Besides messages, the app says many things as you work. They come in ten kinds, each with a box to tick or not:</p>
+<ol>
+<li><b>What is not there, or cannot be done here:</b> "no unread messages", "this message cannot be deleted".</li>
+<li><b>The end of what you asked for:</b> "file saved to...", "files sent", "downloads done", the bot's answer.</li>
+<li><b>A yes to what a key did:</b> "copied", "pinned", "deleted", "added to favourites".</li>
+<li><b>How many:</b> "Groups: 12", "5 members found".</li>
+<li><b>Where you went:</b> "left the chat", "topic opened", "moved to the message".</li>
+<li><b>Hints:</b> how to join a channel you are looking at, what the next key does.</li>
+<li><b>That something is under way:</b> "loading", "searching", "sending".</li>
+<li><b>How far it has come:</b> in a long download, now and then, like "50%".</li>
+<li><b>The connection to Telegram dropping and coming back.</b></li>
+<li><b>Who is typing or recording</b> in the open chat.</li>
+</ol>
+<h3>Your level of experience</h3>
+<p>Above the boxes, the "Your level of experience" list ticks them all at once:</p>
+<ul>
+<li><b>Beginner:</b> nine of the ten, all but how far it has come.</li>
+<li><b>Intermediate:</b> four: what cannot be done, the end of what you asked for, yeses, and the connection.</li>
+<li><b>Advanced:</b> three, only what you must hear: what cannot be done, the end of what you asked for, and the connection.</li>
+<li><b>Custom:</b> chosen by itself when you tick or untick a box by hand. If your choice matches one of the levels, the list names it again.</li>
+</ul>
+<p>And the box "Speak the app's short notices" above them all silences every one of these kinds at once.</p>
+<p class="tip">What you ask for yourself is always said, whatever the level: a post's statistics, the connection from its menu, the chat you found by searching, a reminder when it comes, and the steps of signing in.</p>
+<h3>Keyboard</h3>
+<ul>
+<li>Short Tab navigation: passes by the view tabs, the mouse buttons and the Send button.</li>
+<li>Enter sends the message, or starts a new line.</li>
+</ul>
+<h3>Vision</h3>
+<ul>
+<li>The app's colours: Windows colours, dark, warm paper, or high contrast.</li>
+<li>Larger text.</li>
+<li>Showing the Selected message box below the message list, or hiding it.</li>
+</ul>
+
+<h2 id="sighted">For sighted users: the mouse and buttons</h2>
+<ul>
+<li>Below the chat list is a row of buttons for the commands used most (new chat, global search, download files, information, settings, more), and below a chat another (reply, forward, react, play, open, comments, statistics, remind, more).</li>
+<li>Each button has a tooltip naming its shortcut, so you learn the shortcuts as you use the mouse.</li>
+<li>The More button opens the same menu as the Applications key, as does a right click in any list or in the writing field.</li>
+<li>The tabs above the chat list are clicked like buttons, and a double click on a chat opens it.</li>
+<li>The window remembers its size and place, and fits its buttons whole in Arabic and in English.</li>
+</ul>
+
+<h2 id="help">Help, updates and reporting a problem</h2>
+<ul>
+<li><b>This guide:</b> {{MENU_USER_GUIDE}}. It opens in your browser, in the language you chose for the app.</li>
+<li><b>The shortcuts guide:</b> {{MENU_SHORTCUTS}}, with your shortcuts as they are now after any change, menu by menu. Saving it to a web page or a text file: {{MENU_EXPORT_SHORTCUTS}}.</li>
+<li><b>Look for an update:</b> {{MENU_CHECK_UPDATES}}. The app also looks by itself when it opens. If there is a new version it offers the small update file, the full installer, or the release's page, and checks the file before asking whether to install it.</li>
+<li><b>A problem report for the developer:</b> {{MENU_PROBLEM_REPORT}}. Write what happened, and the app saves a file with your words, the error log and details of the computer, and opens its folder for you to send it.</li>
+<li><b>About the app</b> {{MENU_ABOUT}}, and the <b>licence and list of components</b> {{MENU_LICENSE}}.</li>
+</ul>
+
+<h2 id="problems">If something goes wrong</h2>
+<ul>
+<li><b>The app does not connect to Telegram:</b> check the internet. Where Telegram is blocked, set a proxy in the settings or in the sign-in window.</li>
+<li><b>The code does not come:</b> look in the Telegram app on your phone first, then "I did not get the code: try another way".</li>
+<li><b>Picture descriptions do not work:</b> check the Gemini key with "Try the key". If the app says the service is busy, try again in a while.</li>
+<li><b>The app talks too much, or too little:</b> change "Your level of experience" on the Accessibility tab.</li>
+<li><b>A shortcut does not work:</b> another program may hold it. "Look in Windows for conflicts with other programs" on the Shortcuts tab tells you.</li>
+<li><b>An unexpected error:</b> the app tells you so and logs it. Send us a problem report ({{MENU_PROBLEM_REPORT}}), saying what you were doing.</li>
+</ul>
+</body>
+</html>

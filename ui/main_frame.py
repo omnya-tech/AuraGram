@@ -1,7 +1,7 @@
 import os
 import threading
 import wx
-from core import audio, diagnostics, key_conflicts, shortcut_guide, shortcuts, sounds, speech, updates
+from core import audio, diagnostics, key_conflicts, shortcut_guide, shortcuts, sounds, speech, updates, user_guide
 from core.speech import speak
 from core.settings import (
     SETTING_ACCOUNTS, SETTING_CURRENT_ACCOUNT,
@@ -21,6 +21,7 @@ from ui.settings_dialog import SettingsDialog
 from core.chat_views import build_views
 from ui.text_dialog import TextDialog
 from core.constants import (
+    MENU_USER_GUIDE_KEY, GUIDE_NO_SHORTCUT_KEY, MSG_GUIDE_OPENED_KEY, ERR_GUIDE_KEY,
     MENU_ACCOUNTS_KEY, MSG_CHOOSE_ACCOUNT_KEY, ACCOUNT_ROW_FORMAT_KEY, ACCOUNT_CURRENT_FORMAT_KEY, ACCOUNT_UNNAMED_KEY,
     ACCOUNT_ADD_KEY,
     MSG_CHOOSE_SPEECH_LEVEL_KEY, MSG_SPEECH_LEVEL_SET_FORMAT_KEY, MENU_EXPORT_SETTINGS_KEY, MENU_IMPORT_SETTINGS_KEY,
@@ -667,7 +668,8 @@ class MainFrame(
                 (MENU_GLOBAL_SEARCH_KEY, self.on_global_search_menu),
             )),
             (MENU_HELP_KEY, (
-                (MENU_SHORTCUTS_KEY, self.on_shortcuts_menu, wx.ID_HELP),
+                (MENU_USER_GUIDE_KEY, self.on_user_guide_menu, wx.ID_HELP),
+                (MENU_SHORTCUTS_KEY, self.on_shortcuts_menu),
                 (MENU_EXPORT_SHORTCUTS_KEY, self.on_export_shortcuts_menu),
                 (MENU_CONNECTION_KEY, self.on_connection_menu),
                 (MENU_CHECK_UPDATES_KEY, lambda event: self.check_for_updates(quiet=False)),
@@ -912,6 +914,19 @@ class MainFrame(
         kwargs = {} if on_export is None else {"on_export": on_export}
         with TextDialog(self, self.i18n, self.i18n.get_string(title_key), text, **kwargs) as text_dialog:
             text_dialog.ShowModal()
+
+    def on_user_guide_menu(self, event):
+        """Write the guide in the user's language, with the app's own shortcuts, and open it in the browser.
+        The ones the user changed are on the shortcuts guide; this one says so."""
+        try:
+            path = user_guide.write(
+                self.settings.get(SETTING_LANGUAGE), shortcuts.defaults(), self.i18n.get_string(GUIDE_NO_SHORTCUT_KEY)
+            )
+            os.startfile(path)
+        except OSError:
+            self.show_error(ERR_GUIDE_KEY)
+            return
+        self.notify(MSG_GUIDE_OPENED_KEY)
 
     def on_shortcuts_menu(self, event):
         self.show_text(SHORTCUTS_TITLE_KEY, self.shortcuts_text(), on_export=self.export_shortcuts)
