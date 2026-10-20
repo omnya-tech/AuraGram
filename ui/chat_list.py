@@ -1,6 +1,6 @@
 import wx
 from core.speech import speak
-from core.settings import SETTING_CHAT_KIND
+from core.settings import SETTING_FAVORITES, SETTING_CHAT_KIND
 from ui.chat_picker_dialog import ChatPickerDialog
 from ui.type_ahead import attach_to_lists
 from ui.global_search_dialog import GlobalSearchDialog
@@ -9,11 +9,19 @@ from ui.chat_control_dialog import ChatControlDialog
 from core.chat_views import ARCHIVE_VIEW, build_views, contacts_first_online, is_online
 from core import shortcuts
 from core.constants import (
+    FEEDBACK_COUNT,
+    FEEDBACK_COUNT,
+    FEEDBACK_RESULT,
+    FEEDBACK_PERCENT,
+    FEEDBACK_NAVIGATION,
+    FEEDBACK_HINT,
+    FEEDBACK_COUNT,
     MSG_NOT_JOINED_FORMAT_KEY, MSG_NOT_JOINED_NO_KEY_FORMAT_KEY, DIALOG_NOT_JOINED_KEY,
     MSG_PREVIEW_REMOVED_FORMAT_KEY, MENU_CHAT_JOIN_KEY,
     CATEGORY_GROUPS, CATEGORY_BROADCASTS, CONTEXT_LEAVE_KEY, CONTEXT_DELETE_CHAT_KEY,
     MSG_CONFIRM_LEAVE_KEY, MSG_CONFIRM_DELETE_CHAT_KEY, MSG_LEFT_KEY, MSG_VIEW_COUNT_FORMAT_KEY,
-    MSG_CHOOSE_CONTACT_KEY, MSG_NO_CONTACTS_KEY, MSG_FIND_CHAT_PROMPT_KEY, CONTEXT_INFO_KEY, CONTEXT_SEND_KEY, CONTEXT_SEND_FILE_KEY,
+    MSG_CHOOSE_CONTACT_KEY, MSG_NO_CONTACTS_KEY, MSG_FIND_CHAT_PROMPT_KEY, CONTEXT_INFO_KEY, CONTEXT_ADD_FAVORITE_KEY, CONTEXT_REMOVE_FAVORITE_KEY,
+    MSG_FAVORITE_ADDED_FORMAT_KEY, MSG_FAVORITE_REMOVED_FORMAT_KEY, VIEW_FAVORITES_KEY, CONTEXT_SEND_KEY, CONTEXT_SEND_FILE_KEY,
     CONTEXT_SEND_STICKER_KEY, CONTEXT_SEND_CONTACT_KEY, CONTEXT_SEND_LOCATION_KEY, CONTEXT_SEND_POLL_KEY, CONTEXT_INFO_GROUP_KEY, CONTEXT_INFO_CHANNEL_KEY,
     CONTEXT_MANAGE_GROUP_KEY, CONTEXT_MANAGE_CHANNEL_KEY, MSG_NOT_ADMIN_KEY,
     MSG_CHAT_SAVED_KEY, CONTEXT_OPEN_KEY, CONTEXT_MARK_READ_KEY, CONTEXT_MUTE_KEY,
@@ -25,7 +33,8 @@ from core.constants import (
     MSG_CHAT_UNPINNED_KEY, MSG_ARCHIVED_KEY, MSG_UNARCHIVED_KEY, MSG_CONFIRM_CLEAR_HISTORY_KEY,
     MSG_HISTORY_CLEARED_KEY, DIALOG_FORMAT_KEY, DIALOG_PINNED_KEY, DIALOG_MARKED_UNREAD_KEY,
     DIALOG_UNREAD_COUNT_FORMAT_KEY, PREVIEW_SENDER_FORMAT_KEY,
-    MSG_NEW_CHAT_NAME_PROMPT_KEY, MSG_NEW_CHAT_ABOUT_PROMPT_KEY, MSG_CHAT_CREATED_FORMAT_KEY,
+    MSG_NEW_GROUP_NAME_PROMPT_KEY, MSG_NEW_CHANNEL_NAME_PROMPT_KEY, MSG_NEW_CHAT_ABOUT_PROMPT_KEY,
+    MSG_GROUP_CREATED_FORMAT_KEY, MSG_CHANNEL_CREATED_FORMAT_KEY,
     MSG_NO_CHAT_SELECTED_KEY, MSG_NO_UNREAD_KEY, MSG_CHOOSE_MUTE_KEY,
     CATEGORY_CONTACTS, CATEGORY_NON_CONTACTS, CONTEXT_ADD_CONTACT_KEY, CONTEXT_DELETE_CONTACT_KEY,
     CONTEXT_BLOCK_KEY, CONTEXT_JOIN_KEY, MSG_CONTACT_PHONE_PROMPT_KEY, MSG_CONTACT_NAME_PROMPT_KEY,
@@ -71,7 +80,7 @@ class ChatListMixin:
             # Asked for by the user, so its end is told wherever they are in the list by now.
             added = len(dialogs) - loaded_from
             if added > 0:
-                self.announce(self.i18n.get_string(MSG_MORE_DIALOGS_LOADED_FORMAT_KEY).format(count=added))
+                self.announce(self.i18n.get_string(MSG_MORE_DIALOGS_LOADED_FORMAT_KEY).format(count=added), FEEDBACK_COUNT)
             else:
                 self.notify(MSG_NO_MORE_DIALOGS_KEY)
 
@@ -111,7 +120,7 @@ class ChatListMixin:
         return self.views[self.view_index].is_contacts
 
     def show_folders(self, folders):
-        self.views = build_views(self.i18n, folders)
+        self.views = build_views(self.i18n, folders, self.favorites)
         self.view_tabs.Set([view.label for view in self.views])
         if self.view_index >= len(self.views):
             # The folder on show was deleted from under its view: back to every chat.
@@ -131,7 +140,7 @@ class ChatListMixin:
             return
         self.announce(self.i18n.get_string(MSG_VIEW_COUNT_FORMAT_KEY).format(
             view=self.views[self.view_index].label, count=len(self.dialogs)
-        ))
+        ), FEEDBACK_COUNT)
 
     def show_contacts(self, contacts):
         self.contacts = contacts
@@ -151,7 +160,7 @@ class ChatListMixin:
         self.announce(self.i18n.get_string(MSG_CONTACTS_COUNT_FORMAT_KEY).format(
             view=self.views[self.view_index].label, count=len(contacts),
             online=sum(1 for contact in contacts if is_online(contact))
-        ))
+        ), FEEDBACK_COUNT)
 
     def load_more_dialogs(self):
         if self.loading_more_from is not None:
@@ -174,7 +183,7 @@ class ChatListMixin:
         # a chat, and the count must not talk over it. The end is announced by itself.
         if not self or self.loading_more_from is None or percent >= 100 or not self.on_load_more_row():
             return
-        self.announce(self.i18n.get_string(MSG_MORE_DIALOGS_PROGRESS_FORMAT_KEY).format(percent=percent))
+        self.announce(self.i18n.get_string(MSG_MORE_DIALOGS_PROGRESS_FORMAT_KEY).format(percent=percent), FEEDBACK_PERCENT)
 
     def format_dialog(self, dialog):
         """One row of the chat list: name, state, then the latest message whether read or not."""
@@ -387,7 +396,7 @@ class ChatListMixin:
         self.dialogs_list.SetSelection(index)
         self.open_selected_dialog(True)
         if known.get("preview"):
-            self.announce(self.join_hint(known))
+            self.announce(self.join_hint(known), FEEDBACK_HINT)
 
     def join_hint(self, dialog):
         """How to join a group or channel only looked at, with the shortcut for it as it is now."""
@@ -458,6 +467,8 @@ class ChatListMixin:
     def on_link_resolved(self, result):
         self.set_status(STATUS_READY_KEY)
         if result["chat"] is not None:
+            if result["chat"].get("start_param"):
+                self.bot_start_params[result["chat"]["id"]] = result["chat"]["start_param"]
             self.open_chat(result["chat"])
             return
         # An invitation: opening it means joining, so ask first.
@@ -709,7 +720,7 @@ class ChatListMixin:
             return text_dialog.GetValue().strip()
 
     def create_chat(self, is_channel):
-        title = self.ask_text(MSG_NEW_CHAT_NAME_PROMPT_KEY)
+        title = self.ask_text(MSG_NEW_CHANNEL_NAME_PROMPT_KEY if is_channel else MSG_NEW_GROUP_NAME_PROMPT_KEY)
         if not title:
             return
         about = self.ask_text(MSG_NEW_CHAT_ABOUT_PROMPT_KEY)
@@ -721,7 +732,9 @@ class ChatListMixin:
 
     def on_chat_created(self, chat):
         self.open_chat(chat)
-        self.announce(self.i18n.get_string(MSG_CHAT_CREATED_FORMAT_KEY).format(title=chat["title"]))
+        # Said as Telegram made it, so a group that came out a channel would not pass unnoticed.
+        made_key = MSG_CHANNEL_CREATED_FORMAT_KEY if chat["category"] == CATEGORY_BROADCASTS else MSG_GROUP_CREATED_FORMAT_KEY
+        self.announce(self.i18n.get_string(made_key).format(title=chat["title"]), FEEDBACK_RESULT)
 
     def on_find_menu(self, event):
         # Looking for a chat is done in the list of chats.
@@ -782,6 +795,8 @@ class ChatListMixin:
             entries.append((CONTEXT_MARK_UNREAD_KEY, lambda event: self.mark_dialog_unread(dialog)))
         pin_key = CONTEXT_UNPIN_CHAT_KEY if dialog["pinned"] else CONTEXT_PIN_CHAT_KEY
         entries.append((pin_key, lambda event: self.set_chat_pinned(dialog, not dialog["pinned"])))
+        favorite_key = CONTEXT_REMOVE_FAVORITE_KEY if dialog["id"] in self.favorites else CONTEXT_ADD_FAVORITE_KEY
+        entries.append((favorite_key, lambda event: self.toggle_favorite(dialog)))
         if dialog["muted"]:
             entries.append((CONTEXT_UNMUTE_KEY, lambda event: self.set_dialog_muted(dialog, 0)))
         else:
@@ -825,6 +840,21 @@ class ChatListMixin:
         self.open_selected_dialog(True)
         # Once the menu it was picked from has closed.
         wx.CallAfter(handler, None)
+
+    def toggle_favorite(self, dialog):
+        """Put a chat among the favourites, or take it out; kept on this computer, not on Telegram."""
+        if dialog["id"] in self.favorites:
+            self.favorites.discard(dialog["id"])
+            key = MSG_FAVORITE_REMOVED_FORMAT_KEY
+        else:
+            self.favorites.add(dialog["id"])
+            key = MSG_FAVORITE_ADDED_FORMAT_KEY
+        self.settings.set(SETTING_FAVORITES, sorted(self.favorites))
+        self.settings.save()
+        if self.views[self.view_index].label == self.i18n.get_string(VIEW_FAVORITES_KEY):
+            # Taken out while looking at the favourites: it goes from the list at once.
+            self.render_dialogs()
+        self.announce(self.i18n.get_string(key).format(title=dialog["title"]))
 
     def copy_invite_link(self, dialog):
         """Put the chat's public or main invite link on the clipboard, to paste or share anywhere."""
@@ -1006,7 +1036,7 @@ class ChatListMixin:
         if dialog["id"] == self.current_dialog_id:
             self.forget_open_chat()
         self.render_dialogs()
-        self.announce(self.i18n.get_string(MSG_PREVIEW_REMOVED_FORMAT_KEY).format(title=dialog["title"]))
+        self.announce(self.i18n.get_string(MSG_PREVIEW_REMOVED_FORMAT_KEY).format(title=dialog["title"]), FEEDBACK_NAVIGATION)
 
     def on_chat_left(self, result, dialog):
         if dialog in self.all_dialogs:

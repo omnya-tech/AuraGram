@@ -1,3 +1,4 @@
+import re
 import datetime
 import os
 import tempfile
@@ -8,6 +9,12 @@ from core.settings import SETTING_SENT_SOUND
 from core.schedule import parse_send_time
 from ui.layout import file_kind, file_size
 from core.constants import (
+    INLINE_QUERY_PATTERN, MSG_NO_INLINE_RESULTS_KEY, MSG_CHOOSE_INLINE_RESULT_FORMAT_KEY, INLINE_RESULT_FORMAT_KEY,
+    INLINE_RESULT_UNTITLED_FORMAT_KEY, INLINE_KIND_KEY_PREFIX, MSG_INLINE_SENT_KEY, FEEDBACK_RESULT,
+    FEEDBACK_RESULT,
+    FEEDBACK_RESULT,
+    CATEGORY_BOTS, CATEGORY_GROUPS, MSG_NOT_A_BOT_CHAT_KEY, MSG_BOT_STARTED_KEY, MSG_CHOOSE_BOT_COMMAND_KEY,
+    BOT_COMMAND_FORMAT_KEY, MSG_NO_BOT_COMMANDS_KEY, MSG_NO_BOT_BUTTONS_KEY,
     SOUND_SENT, MSG_SHARE_TO_KEY, MSG_SHARE_BUSY_KEY, MSG_SHARE_NO_CHAT_KEY, MSG_SHARED_TO_CHATS_FORMAT_KEY,
     MSG_POLL_QUESTION_PROMPT_KEY, MSG_POLL_OPTIONS_PROMPT_KEY, MSG_POLL_SENT_KEY,
     ERR_POLL_OPTIONS_KEY, POLL_MIN_OPTIONS, POLL_MAX_OPTIONS, MSG_SCHEDULE_PROMPT_KEY,
@@ -79,6 +86,9 @@ class ComposerMixin:
         # Only for what the user types: restoring a draft or an edit also changes the field.
         if self.message_input.HasFocus():
             self.tell_typing()
+            if self.message_input.GetValue() == "/" and self.is_bot_chat():
+                # A slash on its own, to a bot: its commands, as Telegram's own apps offer them.
+                wx.CallAfter(self.on_bot_commands_menu, None)
 
     def tell_typing(self):
         # Nothing to tell when the field was just emptied, or while a message is being edited.
@@ -89,6 +99,12 @@ class ComposerMixin:
         text = self.message_input.GetValue().strip()
         if not text or self.current_dialog_id is None:
             return
+        asked = re.match(INLINE_QUERY_PATTERN, text, re.DOTALL)
+        if asked and self.editing is None and not self.inline_checked:
+            # "@name words": a bot that answers from any chat may be meant. Asked first; anyone else is a mention.
+            self.ask_inline_bot(asked.group(1), asked.group(2) or "", silent)
+            return
+        self.inline_checked = False
         self.enable_chat(False)
         self.set_status(MSG_LOADING_KEY)
         dialog_id = self.current_dialog_id
@@ -100,6 +116,53 @@ class ComposerMixin:
                 self.peer(dialog_id), text, on_result,
                 reply_to=self.reply_to["id"] if self.reply_to else self.thread_root(), silent=silent
             )
+
+    def ask_inline_bot(self, username, query, silent):
+        dialog_id = self.current_dialog_id
+        self.set_status(MSG_LOADING_KEY)
+        self.telegram_manager.inline_query(
+            self.peer(dialog_id), username, query,
+            self.on_ui_thread(lambda results: self.choose_inline_result(dialog_id, username, query, results, silent))
+        )
+
+    def choose_inline_result(self, dialog_id, username, query, results, silent):
+        self.set_status(STATUS_READY_KEY)
+        if dialog_id != self.current_dialog_id:
+            return
+        if results is None:
+            # Nobody who answers that way: the text is a message like any other, sent as it is.
+            self.inline_checked = True
+            self.on_send_message(None, silent=silent)
+            return
+        if not results:
+            self.notify(MSG_NO_INLINE_RESULTS_KEY)
+            return
+        index = self.pick(self.i18n.get_string(MSG_CHOOSE_INLINE_RESULT_FORMAT_KEY).format(bot=username, query=query), [
+            self.inline_row(number, result) for number, result in enumerate(results, 1)
+        ])
+        if index is None:
+            # Left as typed, to change the words and ask again.
+            return
+        self.enable_chat(False)
+        self.telegram_manager.send_inline_result(
+            self.peer(dialog_id), index, self.on_ui_thread(lambda result: self.on_inline_sent(dialog_id)),
+            reply_to=self.reply_to["id"] if self.reply_to else self.thread_root()
+        )
+
+    def inline_row(self, number, result):
+        text = self.i18n.get_string
+        if result["title"] and result["description"]:
+            return text(INLINE_RESULT_FORMAT_KEY).format(**result)
+        if result["title"] or result["description"]:
+            return result["title"] or result["description"]
+        # A picture or a clip with no words to it: its kind and its place in the list.
+        kind_key = INLINE_KIND_KEY_PREFIX + result["kind"]
+        kind = text(kind_key) if text(kind_key) != kind_key else text(INLINE_KIND_KEY_PREFIX + "article")
+        return text(INLINE_RESULT_UNTITLED_FORMAT_KEY).format(kind=kind, number=number)
+
+    def on_inline_sent(self, dialog_id):
+        self.on_message_sent(None, dialog_id)
+        self.announce(self.i18n.get_string(MSG_INLINE_SENT_KEY), FEEDBACK_RESULT)
 
     def on_message_sent(self, result, dialog_id, is_new=True):
         # It was sent, so it is no longer a draft, even if another chat is open by now.
@@ -127,6 +190,69 @@ class ComposerMixin:
             self.current_dialog_id is not None and not self.is_busy
             and (self.current_dialog().get("can_send", True) or self.in_comments())
         )
+
+    def is_bot_chat(self):
+        return self.current_dialog_id is not None and self.current_dialog().get("category") == CATEGORY_BOTS
+
+    def start_row_wanted(self):
+        """Whether the open chat is a bot to start: one with no messages yet, or one a start link led to."""
+        return (
+            self.is_bot_chat() and self.message_view is None and self.thread is None
+            and (not self.messages or self.current_dialog_id in self.bot_start_params)
+        )
+
+    def on_bot_start_menu(self, event):
+        if not self.is_bot_chat():
+            self.notify(MSG_NOT_A_BOT_CHAT_KEY)
+            return
+        dialog_id = self.current_dialog_id
+        self.telegram_manager.start_bot(
+            self.peer(dialog_id), self.on_ui_thread(lambda result: self.on_bot_started(dialog_id)),
+            start_param=self.bot_start_params.pop(dialog_id, None)
+        )
+
+    def on_bot_started(self, dialog_id):
+        self.lift_dialog(dialog_id)
+        self.announce(self.i18n.get_string(MSG_BOT_STARTED_KEY))
+        if dialog_id == self.current_dialog_id:
+            self.render_messages(len(self.messages) - 1)
+
+    def on_bot_commands_menu(self, event):
+        if self.current_dialog_id is None or self.current_dialog().get("category") not in (CATEGORY_BOTS, CATEGORY_GROUPS):
+            self.notify(MSG_NOT_A_BOT_CHAT_KEY)
+            return
+        self.set_status(MSG_LOADING_KEY)
+        dialog_id = self.current_dialog_id
+        self.telegram_manager.load_bot_commands(
+            self.peer(dialog_id), self.on_ui_thread(lambda commands: self.choose_bot_command(dialog_id, commands))
+        )
+
+    def choose_bot_command(self, dialog_id, commands):
+        self.set_status(STATUS_READY_KEY)
+        if dialog_id != self.current_dialog_id:
+            return
+        if not commands:
+            self.notify(MSG_NO_BOT_COMMANDS_KEY)
+            return
+        index = self.pick(self.i18n.get_string(MSG_CHOOSE_BOT_COMMAND_KEY), [
+            self.i18n.get_string(BOT_COMMAND_FORMAT_KEY).format(**command) if command["description"] else command["command"]
+            for command in commands
+        ])
+        if index is None:
+            return
+        # Sent as it is, leaving whatever is being typed where it is.
+        self.telegram_manager.send_message(
+            self.peer(dialog_id), commands[index]["command"],
+            self.on_ui_thread(lambda result: self.lift_dialog(dialog_id)), reply_to=self.thread_root()
+        )
+
+    def on_bot_keyboard_menu(self, event):
+        """The buttons of the newest message that has any, from wherever the focus is in the chat."""
+        latest = next((message for message in reversed(self.messages) if message["buttons"]), None)
+        if latest is None:
+            self.notify(MSG_NO_BOT_BUTTONS_KEY)
+            return
+        self.choose_button(latest)
 
     def on_send_file_menu(self, event):
         if not self.can_send_now():
@@ -257,7 +383,7 @@ class ComposerMixin:
         else:
             self.is_busy = False
             self.hide_progress()
-            self.announce(self.i18n.get_string(MSG_SHARED_TO_CHATS_FORMAT_KEY).format(count=len(dialog_ids)))
+            self.announce(self.i18n.get_string(MSG_SHARED_TO_CHATS_FORMAT_KEY).format(count=len(dialog_ids)), FEEDBACK_RESULT)
             # The last one written in ends up on top, as it would by hand.
             for dialog_id in dialog_ids:
                 self.refresh_after_sending(dialog_id)
@@ -324,7 +450,7 @@ class ComposerMixin:
         else:
             self.is_busy = False
             self.hide_progress()
-            self.announce(self.i18n.get_string(MSG_FILES_SENT_FORMAT_KEY).format(count=count))
+            self.announce(self.i18n.get_string(MSG_FILES_SENT_FORMAT_KEY).format(count=count), FEEDBACK_RESULT)
             self.refresh_after_sending(dialog_id)
 
     def refresh_after_sending(self, dialog_id):
@@ -423,21 +549,29 @@ class ComposerMixin:
     def on_send_location_menu(self, event):
         if not self.can_send_now():
             return
-        text = self.ask_text(MSG_LOCATION_PROMPT_KEY)
-        if not text:
+        place = self.ask_location(MSG_LOCATION_PROMPT_KEY)
+        if place is None:
             return
+        latitude, longitude = place
+        dialog_id = self.current_dialog_id
+        self.telegram_manager.send_location(
+            self.peer(dialog_id), latitude, longitude,
+            self.on_ui_thread(self.on_file_sent, dialog_id, MSG_LOCATION_SENT_KEY), reply_to=self.take_reply()
+        )
+
+    def ask_location(self, prompt_key):
+        """(latitude, longitude) as the user types them; None if cancelled or not a place on Earth."""
+        text = self.ask_text(prompt_key)
+        if not text:
+            return None
         try:
             latitude, longitude = (float(part) for part in text.replace("،", ",").split(","))
             if not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
                 raise ValueError(text)
         except ValueError:
             self.show_error(ERR_BAD_LOCATION_KEY)
-            return
-        dialog_id = self.current_dialog_id
-        self.telegram_manager.send_location(
-            self.peer(dialog_id), latitude, longitude,
-            self.on_ui_thread(self.on_file_sent, dialog_id, MSG_LOCATION_SENT_KEY), reply_to=self.take_reply()
-        )
+            return None
+        return latitude, longitude
 
     def on_post_story_menu(self, event):
         if self.is_busy:

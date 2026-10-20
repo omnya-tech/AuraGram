@@ -1,8 +1,9 @@
 import wx
 from ui.layout import prepare_window
 from ui.text_dialog import TextDialog
-from core.speech import speak
+from core.speech import speak, say
 from core.constants import (
+    FEEDBACK_CONFIRM, FEEDBACK_RESULT, FEEDBACK_UNAVAILABLE,
     APP_TITLE_KEY, MSG_LOADING_KEY, BTN_SAVE_KEY, BTN_CLOSE_KEY, ADMIN_SETTINGS_TITLE_FORMAT_KEY,
     ADMIN_SETTING_KEY_PREFIX, SETTING_USERNAME, ADMIN_SWITCHES, ADMIN_CHOICES, CHOICE_KEPT_FORMAT_KEY,
     MSG_ADMIN_SETTINGS_SAVED_KEY, MSG_NOTHING_CHANGED_KEY, BTN_CHAT_PHOTO_KEY, MSG_CHAT_PHOTO_SET_KEY,
@@ -180,12 +181,12 @@ class ChatAdminDialog(wx.Dialog):
     def on_save(self, event):
         changed = self.changes()
         if not changed:
-            speak(self.i18n.get_string(MSG_NOTHING_CHANGED_KEY))
+            say(self.i18n.get_string(MSG_NOTHING_CHANGED_KEY), FEEDBACK_UNAVAILABLE)
             return
         self.telegram_manager.save_admin_settings(self.dialog_id, changed, self.on_ui_thread(self.on_saved))
 
     def on_saved(self, result):
-        speak(self.i18n.get_string(MSG_ADMIN_SETTINGS_SAVED_KEY))
+        say(self.i18n.get_string(MSG_ADMIN_SETTINGS_SAVED_KEY), FEEDBACK_CONFIRM)
         # Read back: Telegram may have turned something else on or off along with it.
         self.load()
 
@@ -224,7 +225,7 @@ class ChatAdminDialog(wx.Dialog):
         save(self.dialog_id, set_id, self.on_ui_thread(lambda result: self.on_group_set_saved(saved_key)))
 
     def on_group_set_saved(self, saved_key):
-        speak(self.i18n.get_string(saved_key))
+        say(self.i18n.get_string(saved_key), FEEDBACK_CONFIRM)
         self.load()
 
     def on_boosts(self, event):
@@ -258,7 +259,7 @@ class ChatAdminDialog(wx.Dialog):
 
     def set_photo(self, path):
         self.telegram_manager.set_chat_photo(
-            self.dialog_id, path, self.on_ui_thread(lambda result: speak(self.i18n.get_string(MSG_CHAT_PHOTO_SET_KEY)))
+            self.dialog_id, path, self.on_ui_thread(lambda result: say(self.i18n.get_string(MSG_CHAT_PHOTO_SET_KEY), FEEDBACK_RESULT))
         )
 
     def on_add_members(self, event):
@@ -266,7 +267,7 @@ class ChatAdminDialog(wx.Dialog):
 
     def choose_members(self, contacts):
         if not contacts:
-            speak(self.i18n.get_string(MSG_NO_CONTACTS_KEY))
+            say(self.i18n.get_string(MSG_NO_CONTACTS_KEY), FEEDBACK_UNAVAILABLE)
             return
         with wx.MultiChoiceDialog(
             self, self.i18n.get_string(MSG_CHOOSE_MEMBERS_TO_ADD_KEY), self.i18n.get_string(APP_TITLE_KEY),
@@ -277,7 +278,7 @@ class ChatAdminDialog(wx.Dialog):
             chosen = [contacts[index]["id"] for index in members_dialog.GetSelections()]
         if chosen:
             self.telegram_manager.add_members(self.dialog_id, chosen, self.on_ui_thread(
-                lambda result: speak(self.i18n.get_string(MSG_MEMBERS_ADDED_FORMAT_KEY).format(count=len(chosen)))
+                lambda result: say(self.i18n.get_string(MSG_MEMBERS_ADDED_FORMAT_KEY).format(count=len(chosen)), FEEDBACK_RESULT)
             ))
 
     def choose(self, prompt, choices):
@@ -296,7 +297,7 @@ class ChatAdminDialog(wx.Dialog):
     def saved(self, message_key, reload=False):
         """A handler for "Telegram accepted it": say so, and read the settings back if they changed."""
         def handle(result):
-            speak(self.i18n.get_string(message_key))
+            say(self.i18n.get_string(message_key), FEEDBACK_CONFIRM)
             if reload:
                 self.load()
         return self.on_ui_thread(handle)
@@ -449,7 +450,7 @@ class ChatAdminDialog(wx.Dialog):
                 if name_dialog.ShowModal() == wx.ID_OK:
                     typed = name_dialog.GetValue().strip()
         if typed != self.chat_title:
-            speak(self.i18n.get_string(MSG_DELETE_CHAT_CANCELLED_KEY))
+            say(self.i18n.get_string(MSG_DELETE_CHAT_CANCELLED_KEY), FEEDBACK_CONFIRM)
             return
         self.telegram_manager.delete_chat(self.dialog_id, self.on_ui_thread(self.on_deleted))
 

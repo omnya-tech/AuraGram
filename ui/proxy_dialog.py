@@ -1,8 +1,9 @@
 import wx
 from core import proxy
-from core.speech import speak
+from core.speech import speak, say
 from ui.layout import prepare_window
 from core.constants import (
+    FEEDBACK_CONFIRM,
     APP_TITLE_KEY, PROXY_TITLE_KEY, PROXY_NOTE_KEY, PROXY_LINK_LABEL_KEY, BTN_PROXY_FILL_KEY,
     PROXY_TYPE_LABEL_KEY, PROXY_HOST_LABEL_KEY, PROXY_PORT_LABEL_KEY, PROXY_USER_LABEL_KEY,
     PROXY_PASSWORD_LABEL_KEY, PROXY_SECRET_LABEL_KEY, PROXY_TYPES, MSG_PROXY_FILLED_KEY, ERR_PROXY_LINK_KEY
@@ -73,7 +74,7 @@ class ProxyDialog(wx.Dialog):
             self.show_error(ERR_PROXY_LINK_KEY)
             return
         self.show_proxy(values)
-        speak(self.i18n.get_string(MSG_PROXY_FILLED_KEY))
+        say(self.i18n.get_string(MSG_PROXY_FILLED_KEY), FEEDBACK_CONFIRM)
 
     def on_ok(self, event):
         values = self.entered()

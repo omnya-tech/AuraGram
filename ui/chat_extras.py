@@ -5,6 +5,8 @@ import wx
 from core import audio, sounds
 from ui.downloads import folder_name
 from core.constants import (
+    FEEDBACK_RESULT,
+    FEEDBACK_WAITING,
     SOUND_FILE_PATTERNS, WAV_FILE_PATTERN, SOUND_FILES_KEY, MSG_CHOOSE_SOUND_FILE_KEY, ERR_SOUND_FILE_KEY,
     SOUND_SOURCE_CUSTOM_KEY, SOUND_SOURCE_DEFAULT_KEY, SOUND_MESSAGE, CHAT_TONE_PROMPT_FORMAT_KEY, CHAT_TONE_CHOOSE_KEY,
     CHAT_TONE_TEST_KEY, CHAT_TONE_DEFAULT_KEY, MSG_CHAT_TONE_SET_FORMAT_KEY, MSG_CHAT_TONE_CLEARED_FORMAT_KEY,
@@ -67,7 +69,7 @@ class ChatExtrasMixin:
         return True
 
     def on_export_chat(self, chat):
-        self.announce(self.i18n.get_string(MSG_EXPORTING_FORMAT_KEY).format(chat=chat["title"], count=0))
+        self.announce(self.i18n.get_string(MSG_EXPORTING_FORMAT_KEY).format(chat=chat["title"], count=0), FEEDBACK_WAITING)
         self.telegram_manager.export_messages(
             chat["id"], self.on_ui_thread(self.write_export, chat),
             on_progress=lambda count: wx.CallAfter(self.show_export_progress, chat, count)
@@ -103,4 +105,4 @@ class ChatExtrasMixin:
         except OSError:
             self.show_error(ERR_EXPORT_KEY)
             return
-        self.announce(self.i18n.get_string(MSG_EXPORTED_FORMAT_KEY).format(count=len(messages), path=path))
+        self.announce(self.i18n.get_string(MSG_EXPORTED_FORMAT_KEY).format(count=len(messages), path=path), FEEDBACK_RESULT)

@@ -43,11 +43,33 @@ class DescribeTest(unittest.TestCase):
         self.assertEqual(self.describe(types.MessageActionEmpty()), (c.MEDIA_SERVICE_KEY, {}))
         self.assertIsNone(TelegramManager._describe_service(None, Record(action=None), MOHAMED))
 
+    def test_a_new_large_group_is_said_to_be_a_group(self):
+        # Telegram makes both with the same action; the chat says which it is.
+        made = types.MessageActionChannelCreate(title="omnya team")
+        group = Record(action=made, action_entities=[], chat=make_channel(40, "omnya team", group=True))
+        channel = Record(
+            action=types.MessageActionChannelCreate(title="omnya news"), action_entities=[],
+            chat=make_channel(41, "omnya news")
+        )
+        self.assertEqual(TelegramManager._describe_service(None, group, MOHAMED),
+                         (c.SERVICE_GROUP_CREATE_FORMAT_KEY, {"title": "omnya team"}))
+        self.assertEqual(TelegramManager._describe_service(None, channel, MOHAMED),
+                         ("SERVICE_CHANNEL_CREATE_FORMAT", {"title": "omnya news"}))
+
+    def test_what_telegram_says_happened_carries_no_read_mark(self):
+        manager = TelegramManager.__new__(TelegramManager)
+        manager.read_outbox = {40: 99}
+        made = Record(id=1, out=True, chat_id=40, action=types.MessageActionChannelCreate(title="x"))
+        written = Record(id=2, out=True, chat_id=40, action=None)
+        self.assertIsNone(manager._is_read(made))
+        self.assertTrue(manager._is_read(written))
+
     def test_every_kind_has_its_words(self):
         from core.i18n import I18NManager
         keys = set(c.SERVICE_KEYS.values()) | {
             c.SERVICE_JOINED_KEY, c.SERVICE_ADDED_FORMAT_KEY, c.SERVICE_LEFT_KEY, c.SERVICE_REMOVED_FORMAT_KEY,
             c.SERVICE_CALL_STARTED_KEY, c.SERVICE_CALL_ENDED_KEY, c.SERVICE_NAMES_SEPARATOR_KEY,
+            c.SERVICE_GROUP_CREATE_FORMAT_KEY,
         }
         for language in c.LANGUAGES:
             strings = I18NManager(language).strings

@@ -1,13 +1,14 @@
 import wx
 from ui.layout import prepare_window
 from core.constants import (
+    FEEDBACK_RESULT,
     APP_TITLE_KEY, MSG_LOADING_KEY, DATE_TIME_FORMAT, BTN_CLOSE_KEY,
     ADMIN_LOG_TITLE_FORMAT_KEY, ADMIN_LOG_ENTRY_FORMAT_KEY, ADMIN_LOG_EMPTY_KEY, ADMIN_LOG_KEY_PREFIX,
     ADMIN_LOG_FILTERS, ADMIN_LOG_KIND_LABEL_KEY, ADMIN_LOG_ADMIN_LABEL_KEY, ADMIN_LOG_ALL_ADMINS_KEY,
     ADMIN_LOG_EVENTS_LABEL_KEY, BTN_NOT_SPAM_KEY, MSG_CONFIRM_NOT_SPAM_KEY, MSG_NOT_SPAM_REPORTED_KEY,
     ADMIN_LOG_ANTISPAM_FORMAT_KEY, ADMIN_LOG_DELETED_TEXT_FORMAT_KEY
 )
-from core.speech import speak
+from core.speech import speak, say
 
 class AdminLogDialog(wx.Dialog):
     """Read-only list of what admins did recently in a channel or large group, narrowed if wished
@@ -125,7 +126,7 @@ class AdminLogDialog(wx.Dialog):
                 self.i18n.get_string(error_key), self.i18n.get_string(APP_TITLE_KEY), wx.OK | wx.ICON_ERROR, self
             )
         else:
-            speak(self.i18n.get_string(MSG_NOT_SPAM_REPORTED_KEY))
+            say(self.i18n.get_string(MSG_NOT_SPAM_REPORTED_KEY), FEEDBACK_RESULT)
 
     def format_event(self, event):
         key = ADMIN_LOG_KEY_PREFIX + event["action"]

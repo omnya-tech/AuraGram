@@ -296,6 +296,8 @@ class UpdateWindowTest(WindowTestCase):
         self.assertEqual((self.fetched, self.opened, self.started), ([], [], []))
 
     def test_chosen_update_is_downloaded_then_installed_only_after_a_yes(self):
+        # How far it has come is said only to whoever asked to hear it.
+        self.frame.settings.set(s.FEEDBACK_SETTINGS[c.FEEDBACK_PERCENT], True)
         FakeChooser.selection = 0
         self.check(self.both())
         self.assertEqual(self.fetched, [("https://example.org/download/update.exe", "AuraGram-Update-99.0.0.exe")])

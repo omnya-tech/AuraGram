@@ -28,11 +28,16 @@ from core.config import load_credentials, read_bundled, save_credentials
 from core.constants import (
     APP_NAME, DEFAULT_LANG, STEP_DONE, BACKGROUND_FLAG,
     QUIT_WAIT_SECONDS, CONNECT_CHECK_SECONDS, BUNDLED_CONFIG_FILE, LOG_FILE, LOG_MAX_BYTES, APP_VERSION, IS_FROZEN,
-    SHORTCUT_SHOW_WINDOW, SOUND_START, MSG_UNEXPECTED_ERROR_KEY, MAIN_FRAME_PRELOAD_MS
+    SHORTCUT_SHOW_WINDOW, SOUND_START, MSG_UNEXPECTED_ERROR_KEY, MAIN_FRAME_PRELOAD_MS, STEP_PHONE,
+    MSG_ACCOUNT_SWITCHED_FORMAT_KEY
 )
 from core.i18n import I18NManager
 from core import diagnostics, proxy, shortcuts, sounds
-from core.settings import SETTING_ANNOUNCE_CONNECTION, SETTING_START_SOUND, SETTING_THEME, SETTING_LANGUAGE, Settings
+from core.settings import (
+    SETTING_ANNOUNCE_CONNECTION, SETTING_START_SOUND, SETTING_THEME, SETTING_LANGUAGE, SETTING_ACCOUNTS,
+    SETTING_CURRENT_ACCOUNT, Settings
+)
+from core import accounts
 from core.speech import speak
 from ui.layout import use_interface_language
 from ui.themes import set_theme
@@ -56,6 +61,10 @@ class MainApplication(wx.App):
         self.telegram_manager = None
         self.background = None
         self.main_frame = None
+        # The account to go back to if signing in to a new one is given up; None when none is being added.
+        self.account_before = None
+        # The account to go to once signing out of this one is done; None for a sign-out that ends at the login.
+        self.account_after = None
         self.login_frame = None
         self.connection_state = None
         # Two copies would fight over the same Telegram session file.
@@ -85,21 +94,79 @@ class MainApplication(wx.App):
             self.i18n, self.show_window, self.quit, shortcuts.current(self.settings)[SHORTCUT_SHOW_WINDOW],
             self.take_shared_files
         )
-        self.telegram_manager = TelegramManager(self.on_telegram_response)
-        # Messages are translated into the interface language.
-        self.telegram_manager.translate_lang = self.settings.get(SETTING_LANGUAGE)
-        self.telegram_manager.proxy = proxy.from_settings(self.settings)
         diagnostics.on_unexpected_error = lambda: wx.CallAfter(self.tell_unexpected_error)
-        self.telegram_manager.set_connection_listener(self.on_connection_change)
-        self.show_login()
-        # Started only now: its callback needs the app and the frame to exist.
-        self.telegram_manager.start()
+        self.start_account()
         # While Telegram answers: the audio libraries on a thread of their own (they have nothing
         # to do with wx), the main window's code once the first window has been drawn. A second
         # import of the same module waits for the first to finish, so neither can come too early.
         threading.Thread(target=load_audio, daemon=True).start()
         wx.CallLater(MAIN_FRAME_PRELOAD_MS, load_main_frame)
         return True
+
+    def start_account(self):
+        """Connect as the account in use, from its own session: straight in if it is signed in, else the login."""
+        # A manager left behind by a switch may still answer late: only the newest one is listened to.
+        self.account_generation = getattr(self, "account_generation", 0) + 1
+        generation = self.account_generation
+        self.telegram_manager = TelegramManager(
+            lambda step, error_key=None: self.on_telegram_response(step, error_key, generation),
+            accounts.session_path(self.settings.get(SETTING_CURRENT_ACCOUNT))
+        )
+        # Messages are translated into the interface language.
+        self.telegram_manager.translate_lang = self.settings.get(SETTING_LANGUAGE)
+        self.telegram_manager.proxy = proxy.from_settings(self.settings)
+        self.telegram_manager.set_connection_listener(self.on_connection_change)
+        self.show_login()
+        # Started only now: its callback needs the app and the frame to exist.
+        self.telegram_manager.start()
+
+    def switch_account(self, account_id):
+        """Go to another account on this computer, or to a new one (None), leaving this one signed in."""
+        current = self.settings.get(SETTING_CURRENT_ACCOUNT)
+        if account_id is None:
+            self.account_before = current
+            account_id = accounts.next_id(self.settings.get(SETTING_ACCOUNTS), current)
+        else:
+            self.account_before = None
+        self.settings.set(SETTING_CURRENT_ACCOUNT, account_id)
+        self.settings.save()
+        self.leave_account()
+        self.start_account()
+
+    def leave_account(self):
+        """Close what belongs to the account in use: its window, its login window, its connection."""
+        if self.main_frame:
+            self.telegram_manager.set_message_listener(None)
+            self.main_frame.quit()
+            self.main_frame = None
+        if self.login_frame:
+            self.login_frame.Destroy()
+            self.login_frame = None
+        self.telegram_manager.stop()
+
+    def on_login_closed(self, event):
+        # Adding an account and thinking better of it: back to the one before, still signed in.
+        if self.account_before is not None:
+            account_id, self.account_before = self.account_before, None
+            self.settings.set(SETTING_CURRENT_ACCOUNT, account_id)
+            self.settings.save()
+            wx.CallAfter(self.restart_account)
+            return
+        self.quit()
+
+    def restart_account(self):
+        self.leave_account()
+        self.start_account()
+
+    def remember_account(self, me):
+        """Keep the name and number of the account just signed in, for the list of accounts."""
+        if not me:
+            return
+        account_id = self.settings.get(SETTING_CURRENT_ACCOUNT)
+        self.settings.set(SETTING_ACCOUNTS, accounts.remember(
+            self.settings.get(SETTING_ACCOUNTS), account_id, me["name"], me["phone"]
+        ))
+        self.settings.save()
 
     def ensure_credentials(self):
         """Ask for the Telegram API id and hash on first run; False if the user backs out."""
@@ -115,23 +182,33 @@ class MainApplication(wx.App):
     def show_login(self):
         # The login window starts in its busy state until Telegram says what is needed.
         self.login_frame = LoginFrame(self.i18n, self.telegram_manager, self.settings)
-        # Closing it without signing in leaves nothing to keep running for.
-        self.login_frame.Bind(wx.EVT_CLOSE, lambda event: self.quit())
+        # Closing it without signing in leaves nothing to keep running for, unless an account was being added.
+        self.login_frame.Bind(wx.EVT_CLOSE, self.on_login_closed)
         if not self.start_hidden:
             self.login_frame.Show()
 
-    def on_telegram_response(self, step, error_key=None):
-        wx.CallAfter(self._process_telegram_response, step, error_key)
+    def on_telegram_response(self, step, error_key=None, generation=None):
+        wx.CallAfter(self._process_telegram_response, step, error_key, generation)
 
-    def _process_telegram_response(self, step, error_key):
-        if not self.login_frame:
+    def _process_telegram_response(self, step, error_key, generation=None):
+        if not self.login_frame or (generation is not None and generation != self.account_generation):
+            return
+        if step == STEP_PHONE and self.account_after is not None:
+            # Signed out of one account of several: on to another of them, already signed in.
+            account_id, self.account_after = self.account_after, None
+            self.settings.set(SETTING_CURRENT_ACCOUNT, account_id)
+            self.settings.save()
+            wx.CallAfter(self.restart_account)
             return
         if step == STEP_DONE:
+            self.account_before = None
             # Open the main window first so the app never has zero windows.
             self.main_frame = load_main_frame()(
                 self.i18n, self.telegram_manager, self.settings, self.log_out, self.quit,
-                self.background.set_hotkey
+                self.background.set_hotkey, self.switch_account
             )
+            main_frame = self.main_frame
+            self.telegram_manager.load_me(lambda me, error_key: wx.CallAfter(self.on_me, main_frame, me))
             if not self.start_hidden:
                 self.main_frame.Show()
                 # The app's own chime: only when its window really opens, never on a silent start with Windows.
@@ -140,6 +217,8 @@ class MainApplication(wx.App):
                 self.main_frame.check_updates_once()
                 # After the window is up: a shortcut another program holds is news worth a question.
                 wx.CallAfter(self.main_frame.check_shortcuts_once)
+                # And, the first time, how much the app should say.
+                wx.CallAfter(self.main_frame.ask_speech_level_once)
             self.login_frame.Destroy()
             if error_key:
                 self.main_frame.show_error(error_key)
@@ -191,7 +270,19 @@ class MainApplication(wx.App):
             paths, self.shared_paths = self.shared_paths, []
             self.main_frame.share_files(paths)
 
+    def on_me(self, main_frame, me):
+        self.remember_account(me)
+        if me and main_frame and len(self.settings.get(SETTING_ACCOUNTS)) > 1:
+            # With several, which one is in use is worth saying.
+            main_frame.announce(self.i18n.get_string(MSG_ACCOUNT_SWITCHED_FORMAT_KEY).format(name=me["name"]))
+
     def log_out(self):
+        current = self.settings.get(SETTING_CURRENT_ACCOUNT)
+        others = [account["id"] for account in self.settings.get(SETTING_ACCOUNTS) if account["id"] != current]
+        self.settings.set(SETTING_ACCOUNTS, accounts.forget(self.settings.get(SETTING_ACCOUNTS), current))
+        self.settings.save()
+        # With other accounts here, signing out of this one goes on to the next of them.
+        self.account_after = others[0] if others else None
         self.show_login()
         self.main_frame.quit()
         self.telegram_manager.set_message_listener(None)

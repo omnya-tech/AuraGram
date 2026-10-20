@@ -1,8 +1,9 @@
 import wx
-from core.speech import speak
+from core.speech import speak, say
 from ui.layout import prepare_window
 from ui.type_ahead import TypeAhead
 from core.constants import (
+    FEEDBACK_COUNT, FEEDBACK_UNAVAILABLE,
     DOWNLOAD_FILES_TITLE_FORMAT_KEY, DOWNLOAD_FILES_LABEL_KEY, BTN_SELECT_ALL_KEY, BTN_SELECT_NONE_KEY,
     BTN_DOWNLOAD_KEY, DOWNLOAD_SELECTED_FORMAT_KEY, MSG_NOTHING_CHOSEN_KEY
 )
@@ -56,7 +57,7 @@ class DownloadFilesDialog(wx.Dialog):
             self.files_list.Check(index, checked)
         self.show_count()
         # Nothing on screen moved: say what changed.
-        speak(self.count_label.GetLabel())
+        say(self.count_label.GetLabel(), FEEDBACK_COUNT)
 
     def show_count(self):
         self.count_label.SetLabel(self.i18n.get_string(DOWNLOAD_SELECTED_FORMAT_KEY).format(
@@ -71,6 +72,6 @@ class DownloadFilesDialog(wx.Dialog):
 
     def on_ok(self, event):
         if not self.chosen():
-            speak(self.i18n.get_string(MSG_NOTHING_CHOSEN_KEY))
+            say(self.i18n.get_string(MSG_NOTHING_CHOSEN_KEY), FEEDBACK_UNAVAILABLE)
             return
         event.Skip()

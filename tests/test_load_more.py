@@ -1,5 +1,6 @@
 """Loading more of the chat list: the user is told it started, how far it is while they wait on its row, and that it ended."""
 import core.constants as c
+import core.settings as s
 from tests.harness import FakeTelegramClient, WindowTestCase, make_user, pump
 
 PAGE = [(make_user(number, "Person %d" % number), 0, False) for number in range(1, c.DIALOGS_LIMIT + 1)]
@@ -25,6 +26,7 @@ class LoadMoreTest(WindowTestCase):
         return self.text(c.MSG_MORE_DIALOGS_LOADED_FORMAT_KEY).format(count=count)
 
     def test_start_progress_and_end_are_told_to_someone_waiting_on_the_row(self):
+        self.frame.settings.set(s.FEEDBACK_SETTINGS[c.FEEDBACK_PERCENT], True)
         FakeTelegramClient.chats = PAGE + SECOND_PAGE + REST
         self.press_enter_on_load_more()
         self.assertEqual(self.spoken, [self.text(c.MSG_LOADING_MORE_DIALOGS_KEY)])
@@ -34,6 +36,12 @@ class LoadMoreTest(WindowTestCase):
         self.assertEqual(len(self.frame.dialogs), 2 * c.DIALOGS_LIMIT)
         # The user is put on the first of the new chats.
         self.assertEqual(self.frame.dialogs_list.GetSelection(), c.DIALOGS_LIMIT)
+
+    def test_how_far_it_has_come_is_not_said_unless_asked_for(self):
+        FakeTelegramClient.chats = PAGE + SECOND_PAGE + REST
+        self.press_enter_on_load_more()
+        self.assertTrue(pump(lambda: self.spoken[-1:] == [self.loaded(c.DIALOGS_LIMIT)]))
+        self.assertNotIn(self.progress(50), self.spoken)
 
     def test_one_step_away_the_progress_is_not_spoken_but_the_end_still_is(self):
         FakeTelegramClient.chats = PAGE + SECOND_PAGE + REST

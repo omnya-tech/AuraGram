@@ -6,6 +6,11 @@ from core import audio
 from core.settings import SETTING_MARK_READ_ON_OPEN, SETTING_MESSAGE_STATS, SETTING_TIME_STYLE
 from ui.layout import duration_text, file_kind, file_size
 from core.constants import (
+    FEEDBACK_NAVIGATION,
+    FEEDBACK_COUNT,
+    FEEDBACK_UNAVAILABLE,
+    FEEDBACK_COUNT,
+    BOT_START_ROW_KEY,
     CONTEXT_MORE_KEY, CONTEXT_TRANSLATE_KEY, CONTEXT_AUDIENCE_KEY, CONTEXT_VOICE_SPEED_KEY, CONTEXT_REMIND_KEY,
     CONTEXT_UNMARK_ALL_KEY, CONTEXT_REPORT_KEY, PLAYABLE_MEDIA,
     PREVIEW_FORMAT_KEY, CONTEXT_COPY_LINK_KEY, CONTEXT_SAVE_AS_KEY, CONTEXT_DESCRIBE_IMAGE_KEY, DESCRIBABLE_MEDIA,
@@ -90,7 +95,7 @@ class MessageListMixin:
             target, self.pending_jump = self.pending_jump, None
             self.jump_to_message(target)
         elif first_unread is not None:
-            self.announce(self.i18n.get_string(MSG_NEW_MESSAGES_FORMAT_KEY).format(count=unread))
+            self.announce(self.i18n.get_string(MSG_NEW_MESSAGES_FORMAT_KEY).format(count=unread), FEEDBACK_COUNT)
 
     def jump_to_message(self, message_id):
         """Put the selection on a message of this chat, fetching its part of the conversation if need be."""
@@ -200,9 +205,14 @@ class MessageListMixin:
         if self.upload_row() is not None:
             # Files still on their way up to this chat, after everything already in it.
             items.append(self.upload_row())
+        elif self.start_row_wanted():
+            # A bot that was never started, or a link that says what to start it with: the way in, in sight.
+            items.append(self.i18n.get_string(BOT_START_ROW_KEY))
         self.messages_list.Set(items)
         if self.messages:
             self.messages_list.SetSelection(selected_message_index + self.message_offset())
+        elif items:
+            self.messages_list.SetSelection(len(items) - 1)
         # Setting the selection from code raises no event, so refresh the preview here.
         self.update_preview()
 
@@ -299,6 +309,10 @@ class MessageListMixin:
         if self.stop_playback():
             return
         message = self.selected_message()
+        if message is None and self.start_row_wanted() and self.upload_row() is None \
+                and index == self.messages_list.GetCount() - 1:
+            self.on_bot_start_menu(event)
+            return
         if message is None:
             # The row of files still going up: nothing to open yet, but they can be stopped.
             if self.upload_row_shown():
@@ -526,12 +540,12 @@ class MessageListMixin:
             return
         name = self.i18n.get_string(view)
         if not messages:
-            self.announce(self.i18n.get_string(MSG_VIEW_EMPTY_KEY).format(view=name))
+            self.announce(self.i18n.get_string(MSG_VIEW_EMPTY_KEY).format(view=name), FEEDBACK_UNAVAILABLE)
             return
         self.show_message_list(view, messages)
         self.announce(
             self.i18n.get_string(MSG_VIEW_RESULTS_FORMAT_KEY).format(view=name, count=len(messages))
-        )
+        , FEEDBACK_COUNT)
 
     def on_comments_menu(self, event):
         message = self.actionable_message()
@@ -601,7 +615,7 @@ class MessageListMixin:
         else:
             self.announce(self.i18n.get_string(MSG_THREAD_OPENED_FORMAT_KEY).format(
                 title=thread["title"], count=len(messages)
-            ))
+            ), FEEDBACK_NAVIGATION)
 
     def on_translate_menu(self, event):
         message = self.actionable_message()

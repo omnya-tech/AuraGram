@@ -64,7 +64,7 @@ class MoreToolsTest(WindowTestCase):
         self.assertTrue(folder.groups and folder.exclude_muted)
         self.assertFalse(folder.contacts or folder.exclude_read)
         self.assertEqual(peer_ids(folder.include_peers), [1])
-        self.assertTrue(pump(lambda: len(self.frame.views) == 7 and "Work" in self.frame.views[6].label))
+        self.assertTrue(pump(lambda: len(self.frame.views) == 8 and "Work" in self.frame.views[7].label))
         self.assertEqual(self.spoken[-1], self.text(c.MSG_FOLDERS_SAVED_KEY))
 
     def test_editing_keeps_what_the_form_did_not_show(self):
@@ -103,13 +103,13 @@ class MoreToolsTest(WindowTestCase):
             pinned_peers=[], include_peers=[], exclude_peers=[]
         )]
         self.manager.load_folders(self.frame.on_ui_thread(self.frame.show_folders))
-        self.assertTrue(pump(lambda: len(self.frame.views) == 7))
+        self.assertTrue(pump(lambda: len(self.frame.views) == 8))
         self.frame.cycle_view(-1)
-        self.assertEqual(self.frame.view_index, 6)
+        self.assertEqual(self.frame.view_index, 7)
 
         self.script(picks=[1, 1])
         self.frame.on_folders_menu(None)
-        self.assertTrue(pump(lambda: len(self.frame.views) == 6))
+        self.assertTrue(pump(lambda: len(self.frame.views) == 7))
         self.assertIsNone(self.requests("UpdateDialogFilterRequest")[0].filter)
         self.assertEqual(self.frame.view_index, 0)
         self.assertEqual(self.frame.view_tabs.GetSelection(), 0)

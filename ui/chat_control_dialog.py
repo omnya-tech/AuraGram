@@ -1,11 +1,12 @@
 import wx
 from ui.layout import prepare_window
 from ui.member_row import member_row
-from core.speech import speak
+from core.speech import speak, say
 from ui.admin_log_dialog import AdminLogDialog
 from ui.invite_links_dialog import InviteLinksDialog
 from ui.chat_admin_dialog import ChatAdminDialog
 from core.constants import (
+    FEEDBACK_CONFIRM, FEEDBACK_COUNT, FEEDBACK_RESULT, FEEDBACK_UNAVAILABLE,
     APP_TITLE_KEY, MSG_LOADING_KEY, CHAT_KIND_USER, CHAT_KIND_GROUP,
     MEMBER_ROLE_OWNER, MEMBER_ROLE_ADMIN, MEMBER_ACTION_KICK, MEMBER_ACTION_BAN,
     MEMBER_ACTION_PROMOTE, MEMBER_ACTION_DEMOTE, MEMBER_ACTION_TEXTS,
@@ -253,7 +254,7 @@ class ChatControlDialog(wx.Dialog):
             return
         self.telegram_manager.save_member_permissions(
             self.dialog_id, chosen,
-            self.on_ui_thread(lambda result: speak(self.i18n.get_string(MSG_PERMISSIONS_SAVED_KEY)))
+            self.on_ui_thread(lambda result: say(self.i18n.get_string(MSG_PERMISSIONS_SAVED_KEY), FEEDBACK_CONFIRM))
         )
 
     def on_admin_log(self, event):
@@ -299,7 +300,7 @@ class ChatControlDialog(wx.Dialog):
         )
 
     def on_all_decided(self, done_key):
-        speak(self.i18n.get_string(done_key))
+        say(self.i18n.get_string(done_key), FEEDBACK_RESULT)
         self.load_members()
 
     def show_members(self, members):
@@ -311,7 +312,7 @@ class ChatControlDialog(wx.Dialog):
         self.Layout()
         if members:
             self.members_list.SetSelection(0)
-        speak(self.i18n.get_string(INFO_MEMBERS_FOUND_FORMAT_KEY).format(count=len(members)))
+        say(self.i18n.get_string(INFO_MEMBERS_FOUND_FORMAT_KEY).format(count=len(members)), FEEDBACK_COUNT)
 
     def member_actions(self, member):
         """What this account may do to a member; never anything to itself or to the owner."""
@@ -388,7 +389,7 @@ class ChatControlDialog(wx.Dialog):
         member = self.members[index]
         actions = self.member_actions(member)
         if not actions:
-            speak(self.i18n.get_string(MSG_NO_MEMBER_ACTIONS_KEY))
+            say(self.i18n.get_string(MSG_NO_MEMBER_ACTIONS_KEY), FEEDBACK_UNAVAILABLE)
             return
         menu = wx.Menu()
         for action in actions:
@@ -453,7 +454,7 @@ class ChatControlDialog(wx.Dialog):
             return allowed, RESTRICT_DURATIONS[duration_dialog.GetSelection()][0]
 
     def on_member_managed(self, member, done_key):
-        speak(self.i18n.get_string(done_key).format(name=member["name"]))
+        say(self.i18n.get_string(done_key).format(name=member["name"]), FEEDBACK_CONFIRM)
         # Reload so the list shows the member's new role, or that they are gone.
         self.load_members()
 

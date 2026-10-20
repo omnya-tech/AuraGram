@@ -7,6 +7,8 @@ import wx
 from core.settings import SETTING_GEMINI_KEY
 from core.vision import VisionError, describe_image, image_mime_type
 from core.constants import (
+    FEEDBACK_RESULT,
+    BUTTON_NEEDS_PHONE, BUTTON_NEEDS_LOCATION, MSG_CONFIRM_SHARE_PHONE_KEY, MSG_SHARE_LOCATION_PROMPT_KEY,
     MESSAGE_VIEW_SCHEDULED, MSG_CONFIRM_CANCEL_SCHEDULED_KEY, MSG_SCHEDULED_CANCELLED_KEY,
     MSG_POLL_CLOSED_KEY, MSG_VOTED_KEY, MSG_CHOOSE_REACTION_KEY, REACTION_REMOVE_KEY,
     REACTION_CHOICE_FORMAT_KEY, MSG_REACTED_KEY, REACTION_EMOJIS, REACTION_NAME_KEY_PREFIX,
@@ -352,6 +354,9 @@ class MessageActionsMixin:
         if not message["buttons"]:
             self.notify(MSG_NO_BUTTONS_KEY)
             return
+        self.choose_button(message)
+
+    def choose_button(self, message):
         with wx.SingleChoiceDialog(
             self, self.i18n.get_string(MSG_CHOOSE_BUTTON_KEY), self.i18n.get_string(APP_TITLE_KEY), message["buttons"]
         ) as button_dialog:
@@ -360,12 +365,29 @@ class MessageActionsMixin:
             index = button_dialog.GetSelection()
         self.is_busy = True
         self.set_status(MSG_LOADING_KEY)
+        self.press_button(message["id"], index)
+
+    def press_button(self, message_id, index, **shared):
+        self.is_busy = True
+        self.set_status(MSG_LOADING_KEY)
         self.telegram_manager.press_button(
-            self.peer(self.current_dialog_id), message["id"], index, self.on_ui_thread(self.on_button_pressed)
+            self.peer(self.current_dialog_id), message_id, index,
+            self.on_ui_thread(self.on_button_pressed, message_id, index), **shared
         )
 
-    def on_button_pressed(self, result):
+    def on_button_pressed(self, result, message_id=None, index=None):
         self.is_busy = False
+        if result.get("needs") == BUTTON_NEEDS_PHONE:
+            self.set_status(STATUS_READY_KEY)
+            if self.confirm(self.i18n.get_string(MSG_CONFIRM_SHARE_PHONE_KEY)):
+                self.press_button(message_id, index, share_phone=True)
+            return
+        if result.get("needs") == BUTTON_NEEDS_LOCATION:
+            self.set_status(STATUS_READY_KEY)
+            place = self.ask_location(MSG_SHARE_LOCATION_PROMPT_KEY)
+            if place is not None:
+                self.press_button(message_id, index, share_location=place)
+            return
         if result["url"]:
             self.set_status(STATUS_READY_KEY)
             answer = wx.MessageBox(
@@ -376,7 +398,7 @@ class MessageActionsMixin:
                 webbrowser.open(result["url"])
         else:
             # What the bot does next, a new message or a change to this one, arrives by itself.
-            self.announce(result["answer"] or self.i18n.get_string(MSG_BUTTON_PRESSED_KEY))
+            self.announce(result["answer"] or self.i18n.get_string(MSG_BUTTON_PRESSED_KEY), FEEDBACK_RESULT)
 
     def on_vote_menu(self, event):
         message = self.actionable_message()

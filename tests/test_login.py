@@ -14,6 +14,20 @@ from tests.harness import Record, get_app, pump
 from ui.login_frame import LoginFrame
 
 
+def country(iso, name, code, prefixes=()):
+    return types.help.Country(
+        iso2=iso, default_name=name, name=name,
+        country_codes=[types.help.CountryCode(country_code=code, prefixes=list(prefixes) or None)]
+    )
+
+
+# Two that share +1, told apart by what follows it, as Telegram lists them.
+COUNTRIES = types.help.CountriesList(countries=[
+    country("EG", "مصر", "20"), country("SA", "السعودية", "966"),
+    country("US", "الولايات المتحدة", "1"), country("CA", "كندا", "1", prefixes=["204", "416"]),
+], hash=0)
+
+
 class FakeLoginClient:
     """Telegram for an account that is not signed in yet."""
 
@@ -50,6 +64,8 @@ class FakeLoginClient:
         return self._sent_code()
 
     async def __call__(self, request):
+        if type(request).__name__ == "GetCountriesListRequest":
+            return COUNTRIES
         self.calls.append((type(request).__name__, request.phone_number, request.phone_code_hash))
         return self._sent_code()
 
@@ -108,6 +124,45 @@ class LoginTest(unittest.TestCase):
         before = len(self.steps)
         self.frame.on_resend_code(None)
         self.assertTrue(pump(lambda: len(self.steps) > before))
+
+    def choice(self):
+        return self.frame.country_choice.GetStringSelection()
+
+    def test_countries_are_listed_and_typing_a_code_chooses_one(self):
+        self.assertTrue(pump(lambda: self.frame.country_choice.GetCount() == 5))
+        self.assertEqual(self.frame.country_choice.GetString(0), self.text(c.COUNTRY_NONE_KEY))
+        field = self.frame.phone_input
+        field.SetValue("+96650")
+        self.assertEqual(self.choice(), self.text(c.COUNTRY_ROW_FORMAT_KEY).format(name="السعودية", code="966"))
+        # +1 then the area code: Canada's, then nobody's but the United States'.
+        field.SetValue("+1416555")
+        self.assertIn("كندا", self.choice())
+        field.SetValue("+1212555")
+        self.assertIn("الولايات المتحدة", self.choice())
+        field.SetValue("00201000")
+        self.assertIn("مصر", self.choice())
+        field.SetValue("+999")
+        self.assertEqual(self.frame.country_choice.GetSelection(), 0)
+
+    def test_choosing_a_country_puts_its_code_in_front_of_the_number(self):
+        self.assertTrue(pump(lambda: self.frame.country_choice.GetCount() == 5))
+        field = self.frame.phone_input
+        names = [entry["name"] for entry in self.frame.countries]
+        field.ChangeValue("01001234567")
+        self.frame.country_choice.SetSelection(names.index("مصر") + 1)
+        self.frame.on_country_chosen(None)
+        # Dialled at home with a 0 in front; with the country's code, without it.
+        self.assertEqual(field.GetValue(), "+201001234567")
+        self.frame.country_choice.SetSelection(names.index("السعودية") + 1)
+        self.frame.on_country_chosen(None)
+        self.assertEqual(field.GetValue(), "+9661001234567")
+
+    def test_the_country_windows_is_set_to_starts_the_number(self):
+        with mock.patch.object(ui.login_frame, "home_country", lambda: "SA"):
+            self.frame.phone_input.ChangeValue("")
+            self.frame.fill_countries()
+        self.assertEqual(self.frame.phone_input.GetValue(), "+966")
+        self.assertIn("السعودية", self.choice())
 
     def test_resend_button_appears_only_while_entering_the_code(self):
         self.assertFalse(self.frame.resend_btn.IsShown())

@@ -340,13 +340,29 @@ class ChatPreviewAndMenuTest(WindowTestCase):
     def test_menu_follows_the_order_of_telegram_desktop(self):
         self.assertEqual(self.menu(0), [self.text(key) for key in (
             # Sending straight from the list comes right after opening, in a submenu.
-            c.CONTEXT_OPEN_KEY, c.CONTEXT_SEND_KEY, c.CONTEXT_MARK_READ_KEY, c.CONTEXT_PIN_CHAT_KEY, c.CONTEXT_MUTE_KEY,
+            c.CONTEXT_OPEN_KEY, c.CONTEXT_SEND_KEY, c.CONTEXT_MARK_READ_KEY, c.CONTEXT_PIN_CHAT_KEY,
+            c.CONTEXT_ADD_FAVORITE_KEY, c.CONTEXT_MUTE_KEY,
             c.CONTEXT_ARCHIVE_KEY, c.CONTEXT_INFO_KEY, c.CONTEXT_DELETE_CONTACT_KEY, c.CONTEXT_BLOCK_KEY,
             c.CONTEXT_CLEAR_HISTORY_KEY, c.CONTEXT_DELETE_CHAT_KEY,
         )])
         # A channel this account cannot post in offers nothing to send.
         self.assertEqual(self.menu(1)[1], self.text(c.CONTEXT_MARK_UNREAD_KEY))
         self.assertEqual(self.menu(1)[-1], self.text(c.CONTEXT_LEAVE_KEY))
+
+    def test_favourites_are_added_kept_and_shown_in_their_tab(self):
+        news = self.frame.dialogs[1]
+        self.frame.toggle_favorite(news)
+        self.assertEqual(self.spoken[-1], self.text(c.MSG_FAVORITE_ADDED_FORMAT_KEY).format(title="News"))
+        self.assertEqual(s.Settings().get(s.SETTING_FAVORITES), [news["id"]])
+        self.assertEqual(self.menu(1)[3], self.text(c.CONTEXT_REMOVE_FAVORITE_KEY))
+        favorites = [view.label for view in self.frame.views].index(self.text(c.VIEW_FAVORITES_KEY))
+        self.frame.view_tabs.SetSelection(favorites)
+        self.frame.on_view_changed(None)
+        self.assertEqual([dialog["title"] for dialog in self.frame.dialogs], ["News"])
+        # Taken out from inside the tab, it leaves it at once.
+        self.frame.toggle_favorite(news)
+        self.assertEqual(self.frame.dialogs, [])
+        self.assertEqual(s.Settings().get(s.SETTING_FAVORITES), [])
 
     def test_mark_unread_and_back(self):
         sara = self.frame.dialogs[3]
@@ -396,7 +412,7 @@ class ChatPreviewAndMenuTest(WindowTestCase):
         self.assertEqual(self.frame.dialogs_list.GetSelection(), 1)
         self.frame.view_tabs.SetSelection(2)
         self.frame.on_view_changed(None)
-        self.assertEqual(self.menu(0)[4], self.text(c.CONTEXT_UNARCHIVE_KEY))
+        self.assertIn(self.text(c.CONTEXT_UNARCHIVE_KEY), self.menu(0))
 
     def test_clearing_history_needs_confirmation_and_empties_the_open_chat(self):
         self.open_chat(0)
@@ -987,6 +1003,27 @@ class NewChatTest(WindowTestCase):
                          ("Book Club", "We read", True, False))
         self.assertTrue(pump(lambda: self.frame.current_dialog_id is not None and self.frame.current_dialog_id != 1))
         self.assertEqual(self.frame.dialogs[self.frame.dialogs_list.GetSelection()]["title"], "Book Club")
+        # Asked for by its kind, said by its kind, and counted with the groups.
+        self.assertEqual(FakeChooser.last_message, self.text(c.MSG_NEW_CHAT_ABOUT_PROMPT_KEY))
+        self.assertTrue(pump(lambda: self.text(c.MSG_GROUP_CREATED_FORMAT_KEY).format(title="Book Club") in self.spoken))
+        self.assertEqual(self.frame.current_dialog()["category"], c.CATEGORY_GROUPS)
+
+    def test_the_new_chat_is_found_among_others_the_answer_names(self):
+        made = []
+        real_call = FakeTelegramClient.__call__
+
+        async def call(client, request):
+            answer = await real_call(client, request)
+            if type(request).__name__ == "CreateChannelRequest":
+                # Another chat first, as an answer may carry several.
+                answer.chats.insert(0, make_channel(7, "Old news", creator=True))
+                made.append(True)
+            return answer
+        FakeChooser.values = ["Book Club", ""]
+        with mock.patch.object(FakeTelegramClient, "__call__", call):
+            self.frame.create_chat(is_channel=False)
+            self.assertTrue(pump(lambda: made and self.frame.current_dialog_id is not None))
+        self.assertEqual(self.frame.current_dialog()["title"], "Book Club")
 
     def test_a_channel_is_created_as_broadcast_and_description_may_be_empty(self):
         FakeChooser.values = ["Announcements", ""]

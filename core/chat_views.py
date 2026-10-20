@@ -1,6 +1,6 @@
 from core.constants import (
     VIEW_ALL_KEY, VIEW_UNREAD_KEY, VIEW_ARCHIVE_KEY, VIEW_FOLDER_FORMAT_KEY, VIEW_CONTACTS_KEY, STATUS_ONLINE_KEY,
-    VIEW_CHANNELS_KEY, VIEW_GROUPS_KEY, CATEGORY_BROADCASTS, CATEGORY_GROUPS
+    VIEW_CHANNELS_KEY, VIEW_GROUPS_KEY, CATEGORY_BROADCASTS, CATEGORY_GROUPS, VIEW_FAVORITES_KEY
 )
 
 # Where the archive is among the views: the one place an archived chat can be found.
@@ -40,14 +40,17 @@ def matches_folder(chat, folder):
         return False
     return True
 
-def build_views(i18n, folders):
-    """The built-in views followed by one per Telegram folder."""
+def build_views(i18n, folders, favorites=()):
+    """The built-in views followed by one per Telegram folder. `favorites` holds the ids of the
+    chats the user chose; it is looked into each time, so it may change after the views are made."""
     views = [
         ChatView(i18n.get_string(VIEW_ALL_KEY), lambda chat: not chat["archived"]),
         ChatView(i18n.get_string(VIEW_UNREAD_KEY), lambda chat: bool(chat["unread"]) and not chat["archived"]),
         ChatView(i18n.get_string(VIEW_ARCHIVE_KEY), lambda chat: chat["archived"]),
         ChatView(i18n.get_string(VIEW_CHANNELS_KEY), lambda chat: chat["category"] == CATEGORY_BROADCASTS and not chat["archived"]),
         ChatView(i18n.get_string(VIEW_GROUPS_KEY), lambda chat: chat["category"] == CATEGORY_GROUPS and not chat["archived"]),
+        # Archived or not: a favourite is one because the user said so.
+        ChatView(i18n.get_string(VIEW_FAVORITES_KEY), lambda chat: chat["id"] in favorites),
         # No chat belongs to it by any rule: its rows come from the contact list.
         ChatView(i18n.get_string(VIEW_CONTACTS_KEY), lambda chat: False, is_contacts=True),
     ]

@@ -89,6 +89,42 @@ class AccessibilityTest(WindowTestCase):
         self.assertEqual(len(self.spoken), 1)
         self.assertEqual(self.frame.GetStatusBar().GetStatusText(), self.text(c.MSG_NO_CHAT_SELECTED_KEY))
 
+    def test_each_kind_of_remark_has_its_own_switch(self):
+        self.frame.settings.set(s.FEEDBACK_SETTINGS[c.FEEDBACK_CONFIRM], False)
+        self.frame.notify(c.MSG_COPIED_KEY)
+        # Kept to the status bar, while what cannot be done is still said.
+        self.assertEqual(self.spoken, [])
+        self.assertEqual(self.frame.GetStatusBar().GetStatusText(), self.text(c.MSG_COPIED_KEY))
+        self.frame.notify(c.MSG_NO_UNREAD_KEY)
+        self.assertEqual(self.spoken, [self.text(c.MSG_NO_UNREAD_KEY)])
+        # The windows of the app ask the same settings.
+        from core.speech import say
+        say("in a window", c.FEEDBACK_CONFIRM)
+        self.assertEqual(len(self.spoken), 1)
+
+    def test_a_level_ticks_its_share_and_ticking_by_hand_makes_it_custom(self):
+        dialog = SettingsDialog(self.frame, self.i18n, self.frame.settings, self.manager)
+        self.addCleanup(dialog.Destroy)
+        ticked = lambda: {setting for setting in s.LEVEL_OPTIONS if dialog.checkboxes[setting].GetValue()}
+        # A new user starts as a beginner: nine of the ten.
+        self.assertEqual(dialog.level_choice.GetSelection(), c.SPEECH_LEVELS.index(c.SPEECH_LEVEL_BEGINNER))
+        self.assertEqual(len(ticked()), 9)
+        for level, count in ((c.SPEECH_LEVEL_INTERMEDIATE, 4), (c.SPEECH_LEVEL_ADVANCED, 3)):
+            dialog.level_choice.SetSelection(c.SPEECH_LEVELS.index(level))
+            dialog.on_speech_level(None)
+            self.assertEqual(len(ticked()), count)
+        box = dialog.checkboxes[s.FEEDBACK_SETTINGS[c.FEEDBACK_HINT]]
+        box.SetValue(True)
+        dialog.on_speech_option(wx.CommandEvent())
+        self.assertEqual(dialog.level_choice.GetSelection(), c.SPEECH_LEVELS.index(c.SPEECH_LEVEL_CUSTOM))
+        # Unticked again, the boxes are the advanced level's once more, and the choice says so.
+        box.SetValue(False)
+        dialog.on_speech_option(wx.CommandEvent())
+        self.assertEqual(dialog.level_choice.GetSelection(), c.SPEECH_LEVELS.index(c.SPEECH_LEVEL_ADVANCED))
+        dialog.apply_app_settings()
+        self.assertEqual(self.frame.settings.get(s.SETTING_SPEECH_LEVEL), c.SPEECH_LEVEL_ADVANCED)
+        self.assertFalse(self.frame.settings.get(s.FEEDBACK_SETTINGS[c.FEEDBACK_COUNT]))
+
     def test_tab_skips_the_view_box_and_the_send_button(self):
         optional = (self.frame.view_tabs, self.frame.send_btn)
         self.assertEqual([control.AcceptsFocusFromKeyboard() for control in optional], [False] * 2)

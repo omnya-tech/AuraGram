@@ -75,9 +75,9 @@ class FolderRulesTest(unittest.TestCase):
 
     def test_each_folder_becomes_a_view_named_after_it(self):
         views = build_views(I18NManager("ar"), [dict(folder(categories={"bots"}), id=2, title="Robots")])
-        self.assertEqual(len(views), 7)
-        self.assertIn("Robots", views[6].label)
-        self.assertTrue(views[6].matches(chat(1, "bots")))
+        self.assertEqual(len(views), 8)
+        self.assertIn("Robots", views[7].label)
+        self.assertTrue(views[7].matches(chat(1, "bots")))
 
 
 class VersionTest(unittest.TestCase):

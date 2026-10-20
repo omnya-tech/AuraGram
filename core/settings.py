@@ -1,6 +1,8 @@
 import json
 import os
 from core.constants import (
+    FEEDBACK_KINDS, FEEDBACK_PERCENT, FEEDBACK_UNAVAILABLE, FEEDBACK_RESULT, FEEDBACK_CONFIRM,
+    SPEECH_LEVELS, SPEECH_LEVEL_BEGINNER, SPEECH_LEVEL_INTERMEDIATE, SPEECH_LEVEL_ADVANCED,
     SETTINGS_FILE, READ_MODE, ENCODING_UTF8, THEMES, THEME_SYSTEM,
     ANNOUNCE_WHEN_OPTIONS, ANNOUNCE_WHEN_ALWAYS, ANNOUNCE_WHAT_OPTIONS, ANNOUNCE_WHAT_FULL,
     VOICE_SPEEDS, VOICE_SPEED_NORMAL, MIC_LEVELS, MIC_LEVEL_NORMAL, NOISE_LEVELS, NOISE_OFF,
@@ -71,8 +73,22 @@ SETTING_DOWNLOAD_KINDS = "download_kinds"
 SETTING_SHORTCUTS = "shortcuts"
 # The shortcuts already reported as held by other programs, so the same news is not told at every start.
 SHORTCUT_CONFLICTS_TOLD = "shortcut_conflicts_told"
+# The ids of the chats the user put among the favourites, kept on this computer.
+SETTING_FAVORITES = "favorites"
+# One on/off setting for each kind of thing said besides the messages; see FEEDBACK_KINDS.
+FEEDBACK_SETTINGS = {kind: "speak_" + kind for kind in FEEDBACK_KINDS}
+# How much is said, as a level that ticks those, or the user's own choice of them.
+SETTING_SPEECH_LEVEL = "speech_level"
+# Whether the level was asked for, the first time the main window opened.
+SPEECH_LEVEL_ASKED = "speech_level_asked"
+# The accounts signed in on this computer, as [{"id", "name", "phone"}], and the one in use.
+SETTING_ACCOUNTS = "accounts"
+SETTING_CURRENT_ACCOUNT = "current_account"
+# The countries Telegram listed at the last sign-in, for the next one: {"language", "countries"}.
+SETTING_COUNTRIES = "countries"
 
 DEFAULTS = {
+    **{setting: kind != FEEDBACK_PERCENT for kind, setting in FEEDBACK_SETTINGS.items()},
     SETTING_LARGE_TEXT: False,
     SETTING_PLAY_SOUND: True,
     SETTING_SENT_SOUND: True,
@@ -111,12 +127,36 @@ CHOICES = {
     SETTING_CHAT_KIND: (CHAT_KIND_PLACES, CHAT_KIND_PLACE_AFTER),
     SETTING_MESSAGE_STATS: (MESSAGE_STATS_PLACES, MESSAGE_STATS_AFTER),
     SETTING_TIME_STYLE: (TIME_STYLES, TIME_STYLE_NUMBERS),
+    SETTING_SPEECH_LEVEL: (SPEECH_LEVELS, SPEECH_LEVEL_BEGINNER),
 }
+# What each level ticks among the speech settings; the others it leaves unticked. Of the ten the
+# accessibility tab has for this, the beginner hears nine, the intermediate four, the advanced three.
+LEVEL_SETTINGS = {
+    SPEECH_LEVEL_BEGINNER: {setting for kind, setting in FEEDBACK_SETTINGS.items() if kind != FEEDBACK_PERCENT}
+    | {SETTING_ANNOUNCE_CONNECTION, SETTING_ANNOUNCE_TYPING},
+    SPEECH_LEVEL_INTERMEDIATE: {
+        FEEDBACK_SETTINGS[FEEDBACK_UNAVAILABLE], FEEDBACK_SETTINGS[FEEDBACK_RESULT], FEEDBACK_SETTINGS[FEEDBACK_CONFIRM],
+        SETTING_ANNOUNCE_CONNECTION,
+    },
+    SPEECH_LEVEL_ADVANCED: {
+        FEEDBACK_SETTINGS[FEEDBACK_UNAVAILABLE], FEEDBACK_SETTINGS[FEEDBACK_RESULT], SETTING_ANNOUNCE_CONNECTION,
+    },
+}
+LEVEL_OPTIONS = tuple(FEEDBACK_SETTINGS.values()) + (SETTING_ANNOUNCE_CONNECTION, SETTING_ANNOUNCE_TYPING)
 # Settings that are free text.
 TEXTS = {
     SETTING_MIC_DEVICE: "", SETTING_PROXY_HOST: "", SETTING_PROXY_PORT: "", SETTING_PROXY_USER: "",
     SETTING_PROXY_PASSWORD: "", SETTING_PROXY_SECRET: "", SETTING_GEMINI_KEY: "", SETTING_DOWNLOAD_FOLDER: "",
 }
+
+# What a copy of the settings in a file is known by, and what it leaves out unless asked.
+BACKUP_MARK = "AuraGram settings"
+BACKUP_SECRETS = (SETTING_GEMINI_KEY, SETTING_PROXY_PASSWORD, SETTING_PROXY_SECRET)
+# Of this computer only, or kept for the program's own use: no copy carries them.
+BACKUP_LEFT_OUT = (
+    WINDOW_PLACEMENT, SHORTCUT_CONFLICTS_TOLD, SETTING_COUNTRIES, SPEECH_LEVEL_ASKED, SETTING_ACCOUNTS,
+    SETTING_CURRENT_ACCOUNT,
+)
 
 class Settings:
     """The app's own preferences, kept in a JSON file on this computer only."""
@@ -128,6 +168,11 @@ class Settings:
         self.values.update(TEXTS)
         self.values[SETTING_SHORTCUTS] = {}
         self.values[SHORTCUT_CONFLICTS_TOLD] = []
+        self.values[SETTING_FAVORITES] = []
+        self.values[SETTING_COUNTRIES] = {}
+        self.values[SPEECH_LEVEL_ASKED] = False
+        self.values[SETTING_ACCOUNTS] = []
+        self.values[SETTING_CURRENT_ACCOUNT] = 0
         self.load()
 
     def load(self):
@@ -139,6 +184,48 @@ class Settings:
         except (OSError, ValueError):
             # A damaged file should not stop the app from starting.
             return
+        if not isinstance(stored, dict):
+            return
+        self.take(stored)
+        if stored.get(SPEECH_LEVEL_ASKED) is True:
+            self.values[SPEECH_LEVEL_ASKED] = True
+
+    def apply_level(self, level):
+        """Tick what a level of experience says, and untick the rest of what it decides."""
+        self.values[SETTING_SPEECH_LEVEL] = level
+        for setting in LEVEL_OPTIONS:
+            self.values[setting] = setting in LEVEL_SETTINGS[level]
+
+    def export_to(self, path, with_secrets):
+        """Write a copy of the settings to a file, without what belongs to this computer alone."""
+        values = {key: value for key, value in self.values.items() if key not in BACKUP_LEFT_OUT}
+        if not with_secrets:
+            for key in BACKUP_SECRETS:
+                values[key] = ""
+        with open(path, "w", encoding=ENCODING_UTF8) as file:
+            json.dump({"app": BACKUP_MARK, "settings": values}, file, ensure_ascii=False, indent=4)
+
+    def import_from(self, path):
+        """Take the settings of a copy made by export_to; False, changing nothing, if the file is no such copy.
+        Secrets left out of the copy stay as they are here."""
+        try:
+            with open(path, READ_MODE, encoding=ENCODING_UTF8) as file:
+                stored = json.load(file)
+        except (OSError, ValueError):
+            return False
+        if not isinstance(stored, dict) or stored.get("app") != BACKUP_MARK or not isinstance(stored.get("settings"), dict):
+            return False
+        values = dict(stored["settings"])
+        for key in BACKUP_SECRETS:
+            if not values.get(key):
+                values.pop(key, None)
+        for key in BACKUP_LEFT_OUT:
+            values.pop(key, None)
+        self.take(values)
+        return True
+
+    def take(self, stored):
+        """Keep, of what was read from a file, every value that is of the right kind for its setting."""
         for key in DEFAULTS:
             if isinstance(stored.get(key), bool):
                 self.values[key] = stored[key]
@@ -154,6 +241,26 @@ class Settings:
         changed = stored.get(SETTING_SHORTCUTS)
         if isinstance(changed, dict) and all(isinstance(text, str) for text in changed.values()):
             self.values[SETTING_SHORTCUTS] = changed
+        favorites = stored.get(SETTING_FAVORITES)
+        if isinstance(favorites, list) and all(isinstance(n, int) and not isinstance(n, bool) for n in favorites):
+            self.values[SETTING_FAVORITES] = favorites
+        countries = stored.get(SETTING_COUNTRIES)
+        if isinstance(countries, dict) and isinstance(countries.get("countries"), list) and all(
+            isinstance(country, dict) and isinstance(country.get("name"), str) and isinstance(country.get("code"), str)
+            and isinstance(country.get("codes"), list) and all(isinstance(code, str) for code in country["codes"])
+            for country in countries["countries"]
+        ):
+            self.values[SETTING_COUNTRIES] = countries
+        accounts = stored.get(SETTING_ACCOUNTS)
+        if isinstance(accounts, list) and all(
+            isinstance(account, dict) and isinstance(account.get("id"), int)
+            and isinstance(account.get("name"), str) and isinstance(account.get("phone"), str)
+            for account in accounts
+        ):
+            self.values[SETTING_ACCOUNTS] = accounts
+        current = stored.get(SETTING_CURRENT_ACCOUNT)
+        if isinstance(current, int) and not isinstance(current, bool) and current >= 0:
+            self.values[SETTING_CURRENT_ACCOUNT] = current
         told = stored.get(SHORTCUT_CONFLICTS_TOLD)
         if isinstance(told, list) and all(isinstance(text, str) for text in told):
             self.values[SHORTCUT_CONFLICTS_TOLD] = told

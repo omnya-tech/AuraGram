@@ -5,6 +5,7 @@ import threading
 import wx
 from core import audio, key_conflicts, shortcuts, sounds, vision
 from core.settings import (
+    FEEDBACK_SETTINGS, SETTING_SPEECH_LEVEL, LEVEL_SETTINGS, LEVEL_OPTIONS,
     SETTING_THEME, SETTING_LARGE_TEXT, SETTING_KEEP_IN_BACKGROUND, SETTING_SENT_SOUND, SETTING_PLAY_SOUND, SETTING_ANNOUNCE_MESSAGES,
     SETTING_MARK_READ_ON_OPEN, SETTING_START_SOUND, SETTING_ANNOUNCE_INTERRUPT,
     SETTING_BRAILLE_MESSAGES, SETTING_SPEAK_FEEDBACK, SETTING_ANNOUNCE_CONNECTION, SETTING_SIMPLE_TAB,
@@ -20,6 +21,9 @@ from ui.proxy_dialog import ProxyDialog
 from ui.shortcut_dialog import ShortcutDialog
 from ui.type_ahead import TypeAhead
 from core.constants import (
+    FEEDBACK_KINDS, FEEDBACK_LABEL_PREFIX, SPEECH_LEVELS, SPEECH_LEVEL_CUSTOM, SETTINGS_SPEECH_LEVEL_LABEL_KEY,
+    ACCESS_GROUP_FEEDBACK_KEY,
+    FEEDBACK_CONFIRM, FEEDBACK_RESULT, FEEDBACK_UNAVAILABLE, FEEDBACK_WAITING,
     SOUNDS_DIR, SETTINGS_THEME_LABEL_KEY, SETTINGS_LARGE_TEXT_KEY, SETTINGS_KEEP_IN_BACKGROUND_KEY, SETTINGS_SENT_SOUND_KEY, SETTINGS_TITLE_KEY, SETTINGS_TAB_APP_KEY, SETTINGS_TAB_ACCOUNT_KEY,
     SETTINGS_APP_NOTE_KEY, SETTINGS_ACCOUNT_NOTE_KEY, SETTINGS_PLAY_SOUND_KEY,
     SETTINGS_ANNOUNCE_KEY, SETTINGS_MARK_READ_KEY,
@@ -65,7 +69,7 @@ from core.constants import (
     MSG_SHORTCUT_USED_FORMAT_KEY, MSG_SHORTCUT_CONFLICT_FORMAT_KEY, MSG_CONFIRM_SHORTCUTS_DEFAULTS_KEY,
     MSG_SHORTCUTS_DEFAULTS_KEY, MSG_SHORTCUTS_NO_CONFLICTS_KEY, MSG_SHORTCUTS_CONFLICTS_FORMAT_KEY
 )
-from core.speech import speak
+from core.speech import speak, say
 
 # Order of the privacy settings on their tab; each has a "PRIVACY_LABEL_<name>" string.
 PRIVACY_NAMES = ("last_seen", "phone", "photo", "invites", "calls", "forwards")
@@ -79,9 +83,13 @@ APP_OPTIONS = (
 READER_OPTIONS = (
     (SETTING_ANNOUNCE_INTERRUPT, SETTINGS_ANNOUNCE_INTERRUPT_KEY),
     (SETTING_BRAILLE_MESSAGES, SETTINGS_BRAILLE_KEY),
-    (SETTING_ANNOUNCE_TYPING, SETTINGS_ANNOUNCE_TYPING_KEY),
-    (SETTING_SPEAK_FEEDBACK, SETTINGS_SPEAK_FEEDBACK_KEY),
+)
+# What is said besides the messages, kind by kind; the level above them ticks some of them at once.
+FEEDBACK_OPTIONS = tuple(
+    (FEEDBACK_SETTINGS[kind], FEEDBACK_LABEL_PREFIX + kind) for kind in FEEDBACK_KINDS
+) + (
     (SETTING_ANNOUNCE_CONNECTION, SETTINGS_ANNOUNCE_CONNECTION_KEY),
+    (SETTING_ANNOUNCE_TYPING, SETTINGS_ANNOUNCE_TYPING_KEY),
 )
 VISION_OPTIONS = (
     (SETTING_LARGE_TEXT, SETTINGS_LARGE_TEXT_KEY),
@@ -221,6 +229,15 @@ class SettingsDialog(wx.Dialog):
         self.add_choice(box, group, SETTINGS_ANNOUNCE_WHAT_LABEL_KEY, SETTING_ANNOUNCE_WHAT)
         self.add_checkboxes(box, group, READER_OPTIONS)
 
+        box, group = self.add_group(page, sizer, ACCESS_GROUP_FEEDBACK_KEY)
+        # The switch for all of them, then how much, then each kind.
+        self.add_checkboxes(box, group, ((SETTING_SPEAK_FEEDBACK, SETTINGS_SPEAK_FEEDBACK_KEY),))
+        self.level_choice = self.add_choice(box, group, SETTINGS_SPEECH_LEVEL_LABEL_KEY, SETTING_SPEECH_LEVEL)
+        self.level_choice.Bind(wx.EVT_CHOICE, self.on_speech_level)
+        self.add_checkboxes(box, group, FEEDBACK_OPTIONS)
+        for setting in LEVEL_OPTIONS:
+            self.checkboxes[setting].Bind(wx.EVT_CHECKBOX, self.on_speech_option)
+
         box, group = self.add_group(page, sizer, ACCESS_GROUP_KEYBOARD_KEY)
         self.add_checkboxes(box, group, (
             (SETTING_SIMPLE_TAB, SETTINGS_SIMPLE_TAB_KEY), (SETTING_ENTER_SENDS, SETTINGS_ENTER_SENDS_KEY),
@@ -231,6 +248,21 @@ class SettingsDialog(wx.Dialog):
         self.theme_choice = self.add_choice(box, group, SETTINGS_THEME_LABEL_KEY, SETTING_THEME)
         page.SetSizer(sizer)
         return page
+
+    def on_speech_level(self, event):
+        """A level ticks what it says and unticks the rest; "custom" leaves the boxes as they are."""
+        level = SPEECH_LEVELS[self.level_choice.GetSelection()]
+        if level == SPEECH_LEVEL_CUSTOM:
+            return
+        for setting in LEVEL_OPTIONS:
+            self.checkboxes[setting].SetValue(setting in LEVEL_SETTINGS[level])
+
+    def on_speech_option(self, event):
+        """A box ticked by hand: the level is the one that ticks exactly these, or the user's own."""
+        event.Skip()
+        ticked = {setting for setting in LEVEL_OPTIONS if self.checkboxes[setting].GetValue()}
+        level = next((level for level, settings in LEVEL_SETTINGS.items() if settings == ticked), SPEECH_LEVEL_CUSTOM)
+        self.level_choice.SetSelection(SPEECH_LEVELS.index(level))
 
     def create_shortcuts_page(self, notebook):
         """Every command with its shortcut, as one list to walk with the arrows."""
@@ -342,7 +374,7 @@ class SettingsDialog(wx.Dialog):
         if self.confirm(MSG_CONFIRM_SHORTCUTS_DEFAULTS_KEY):
             self.shortcut_table = shortcuts.defaults()
             self.show_shortcuts(self.shortcuts_list.GetSelection())
-            speak(self.i18n.get_string(MSG_SHORTCUTS_DEFAULTS_KEY))
+            say(self.i18n.get_string(MSG_SHORTCUTS_DEFAULTS_KEY), FEEDBACK_CONFIRM)
 
     def on_check_shortcuts(self, event):
         """Look again at what other programs on this computer hold, and say what was found."""
@@ -430,7 +462,7 @@ class SettingsDialog(wx.Dialog):
             return
         self.sound_changes[name] = draft
         self.show_sounds(SOUND_NAMES.index(name))
-        speak(self.i18n.get_string(MSG_SOUND_CHOSEN_FORMAT_KEY).format(file=os.path.basename(path)))
+        say(self.i18n.get_string(MSG_SOUND_CHOSEN_FORMAT_KEY).format(file=os.path.basename(path)), FEEDBACK_CONFIRM)
         sounds.play_file(draft)
 
     def on_test_sound(self, event):
@@ -449,7 +481,7 @@ class SettingsDialog(wx.Dialog):
         name = self.selected_sound()
         self.sound_changes[name] = None
         self.show_sounds(SOUND_NAMES.index(name))
-        speak(self.i18n.get_string(MSG_SOUND_DEFAULT_KEY))
+        say(self.i18n.get_string(MSG_SOUND_DEFAULT_KEY), FEEDBACK_CONFIRM)
 
     def Destroy(self):
         if self.sound_drafts_dir is not None:
@@ -553,10 +585,10 @@ class SettingsDialog(wx.Dialog):
         """Ask Gemini whether it takes the key as typed, before it is saved; the answer is spoken."""
         api_key = self.gemini_key_input.GetValue().strip()
         if not api_key:
-            speak(self.i18n.get_string(MSG_GEMINI_KEY_EMPTY_KEY))
+            say(self.i18n.get_string(MSG_GEMINI_KEY_EMPTY_KEY), FEEDBACK_UNAVAILABLE)
             return
         self.gemini_test_btn.Disable()
-        speak(self.i18n.get_string(MSG_GEMINI_KEY_TESTING_KEY))
+        say(self.i18n.get_string(MSG_GEMINI_KEY_TESTING_KEY), FEEDBACK_WAITING)
 
         def work():
             try:
@@ -571,12 +603,12 @@ class SettingsDialog(wx.Dialog):
         if not self:
             return
         self.gemini_test_btn.Enable()
-        speak(self.i18n.get_string(answer_key))
+        say(self.i18n.get_string(answer_key), FEEDBACK_RESULT)
 
     def on_proxy(self, event):
         with ProxyDialog(self, self.i18n, self.settings, self.telegram_manager) as proxy_dialog:
             if proxy_dialog.ShowModal() == wx.ID_OK:
-                speak(self.i18n.get_string(MSG_PROXY_SAVED_KEY))
+                say(self.i18n.get_string(MSG_PROXY_SAVED_KEY), FEEDBACK_CONFIRM)
 
     def chosen(self, setting):
         """What a drop-down of the dialog is set to now, saved or not."""
@@ -708,13 +740,13 @@ class SettingsDialog(wx.Dialog):
 
     def set_photo(self, path):
         self.telegram_manager.set_profile_photo(
-            path, self.on_account_result(lambda result: speak(self.i18n.get_string(MSG_PHOTO_SET_KEY)))
+            path, self.on_account_result(lambda result: say(self.i18n.get_string(MSG_PHOTO_SET_KEY), FEEDBACK_RESULT))
         )
 
     def on_delete_photo(self, event):
         if self.confirm(MSG_CONFIRM_DELETE_PHOTO_KEY):
             self.telegram_manager.delete_profile_photo(self.on_account_result(
-                lambda deleted: speak(self.i18n.get_string(MSG_PHOTO_DELETED_KEY if deleted else MSG_NO_PHOTO_KEY))
+                lambda deleted: say(self.i18n.get_string(MSG_PHOTO_DELETED_KEY if deleted else MSG_NO_PHOTO_KEY), FEEDBACK_RESULT)
             ))
 
     def on_two_step(self, event):
@@ -950,7 +982,7 @@ class SettingsDialog(wx.Dialog):
                 wx.OK | wx.ICON_ERROR, self
             )
             return
-        speak(self.i18n.get_string(MSG_SESSION_ENDED_KEY))
+        say(self.i18n.get_string(MSG_SESSION_ENDED_KEY), FEEDBACK_RESULT)
         self.load_sessions()
 
     def apply_app_settings(self):

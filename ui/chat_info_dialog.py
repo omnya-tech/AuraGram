@@ -1,8 +1,9 @@
 import wx
 from ui.layout import prepare_window
 from ui.member_row import member_row
-from core.speech import speak
+from core.speech import speak, say
 from core.constants import (
+    FEEDBACK_CONFIRM, FEEDBACK_COUNT,
     APP_TITLE_KEY, MSG_LOADING_KEY, STATUS_READY_KEY, CHAT_KIND_USER, CHAT_KIND_GROUP, CHAT_KIND_SUPERGROUP,
     CHAT_KIND_CHANNEL, INFO_TITLE_FORMAT_KEY, INFO_SUMMARY_LABEL_KEY, INFO_KIND_FORMAT_KEY,
     INFO_USERNAME_FORMAT_KEY, INFO_MEMBERS_COUNT_FORMAT_KEY, INFO_ROLE_MANAGER_KEY, INFO_ROLE_VIEWER_KEY,
@@ -135,7 +136,7 @@ class ChatInfoDialog(wx.Dialog):
         if self.invite_link and wx.TheClipboard.Open():
             wx.TheClipboard.SetData(wx.TextDataObject(self.invite_link))
             wx.TheClipboard.Close()
-            speak(self.i18n.get_string(MSG_INVITE_COPIED_KEY))
+            say(self.i18n.get_string(MSG_INVITE_COPIED_KEY), FEEDBACK_CONFIRM)
 
     def load_members(self):
         self.members_list.Set([self.i18n.get_string(MSG_LOADING_KEY)])
@@ -150,7 +151,7 @@ class ChatInfoDialog(wx.Dialog):
         self.members_list.Set([self.format_member(member) for member in members])
         if members:
             self.members_list.SetSelection(0)
-        speak(self.i18n.get_string(INFO_MEMBERS_FOUND_FORMAT_KEY).format(count=len(members)))
+        say(self.i18n.get_string(INFO_MEMBERS_FOUND_FORMAT_KEY).format(count=len(members)), FEEDBACK_COUNT)
 
     def format_member(self, member):
         return member_row(self, self.i18n, member)

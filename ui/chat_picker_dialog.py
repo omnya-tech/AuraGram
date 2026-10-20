@@ -1,8 +1,9 @@
 import wx
-from core.speech import speak
+from core.speech import speak, say
 from ui.layout import prepare_window
 from ui.type_ahead import TypeAhead
 from core.constants import (
+    FEEDBACK_COUNT,
     APP_TITLE_KEY, CHAT_PICKER_SEARCH_LABEL_KEY, CHAT_PICKER_LIST_LABEL_KEY, MSG_CHAT_PICKER_COUNT_FORMAT_KEY,
     MSG_CHAT_PICKER_NONE_KEY, CHAT_PICKER_SPEAK_DELAY_MS, CHAT_PICKER_HINT_KEY
 )
@@ -73,10 +74,10 @@ class ChatPickerDialog(wx.Dialog):
 
     def say_count(self):
         if self:
-            speak(
+            say(
                 self.i18n.get_string(MSG_CHAT_PICKER_COUNT_FORMAT_KEY).format(count=len(self.shown)) if self.shown
                 else self.i18n.get_string(MSG_CHAT_PICKER_NONE_KEY)
-            )
+            , FEEDBACK_COUNT)
 
     def on_tick(self, event):
         index = self.shown[event.GetInt()]

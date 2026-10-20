@@ -1,9 +1,11 @@
 import wx
 from core import global_search
-from core.speech import speak
+from core.speech import speak, say
 from ui.layout import prepare_window
 from ui.type_ahead import TypeAhead
 from core.constants import (
+    FEEDBACK_COUNT,
+    FEEDBACK_RESULT, FEEDBACK_UNAVAILABLE, FEEDBACK_WAITING,
     GLOBAL_SEARCH_TITLE_KEY, GLOBAL_SEARCH_LABEL_KEY, GLOBAL_SEARCH_RESULTS_LABEL_KEY, BTN_SEARCH_KEY,
     BTN_OPEN_KEY, BTN_JOIN_KEY, BTN_MORE_RESULTS_KEY, MSG_GLOBAL_SEARCH_EMPTY_KEY, MSG_GLOBAL_SEARCH_COUNT_FORMAT_KEY,
     MSG_GLOBAL_SEARCH_MORE_FORMAT_KEY, MSG_GLOBAL_SEARCH_NO_MORE_KEY, MSG_SEARCHING_KEY, SEARCH_ROW_MEMBERS_FORMAT_KEY,
@@ -115,13 +117,13 @@ class GlobalSearchDialog(wx.Dialog):
             if queries:
                 self.busy = True
                 self.update_buttons()
-                speak(self.i18n.get_string(MSG_SEARCHING_KEY))
+                say(self.i18n.get_string(MSG_SEARCHING_KEY), FEEDBACK_WAITING)
                 self.telegram_manager.search_public(
                     queries, lambda chats, error_key: wx.CallAfter(self.on_found, chats, error_key)
                 )
                 return
         self.update_buttons()
-        speak(self.i18n.get_string(MSG_GLOBAL_SEARCH_NO_MORE_KEY))
+        say(self.i18n.get_string(MSG_GLOBAL_SEARCH_NO_MORE_KEY), FEEDBACK_UNAVAILABLE)
 
     def on_found(self, chats, error_key):
         if not self:
@@ -168,7 +170,7 @@ class GlobalSearchDialog(wx.Dialog):
             self.results_list.SetSelection(self.results.index(selected) if selected in self.results else 0)
         self.update_buttons()
         self.count_label.SetLabel(text)
-        speak(text)
+        say(text, FEEDBACK_COUNT)
 
     def on_filter_changed(self):
         if not self.found:
@@ -221,10 +223,10 @@ class GlobalSearchDialog(wx.Dialog):
         if chat is None or self.busy:
             return
         if chat["category"] not in (CATEGORY_BROADCASTS, CATEGORY_GROUPS):
-            speak(self.i18n.get_string(MSG_CANNOT_JOIN_PERSON_KEY))
+            say(self.i18n.get_string(MSG_CANNOT_JOIN_PERSON_KEY), FEEDBACK_UNAVAILABLE)
             return
         if chat["joined"]:
-            speak(self.i18n.get_string(MSG_ALREADY_JOINED_KEY))
+            say(self.i18n.get_string(MSG_ALREADY_JOINED_KEY), FEEDBACK_UNAVAILABLE)
             return
         self.busy = True
         self.update_buttons()
@@ -245,4 +247,4 @@ class GlobalSearchDialog(wx.Dialog):
         index = self.results.index(chat)
         self.results_list.SetString(index, self.row(chat))
         self.on_joined(chat)
-        speak(self.i18n.get_string(MSG_JOINED_FORMAT_KEY).format(title=chat["title"]))
+        say(self.i18n.get_string(MSG_JOINED_FORMAT_KEY).format(title=chat["title"]), FEEDBACK_RESULT)

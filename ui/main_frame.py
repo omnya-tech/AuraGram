@@ -1,9 +1,13 @@
 import os
 import threading
 import wx
-from core import audio, diagnostics, key_conflicts, shortcut_guide, shortcuts, sounds, updates
+from core import audio, diagnostics, key_conflicts, shortcut_guide, shortcuts, sounds, speech, updates
 from core.speech import speak
 from core.settings import (
+    SETTING_ACCOUNTS, SETTING_CURRENT_ACCOUNT,
+    SPEECH_LEVEL_ASKED,
+    FEEDBACK_SETTINGS,
+    SETTING_FAVORITES,
     SETTING_KEEP_IN_BACKGROUND, SETTING_LARGE_TEXT, SETTING_THEME, SETTING_SPEAK_FEEDBACK,
     SETTING_SIMPLE_TAB, SETTING_SHOW_PREVIEW, SETTING_CHECK_UPDATES, SETTING_LANGUAGE, SETTING_ENTER_SENDS,
     SHORTCUT_CONFLICTS_TOLD, SETTING_SOUND_VOLUME
@@ -17,6 +21,14 @@ from ui.settings_dialog import SettingsDialog
 from core.chat_views import build_views
 from ui.text_dialog import TextDialog
 from core.constants import (
+    MENU_ACCOUNTS_KEY, MSG_CHOOSE_ACCOUNT_KEY, ACCOUNT_ROW_FORMAT_KEY, ACCOUNT_CURRENT_FORMAT_KEY, ACCOUNT_UNNAMED_KEY,
+    ACCOUNT_ADD_KEY,
+    MSG_CHOOSE_SPEECH_LEVEL_KEY, MSG_SPEECH_LEVEL_SET_FORMAT_KEY, MENU_EXPORT_SETTINGS_KEY, MENU_IMPORT_SETTINGS_KEY,
+    MSG_EXPORT_SECRETS_KEY, MSG_SETTINGS_EXPORTED_FORMAT_KEY, MSG_CONFIRM_IMPORT_SETTINGS_KEY, MSG_SETTINGS_IMPORTED_KEY,
+    ERR_SETTINGS_FILE_KEY, SETTINGS_FILE_WILDCARD_KEY, SETTINGS_BACKUP_NAME, SPEECH_LEVELS, SPEECH_LEVEL_CUSTOM,
+    FEEDBACK_RESULT,
+    FEEDBACK_RESULT,
+    FEEDBACK_CONFIRM, FEEDBACK_RESULT, FEEDBACK_NAVIGATION, FEEDBACK_PERCENT,
     MENU_READ_MESSAGE_KEY, MENU_HELP_KEY, MENU_SHORTCUTS_KEY, SHORTCUTS_TITLE_KEY, SHORTCUTS_TEXT_KEY,
     MENU_MARK_KEY, MENU_UNMARK_ALL_KEY, MENU_NEW_GROUP_KEY, MENU_NEW_CHANNEL_KEY, MESSAGE_VIEWS,
     MENU_CHAT_VIEWS_KEY, MENU_NEW_POLL_KEY, MENU_REACT_KEY, MENU_SCHEDULE_KEY,
@@ -35,9 +47,9 @@ from core.constants import (
     APP_TITLE_KEY, MAIN_TITLE_KEY, DIALOGS_LABEL_KEY, MESSAGES_LABEL_KEY, MESSAGE_INPUT_LABEL_KEY,
     BTN_SEND_MESSAGE_KEY, STATUS_READY_KEY, MENU_FILE_KEY, MENU_LOGOUT_KEY, MENU_EXIT_KEY,
     MSG_CONFIRM_LOGOUT_KEY, MSG_LANGUAGE_RESTART_KEY, CONTEXT_CUT_KEY, CONTEXT_PASTE_KEY, CONTEXT_COPY_KEY,
-    BTN_SELECT_ALL_KEY, INPUT_MENU_TITLE_KEY, ATTACH_COMMANDS, MESSAGE_MENU_TITLE_KEY, MENU_GO_KEY, MENU_GO_CHATS_KEY, MENU_GO_MESSAGES_KEY,
+    BTN_SELECT_ALL_KEY, INPUT_MENU_TITLE_KEY, MENU_BOT_START_KEY, MENU_BOT_COMMANDS_KEY, MENU_BOT_KEYBOARD_KEY, ATTACH_COMMANDS, MESSAGE_MENU_TITLE_KEY, MENU_GO_KEY, MENU_GO_CHATS_KEY, MENU_GO_MESSAGES_KEY,
     MENU_GO_INPUT_KEY, MENU_NEXT_UNREAD_KEY, MENU_NEXT_VIEW_KEY, MENU_PREVIOUS_VIEW_KEY,
-    MENU_CHAT_INFO_KEY, MENU_CHAT_MANAGE_KEY, MENU_CHAT_READ_KEY, MENU_CHAT_PIN_KEY, MENU_CHAT_MUTE_KEY, MENU_CHAT_ARCHIVE_KEY,
+    MENU_CHAT_INFO_KEY, MENU_CHAT_MANAGE_KEY, MENU_CHAT_READ_KEY, MENU_CHAT_FAVORITE_KEY, MENU_CHAT_PIN_KEY, MENU_CHAT_MUTE_KEY, MENU_CHAT_ARCHIVE_KEY,
     MENU_CHAT_CLEAR_KEY, MENU_CHAT_LEAVE_KEY, MENU_COPY_KEY, MENU_COPY_LINK_KEY, MENU_OPEN_MEDIA_KEY,
     MENU_SAVE_AS_KEY, MENU_OPEN_DOWNLOADS_KEY, MENU_CONNECTION_KEY, DOWNLOADS_DIR,
     TRAY_STATUS_FORMAT_KEY, CONNECTION_STATE_KEYS, CONNECTION_CONNECTING, MENU_BUTTONS_KEY, MENU_SAVED_KEY,
@@ -82,7 +94,8 @@ class MainFrame(
     """The main window: builds the widgets and menus, holds the state every part
     shares, and offers the helpers the mixins rely on (status, errors, results)."""
 
-    def __init__(self, i18n, telegram_manager, settings, on_logout, on_quit=None, on_hotkey_changed=None):
+    def __init__(self, i18n, telegram_manager, settings, on_logout, on_quit=None, on_hotkey_changed=None,
+                 on_switch_account=None):
         super().__init__(None, title=i18n.get_string(MAIN_TITLE_KEY), size=MAIN_WINDOW_SIZE)
         prepare_window(self, i18n)
         self.SetMinSize(MAIN_WINDOW_MIN_SIZE)
@@ -95,6 +108,8 @@ class MainFrame(
         # Called with the shortcut that brings the window back from any program, when the user
         # changes it; answers whether Windows gave it. Without it, nothing listens for that shortcut.
         self.on_hotkey_changed = on_hotkey_changed
+        # Called with an account's id, or None for a new one, to go to it; without it there is one account.
+        self.on_switch_account = on_switch_account
         self.is_quitting = False
         # Menu command -> its entry in the menu bar, and every shortcut those entries answer to.
         self.menu_items = {}
@@ -102,6 +117,10 @@ class MainFrame(
         # Shortcut -> handler, for the commands of the message's and the writing field's menus, which have
         # no place in the menu bar.
         self.menu_less_shortcuts = {}
+        # Set once "@name words" turned out to be no inline bot, so Enter sends it as typed.
+        self.inline_checked = False
+        # Bot chat id -> what a start link said to start it with, until it is started.
+        self.bot_start_params = {}
         # Files from outside the app, waiting for the chat list to load before asking where they go.
         self.shared_paths = []
         # Whether this run has already looked for shortcuts that other programs hold.
@@ -109,7 +128,11 @@ class MainFrame(
         # Every loaded chat, and the subset the current view shows in the list.
         self.all_dialogs = []
         self.dialogs = []
-        self.views = build_views(i18n, [])
+        # The ids of the chats put among the favourites; the same set the Favourites view looks into.
+        self.favorites = set(settings.get(SETTING_FAVORITES))
+        self.views = build_views(i18n, [], self.favorites)
+        # Every remark of the app, here or in its windows, asks the settings first.
+        speech.set_feedback_rule(self.feedback_wanted)
         # The account's contacts, as last loaded for the view that lists them.
         self.contacts = []
         self.view_index = 0
@@ -438,6 +461,10 @@ class MainFrame(
             (MENU_MENTION_KEY, self.on_mention_menu),
             (MENU_SEND_AS_KEY, self.on_send_as_menu),
             None,
+            (MENU_BOT_START_KEY, self.on_bot_start_menu),
+            (MENU_BOT_COMMANDS_KEY, self.on_bot_commands_menu),
+            (MENU_BOT_KEYBOARD_KEY, self.on_bot_keyboard_menu),
+            None,
             (MENU_CANCEL_UPLOAD_KEY, self.on_cancel_upload_menu),
         )
 
@@ -575,6 +602,9 @@ class MainFrame(
                 (MENU_DOWNLOAD_FILES_KEY, self.on_download_files_menu),
                 (MENU_DOWNLOAD_STATUS_KEY, self.on_download_status_menu),
                 (MENU_CANCEL_DOWNLOADS_KEY, self.on_cancel_downloads_menu),
+                (MENU_ACCOUNTS_KEY, self.on_accounts_menu),
+                (MENU_EXPORT_SETTINGS_KEY, self.on_export_settings_menu),
+                (MENU_IMPORT_SETTINGS_KEY, self.on_import_settings_menu),
                 (MENU_LOGOUT_KEY, self.on_logout_menu),
                 None,
                 (MENU_EXIT_KEY, self.on_exit_menu, wx.ID_EXIT),
@@ -597,6 +627,7 @@ class MainFrame(
                 (MENU_EXPORT_CHAT_KEY, lambda event: on_chat(self.on_export_chat)),
                 (MENU_CHAT_READ_KEY, lambda event: on_chat(self.toggle_dialog_read)),
                 (MENU_CHAT_PIN_KEY, lambda event: on_chat(lambda chat: self.set_chat_pinned(chat, not chat["pinned"]))),
+                (MENU_CHAT_FAVORITE_KEY, lambda event: on_chat(self.toggle_favorite)),
                 (MENU_CHAT_MUTE_KEY, lambda event: on_chat(self.toggle_dialog_muted)),
                 (MENU_CHAT_TONE_KEY, lambda event: on_chat(self.on_chat_tone)),
                 (MENU_CHAT_ARCHIVE_KEY, lambda event: on_chat(lambda chat: self.set_chat_archived(chat, not chat["archived"]))),
@@ -730,7 +761,7 @@ class MainFrame(
                 self.announce(
                     self.i18n.get_string(ERR_UPDATE_CHECK_KEY) if release is None
                     else self.i18n.get_string(MSG_UP_TO_DATE_FORMAT_KEY).format(current=APP_VERSION)
-                )
+                , FEEDBACK_RESULT)
             return
         self.offer_update(release)
 
@@ -781,7 +812,7 @@ class MainFrame(
         text = self.i18n.get_string(MSG_UPDATE_DOWNLOADING_FORMAT_KEY).format(percent=percent)
         # Spoken now and then, not at every percent: the chats stay usable meanwhile.
         if percent % UPDATE_PROGRESS_STEP == 0 and percent < 100:
-            self.announce(text)
+            self.announce(text, FEEDBACK_PERCENT)
         else:
             self.SetStatusText(text)
 
@@ -960,7 +991,7 @@ class MainFrame(
         except OSError:
             self.show_error(ERR_GUIDE_EXPORT_KEY)
             return None
-        self.announce(self.i18n.get_string(MSG_GUIDE_EXPORTED_FORMAT_KEY).format(path=path))
+        self.announce(self.i18n.get_string(MSG_GUIDE_EXPORTED_FORMAT_KEY).format(path=path), FEEDBACK_RESULT)
         return path
 
     def on_about_menu(self, event):
@@ -1011,14 +1042,17 @@ class MainFrame(
             self.PopupMenu(menu)
         menu.Destroy()
 
-    def notify(self, key):
-        """Short feedback that needs no dialog: shown in the status bar and spoken."""
-        self.announce(self.i18n.get_string(key))
+    def notify(self, key, kind=None):
+        """Short feedback that needs no dialog: shown in the status bar, and spoken if that kind is wanted."""
+        self.announce(self.i18n.get_string(key), kind or speech.kind_of(key))
 
-    def announce(self, text):
+    def announce(self, text, kind=FEEDBACK_CONFIRM):
         self.SetStatusText(text)
-        if self.settings.get(SETTING_SPEAK_FEEDBACK):
-            speak(text)
+        speech.say(text, kind)
+
+    def feedback_wanted(self, kind):
+        """What the settings say of a kind of remark; the switch for all of them comes first."""
+        return self.settings.get(SETTING_SPEAK_FEEDBACK) and self.settings.get(FEEDBACK_SETTINGS[kind])
 
     def on_close(self, event):
         # Closing the window only hides it, so messages keep arriving; a real
@@ -1061,6 +1095,92 @@ class MainFrame(
         self.Raise()
         self.on_brought_forward()
         self.check_updates_once()
+
+    def on_accounts_menu(self, event):
+        """The accounts on this computer, the one in use marked, then a way to add one."""
+        text = self.i18n.get_string
+        current = self.settings.get(SETTING_CURRENT_ACCOUNT)
+        accounts = self.settings.get(SETTING_ACCOUNTS)
+        if current not in [account["id"] for account in accounts]:
+            accounts = accounts + [{"id": current, "name": "", "phone": ""}]
+        rows = []
+        for account in accounts:
+            row = text(ACCOUNT_ROW_FORMAT_KEY).format(**account) if account["name"] else text(ACCOUNT_UNNAMED_KEY)
+            rows.append(text(ACCOUNT_CURRENT_FORMAT_KEY).format(row=row) if account["id"] == current else row)
+        index = self.pick(text(MSG_CHOOSE_ACCOUNT_KEY), rows + [text(ACCOUNT_ADD_KEY)])
+        if index is None or self.on_switch_account is None:
+            return
+        if index == len(accounts):
+            self.on_switch_account(None)
+        elif accounts[index]["id"] != current:
+            self.on_switch_account(accounts[index]["id"])
+
+    def ask_speech_level_once(self):
+        """The first time the window opens: how much the app should say, so nobody has to find the setting."""
+        if not self or self.settings.get(SPEECH_LEVEL_ASKED):
+            return
+        self.settings.set(SPEECH_LEVEL_ASKED, True)
+        levels = [level for level in SPEECH_LEVELS if level != SPEECH_LEVEL_CUSTOM]
+        index = self.pick(self.i18n.get_string(MSG_CHOOSE_SPEECH_LEVEL_KEY), [self.i18n.get_string(level) for level in levels])
+        if index is not None:
+            self.settings.apply_level(levels[index])
+        self.settings.save()
+        if index is not None:
+            self.announce(self.i18n.get_string(MSG_SPEECH_LEVEL_SET_FORMAT_KEY).format(
+                level=self.i18n.get_string(levels[index])
+            ), FEEDBACK_RESULT)
+
+    def on_export_settings_menu(self, event):
+        with wx.FileDialog(
+            self, self.i18n.get_string(MENU_EXPORT_SETTINGS_KEY), defaultFile=SETTINGS_BACKUP_NAME,
+            wildcard=self.i18n.get_string(SETTINGS_FILE_WILDCARD_KEY), style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT
+        ) as file_dialog:
+            if file_dialog.ShowModal() != wx.ID_OK:
+                return
+            path = file_dialog.GetPath()
+        with_secrets = wx.MessageBox(
+            self.i18n.get_string(MSG_EXPORT_SECRETS_KEY), self.i18n.get_string(APP_TITLE_KEY),
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION, self
+        ) == wx.YES
+        try:
+            self.settings.export_to(path, with_secrets)
+        except OSError:
+            self.show_error(ERR_SETTINGS_FILE_KEY)
+            return
+        self.announce(self.i18n.get_string(MSG_SETTINGS_EXPORTED_FORMAT_KEY).format(path=path), FEEDBACK_RESULT)
+
+    def on_import_settings_menu(self, event):
+        with wx.FileDialog(
+            self, self.i18n.get_string(MENU_IMPORT_SETTINGS_KEY),
+            wildcard=self.i18n.get_string(SETTINGS_FILE_WILDCARD_KEY), style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST
+        ) as file_dialog:
+            if file_dialog.ShowModal() != wx.ID_OK:
+                return
+            path = file_dialog.GetPath()
+        if not self.confirm(self.i18n.get_string(MSG_CONFIRM_IMPORT_SETTINGS_KEY)):
+            return
+        hotkey, language = self.show_window_shortcut(), self.settings.get(SETTING_LANGUAGE)
+        if not self.settings.import_from(path):
+            self.show_error(ERR_SETTINGS_FILE_KEY)
+            return
+        self.settings.save()
+        # The same favourites set the Favourites view looks into, so it changes in place.
+        self.favorites.clear()
+        self.favorites.update(self.settings.get(SETTING_FAVORITES))
+        self.render_dialogs()
+        self.apply_simplicity()
+        self.apply_text_size()
+        self.apply_colours()
+        self.apply_shortcuts()
+        new_hotkey = self.show_window_shortcut()
+        if new_hotkey != hotkey and self.on_hotkey_changed is not None:
+            self.on_hotkey_changed(new_hotkey)
+        self.announce(self.i18n.get_string(MSG_SETTINGS_IMPORTED_KEY), FEEDBACK_RESULT)
+        if self.settings.get(SETTING_LANGUAGE) != language:
+            wx.MessageBox(
+                self.i18n.get_string(MSG_LANGUAGE_RESTART_KEY), self.i18n.get_string(APP_TITLE_KEY),
+                wx.OK | wx.ICON_INFORMATION, self
+            )
 
     def on_logout_menu(self, event):
         answer = wx.MessageBox(

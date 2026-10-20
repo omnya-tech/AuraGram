@@ -115,6 +115,7 @@ class FakeTelegramClient:
     join_requests = []  # users waiting to be let into a chat
     revoked_invites = 0  # how many revoked links GetExportedChatInvitesRequest counts
     admin_log = []    # events iter_admin_log yields
+    inline_results = {}  # bot username -> what its inline query answers
     link_joiners = {}  # (link, waiting for approval) -> users who came by it
     emoji_sets = []   # titles of the emoji packs added to the account
     stats = None      # what the statistics requests answer; None for a chat that has none
@@ -152,6 +153,7 @@ class FakeTelegramClient:
         cls.join_requests = []
         cls.revoked_invites = 0
         cls.admin_log = []
+        cls.inline_results = {}
         cls.link_joiners = {}
         cls.emoji_sets = []
         cls.discussion_groups = []
@@ -345,6 +347,10 @@ class FakeTelegramClient:
                 getattr(member, "participant", None), (types.ChannelParticipantAdmin, types.ChannelParticipantCreator)
             )]
         return [member for member in self.members if search.lower() in member.first_name.lower()]
+
+    async def inline_query(self, bot, query, entity=None):
+        self.calls.append(("inline_query", bot.username, query))
+        return list(self.inline_results.get(bot.username, []))
 
     async def iter_admin_log(self, entity, limit=None, **narrowed):
         self.calls.append(("admin_log", narrowed))
@@ -627,7 +633,9 @@ class WindowTestCase(unittest.TestCase):
         import importlib
         import ui
         modules = [importlib.import_module("ui." + info.name) for info in pkgutil.iter_modules(ui.__path__)]
-        return [module for module in modules if hasattr(module, "speak")]
+        # And the speech module itself: the app's remarks of every kind go through its say().
+        import core.speech
+        return [module for module in modules if hasattr(module, "speak")] + [core.speech]
 
     def destroy_frame(self):
         if self.frame:

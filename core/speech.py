@@ -1,3 +1,7 @@
+from core.constants import (
+    UNAVAILABLE_KEY_STARTS, WAITING_KEYS, RESULT_KEYS, NAVIGATION_KEYS, FEEDBACK_UNAVAILABLE, FEEDBACK_WAITING,
+    FEEDBACK_RESULT, FEEDBACK_NAVIGATION, FEEDBACK_CONFIRM,
+)
 try:
     from accessible_output2.outputs.auto import Auto
     _auto = Auto()
@@ -36,3 +40,25 @@ def braille(text):
             output.braille(text)
     except Exception:
         pass
+
+
+# Whether a kind of remark (FEEDBACK_*) is to be said; set by the main window from the settings.
+_allowed = lambda kind: True
+
+def set_feedback_rule(allowed):
+    global _allowed
+    _allowed = allowed
+
+def say(text, kind):
+    """Speak a remark of the app's own, unless the user turned that kind of remark off."""
+    if _allowed(kind):
+        speak(text)
+
+def kind_of(key):
+    """The kind of remark a message key makes, going by its name."""
+    if key.startswith(UNAVAILABLE_KEY_STARTS):
+        return FEEDBACK_UNAVAILABLE
+    for kind, keys in ((FEEDBACK_WAITING, WAITING_KEYS), (FEEDBACK_RESULT, RESULT_KEYS), (FEEDBACK_NAVIGATION, NAVIGATION_KEYS)):
+        if key in keys:
+            return kind
+    return FEEDBACK_CONFIRM

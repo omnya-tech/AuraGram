@@ -1,8 +1,9 @@
 import wx
 from ui.layout import prepare_window
 from ui.text_dialog import TextDialog
-from core.speech import speak
+from core.speech import speak, say
 from core.constants import (
+    FEEDBACK_CONFIRM, FEEDBACK_UNAVAILABLE,
     APP_TITLE_KEY, MSG_LOADING_KEY, BTN_CLOSE_KEY, MSG_INVITE_COPIED_KEY,
     INVITE_LINKS_TITLE_FORMAT_KEY, INVITE_LINKS_LABEL_KEY, INVITE_LINK_FORMAT_KEY,
     INVITE_LINK_MAIN_KEY, INVITE_LINK_UNNAMED_KEY, INVITE_LINK_APPROVAL_SUFFIX_KEY,
@@ -106,7 +107,7 @@ class InviteLinksDialog(wx.Dialog):
             return
         wx.TheClipboard.SetData(wx.TextDataObject(link["link"]))
         wx.TheClipboard.Close()
-        speak(self.i18n.get_string(MSG_INVITE_COPIED_KEY))
+        say(self.i18n.get_string(MSG_INVITE_COPIED_KEY), FEEDBACK_CONFIRM)
 
     def on_joiners(self, event):
         link = self.selected_link()
@@ -184,7 +185,7 @@ class InviteLinksDialog(wx.Dialog):
 
     def confirm_delete_revoked(self, count):
         if not count:
-            speak(self.i18n.get_string(MSG_NO_REVOKED_KEY))
+            say(self.i18n.get_string(MSG_NO_REVOKED_KEY), FEEDBACK_UNAVAILABLE)
             return
         answer = wx.MessageBox(
             self.i18n.get_string(MSG_CONFIRM_DELETE_REVOKED_FORMAT_KEY).format(count=count),
@@ -196,5 +197,5 @@ class InviteLinksDialog(wx.Dialog):
             )
 
     def on_changed(self, message_key):
-        speak(self.i18n.get_string(message_key))
+        say(self.i18n.get_string(message_key), FEEDBACK_CONFIRM)
         self.load_links()

@@ -7,6 +7,8 @@ from core.settings import (
 )
 from ui.download_files_dialog import DownloadFilesDialog
 from core.constants import (
+    FEEDBACK_RESULT,
+    FEEDBACK_CONFIRM,
     DOWNLOAD_KINDS, MSG_FILE_DOWNLOADED_FORMAT_KEY, SOUND_SENT,
     DOWNLOADS_DIR, FOLDER_NAME_FORBIDDEN, DOWNLOAD_FILE_ROW_FORMAT_KEY, MSG_LOADING_FILES_KEY, MSG_NO_FILES_KEY,
     MSG_NO_CHAT_SELECTED_KEY, MSG_DOWNLOADS_QUEUED_FORMAT_KEY, MSG_DOWNLOAD_QUEUE_PROGRESS_FORMAT_KEY,
@@ -69,7 +71,7 @@ class DownloadsMixin:
             folder = os.path.join(folder, folder_name(chat["title"]))
         self.download_queue.extend({"chat_id": chat["id"], "folder": folder, "message": message} for message in chosen)
         self.download_total += len(chosen)
-        self.announce(self.i18n.get_string(MSG_DOWNLOADS_QUEUED_FORMAT_KEY).format(count=len(chosen)))
+        self.announce(self.i18n.get_string(MSG_DOWNLOADS_QUEUED_FORMAT_KEY).format(count=len(chosen)), FEEDBACK_CONFIRM)
         if self.download_current is None:
             self.download_next()
 
@@ -112,7 +114,7 @@ class DownloadsMixin:
             message = self.download_current["message"]
             self.announce(self.i18n.get_string(MSG_FILE_DOWNLOADED_FORMAT_KEY).format(
                 name=message["file"]["name"] or self.i18n.get_string(message["media"])
-            ))
+            ), FEEDBACK_RESULT)
         self.download_current = None
         self.download_next()
 
@@ -129,7 +131,7 @@ class DownloadsMixin:
             )
         else:
             text = self.i18n.get_string(MSG_DOWNLOADS_DONE_FORMAT_KEY).format(total=total)
-        self.announce(text)
+        self.announce(text, FEEDBACK_RESULT)
 
     def show_download_status(self, spoken):
         """Put where the queue is on the status bar; `spoken` says it out loud too."""
@@ -143,7 +145,7 @@ class DownloadsMixin:
             name=message["file"]["name"] or self.i18n.get_string(message["media"]), percent=self.download_percent
         )
         if spoken:
-            self.announce(text)
+            self.announce(text, FEEDBACK_RESULT)
         else:
             self.SetStatusText(text)
 

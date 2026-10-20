@@ -1,5 +1,6 @@
 import asyncio
 import datetime
+import urllib.parse
 import logging
 import os
 import platform
@@ -25,6 +26,8 @@ from telethon.utils import get_display_name, get_input_peer, get_peer_id, parse_
 from core.config import load_credentials
 from core.proxy import client_arguments
 from core.constants import (
+    SERVICE_GROUP_CREATE_FORMAT_KEY,
+    BUTTON_NEEDS_PHONE, BUTTON_NEEDS_LOCATION, BOT_START_COMMAND,
     MEDIA_PERMISSIONS, SENDING_PERMISSIONS, SETTING_ANTISPAM, SETTING_HIDE_MEMBERS, SETTING_SIGNATURE_PROFILES,
     SETTING_AUTOTRANSLATION, SETTING_NAME_COLOR, SETTING_PROFILE_COLOR, ANTISPAM_USER_ID,
     SERVICE_KEYS, SERVICE_JOINED_KEY, SERVICE_ADDED_FORMAT_KEY, SERVICE_LEFT_KEY, SERVICE_REMOVED_FORMAT_KEY,
@@ -127,9 +130,11 @@ class TelegramManager(threading.Thread):
     request failed.
     """
 
-    def __init__(self, ui_callback):
+    def __init__(self, ui_callback, session_name=SESSION_NAME):
         super().__init__(daemon=True)
         self.ui_callback = ui_callback
+        # The account's own session file: several accounts each have one.
+        self.session_name = session_name
         self.api_id, self.api_hash = load_credentials()
         # The language new messages are translated into; set by the app from the user's choice.
         self.translate_lang = DEFAULT_LANG
@@ -150,6 +155,8 @@ class TelegramManager(threading.Thread):
         # The admins load_admins listed, apart from the members, whose list is loaded anew more often.
         self.admin_entities = {}
         self.emoji_sets = {}
+        # What the last inline query found, to send one of them.
+        self.inline_results = []
         # user id -> (admin rights as Telegram holds them, custom title), for the same list.
         self.member_admins = {}
         # chat id -> id of the newest message of ours the other side has read, where Telegram told us.
@@ -183,7 +190,7 @@ class TelegramManager(threading.Thread):
 
     def _create_client(self):
         self.client = TelegramClient(
-            SESSION_NAME, self.api_id, self.api_hash,
+            self.session_name, self.api_id, self.api_hash,
             # How the account's list of devices names this program; Telethon's own defaults say nothing of it.
             device_model=CLIENT_DEVICE_MODEL, app_version=APP_VERSION,
             system_version=CLIENT_SYSTEM_FORMAT.format(release=platform.release()),
@@ -234,6 +241,10 @@ class TelegramManager(threading.Thread):
     def load_messages(self, dialog_id, on_result, before_id=None, mark_read=True):
         """Loads the latest page of a chat, or the page before message `before_id`."""
         self._request(on_result, self._load_messages_async, dialog_id, before_id, mark_read)
+
+    def load_me(self, on_result):
+        """The result is {"name", "phone"} of the account signed in."""
+        self._request(on_result, self._load_me_async)
 
     def load_profile(self, on_result):
         """The result is the account's own first_name, last_name and about text."""
@@ -399,10 +410,35 @@ class TelegramManager(threading.Thread):
         """Leaves a group or channel; for a private chat, deletes it from this account's list."""
         self._request(on_result, self._leave_chat_async, dialog_id)
 
-    def press_button(self, dialog_id, message_id, index, on_result):
-        """Press the index-th button under a bot's message. The result is {"url", "answer"}:
-        a link the button wants opened (nothing was pressed yet), or what the bot answered, if anything."""
-        self._request(on_result, self._press_button_async, dialog_id, message_id, index)
+    def press_button(self, dialog_id, message_id, index, on_result, share_phone=False, share_location=None):
+        """Press the index-th button under a bot's message. The result is {"url", "answer", "needs"}:
+        a link the button wants opened, or what it needs first (BUTTON_NEEDS_*) - in both cases nothing was
+        pressed yet - or what the bot answered, if anything. `share_phone` and `share_location` (latitude,
+        longitude) are the user's yes to a button that asks for them."""
+        self._request(on_result, self._press_button_async, dialog_id, message_id, index, share_phone, share_location)
+
+    def load_countries(self, language, on_result):
+        """The result is Telegram's countries as [{"iso", "name", "code", "codes"}], named in `language`
+        where Telegram has the names: "code" is the country's calling code, "codes" every start of a
+        number that belongs to it (its code, or its code and a prefix where countries share a code)."""
+        self._request(on_result, self._load_countries_async, language)
+
+    def inline_query(self, dialog_id, username, query, on_result):
+        """Ask a bot that answers from any chat (@gif, @vid...) for what it has for `query`. The result is
+        [{"title", "description", "kind"}], or None if `username` is nobody who answers that way."""
+        self._request(on_result, self._inline_query_async, dialog_id, username, query)
+
+    def send_inline_result(self, dialog_id, index, on_result, reply_to=None):
+        """Send the index-th of what inline_query found, in the chat it was asked for."""
+        self._request(on_result, self._send_inline_result_async, dialog_id, index, reply_to)
+
+    def start_bot(self, dialog_id, on_result, start_param=None):
+        """Start a bot, with what a link to it carried after ?start= if it had anything."""
+        self._request(on_result, self._start_bot_async, dialog_id, start_param)
+
+    def load_bot_commands(self, dialog_id, on_result):
+        """The result is [{"command", "description"}] for the bots of a chat: the bot itself, or a group's bots."""
+        self._request(on_result, self._load_bot_commands_async, dialog_id)
 
     def open_saved_messages(self, on_result):
         """The account's chat with itself; the result is shaped like those of load_dialogs."""
@@ -1045,9 +1081,17 @@ class TelegramManager(threading.Thread):
         return list(found.values())
 
     async def _resolve_link_async(self, text):
+        # A link to a bot may carry what to start it with: t.me/name?start=..., tg://resolve?domain=name&start=...
+        start_param = (urllib.parse.parse_qs(urllib.parse.urlsplit(text.strip()).query).get("start") or [None])[0]
+        if start_param:
+            query = urllib.parse.parse_qs(urllib.parse.urlsplit(text.strip()).query)
+            text = (query.get("domain") or [text.split("?")[0]])[0]
         invite_hash, is_invite = parse_username(text)
         if not is_invite:
-            return {"chat": await self._find_chat_async(text), "invite": None}
+            chat = await self._find_chat_async(text)
+            if start_param and chat["category"] == CATEGORY_BOTS:
+                chat["start_param"] = start_param
+            return {"chat": chat, "invite": None}
         try:
             invite = await self.client(functions.messages.CheckChatInviteRequest(invite_hash))
         except FloodWaitError:
@@ -1072,7 +1116,18 @@ class TelegramManager(threading.Thread):
         result = await self.client(functions.channels.CreateChannelRequest(
             title=title, about=about, broadcast=is_channel, megagroup=not is_channel
         ))
-        entity = result.chats[0]
+        # The answer may name other chats too: the new one is the channel of that name made last.
+        made = [chat for chat in result.chats if isinstance(chat, types.Channel) and chat.title == title]
+        entity = max(made, key=lambda chat: chat.id) if made else result.chats[0]
+        try:
+            # Asked for again, so whether it is a group or a channel is as Telegram now holds it.
+            fresh = await self.client(functions.channels.GetChannelsRequest([get_input_peer(entity)]))
+            entity = next((chat for chat in fresh.chats if chat.id == entity.id), entity)
+        except (RPCError, TypeError, ValueError, AttributeError):
+            logger.warning("Could not read the new chat back", exc_info=True)
+        if isinstance(entity, types.Channel) and bool(entity.megagroup) == is_channel:
+            logger.warning("Asked for a %s, Telegram made a %s", "channel" if is_channel else "group",
+                           "group" if entity.megagroup else "channel")
         chat = self._describe_chat(entity)
         self.entities[chat["id"]] = get_input_peer(entity)
         return chat
@@ -1321,6 +1376,10 @@ class TelegramManager(threading.Thread):
         # log_out() deletes the session, so the old client cannot be reused.
         self._create_client()
         await self._connect_async()
+
+    async def _load_me_async(self):
+        me = await self.client.get_me()
+        return {"name": get_display_name(me), "phone": "+" + me.phone if getattr(me, "phone", None) else EMPTY_STRING}
 
     async def _load_profile_async(self):
         full = await self.client(functions.users.GetFullUserRequest("me"))
@@ -1822,20 +1881,103 @@ class TelegramManager(threading.Thread):
         except (AttributeError, IndexError):
             return None
 
-    async def _press_button_async(self, dialog_id, message_id, index):
+    async def _press_button_async(self, dialog_id, message_id, index, share_phone=False, share_location=None):
         message = await self.client.get_messages(self.entities[dialog_id], ids=message_id)
         button = [button for row in message.buttons or [] for button in row][index]
         url = getattr(button, "url", None)
         if url:
             # Left to the UI: a link from a bot is opened only once the user has seen where it goes.
-            return {"url": url, "answer": None}
+            return {"url": url, "answer": None, "needs": None}
+        kind = getattr(getattr(button, "button", None), "type", None)
+        # Your number or where you are goes to the bot only once you have said yes to it.
+        if isinstance(kind, types.ButtonTypeRequestPhone) and not share_phone:
+            return {"url": None, "answer": None, "needs": BUTTON_NEEDS_PHONE}
+        if isinstance(kind, types.ButtonTypeRequestGeoLocation) and share_location is None:
+            return {"url": None, "answer": None, "needs": BUTTON_NEEDS_LOCATION}
+        shared = {}
+        if share_phone:
+            shared["share_phone"] = True
+        if share_location is not None:
+            # Telethon takes the place the other way round: longitude first.
+            latitude, longitude = share_location
+            shared["share_geo"] = (longitude, latitude)
         try:
-            result = await button.click()
+            result = await button.click(**shared)
         except BotResponseTimeoutError:
             # The press went through; the bot just never answered it.
             result = None
         is_answer = isinstance(result, types.messages.BotCallbackAnswer)
-        return {"url": None, "answer": result.message if is_answer else None}
+        return {"url": None, "answer": result.message if is_answer else None, "needs": None}
+
+    async def _load_countries_async(self, language):
+        result = await self.client(functions.help.GetCountriesListRequest(lang_code=language, hash=0))
+        countries = []
+        for country in getattr(result, "countries", []):
+            if getattr(country, "hidden", False) or not country.country_codes:
+                continue
+            codes = [
+                code.country_code + prefix
+                for code in country.country_codes for prefix in (code.prefixes or [EMPTY_STRING])
+            ]
+            countries.append({
+                "iso": country.iso2, "name": getattr(country, "name", None) or country.default_name,
+                "code": country.country_codes[0].country_code, "codes": codes,
+            })
+        return sorted(countries, key=lambda country: country["name"])
+
+    async def _inline_query_async(self, dialog_id, username, query):
+        try:
+            bot = await self.client.get_entity(username)
+        except (ValueError, TypeError, RPCError):
+            return None
+        # Only bots that answer in any chat have something to say here; anyone else is a mention.
+        if not isinstance(bot, types.User) or not bot.bot or not getattr(bot, "bot_inline_placeholder", None):
+            return None
+        self.inline_results = await self.client.inline_query(bot, query, entity=self.entities[dialog_id])
+        return [
+            {
+                "title": getattr(result, "title", None) or EMPTY_STRING,
+                "description": getattr(result, "description", None) or EMPTY_STRING,
+                "kind": getattr(result, "type", None) or EMPTY_STRING,
+            }
+            for result in self.inline_results
+        ]
+
+    async def _send_inline_result_async(self, dialog_id, index, reply_to):
+        await self.inline_results[index].click(self.entities[dialog_id], reply_to=reply_to)
+
+    async def _start_bot_async(self, dialog_id, start_param):
+        entity = self.entities[dialog_id]
+        if start_param:
+            await self.client(functions.messages.StartBotRequest(
+                bot=entity, peer=entity, start_param=start_param
+            ))
+        else:
+            # What Telegram's own Start button sends when the link carried nothing.
+            await self.client.send_message(entity, BOT_START_COMMAND)
+
+    async def _load_bot_commands_async(self, dialog_id):
+        entity = await self.client.get_entity(self.entities[dialog_id])
+        if isinstance(entity, types.User):
+            full = await self.client(functions.users.GetFullUserRequest(entity))
+            infos, in_group = [getattr(full.full_user, "bot_info", None)], False
+        else:
+            if isinstance(entity, types.Channel):
+                full = await self.client(functions.channels.GetFullChannelRequest(entity))
+            else:
+                full = await self.client(functions.messages.GetFullChatRequest(entity.id))
+            infos, in_group = list(getattr(full.full_chat, "bot_info", None) or []), True
+        usernames = {user.id: getattr(user, "username", None) for user in getattr(full, "users", [])}
+        commands = []
+        for info in infos:
+            for command in getattr(info, "commands", None) or []:
+                # In a group, the bot's name goes after the command, so the right bot takes it.
+                bot = usernames.get(getattr(info, "user_id", None)) if in_group else None
+                commands.append({
+                    "command": "/" + command.command + ("@" + bot if bot else EMPTY_STRING),
+                    "description": command.description,
+                })
+        return commands
 
     async def _edit_message_async(self, dialog_id, message_id, text):
         try:
@@ -2088,6 +2230,9 @@ class TelegramManager(threading.Thread):
             return SERVICE_REMOVED_FORMAT_KEY, {"names": names}
         if kind == "MessageActionGroupCall":
             return (SERVICE_CALL_ENDED_KEY if getattr(action, "duration", None) else SERVICE_CALL_STARTED_KEY), {}
+        if kind == "MessageActionChannelCreate" and getattr(getattr(message, "chat", None), "megagroup", False):
+            # Telegram makes a large group the way it makes a channel, and says so the same way.
+            return SERVICE_GROUP_CREATE_FORMAT_KEY, {"title": title}
         if kind in SERVICE_KEYS:
             return SERVICE_KEYS[kind], {"title": title}
         return MEDIA_SERVICE_KEY, {}
@@ -2124,7 +2269,8 @@ class TelegramManager(threading.Thread):
         """Whether a message of ours was read by the other side; None where that is not known
         or means nothing (someone else's message, a channel post)."""
         read_up_to = self.read_outbox.get(getattr(message, "chat_id", None))
-        if read_up_to is None or not message.out or getattr(message, "post", False):
+        # What Telegram itself says happened is nobody's to read.
+        if read_up_to is None or not message.out or getattr(message, "post", False) or getattr(message, "action", None):
             return None
         return message.id <= read_up_to
 
