@@ -124,7 +124,7 @@ class ListenTest(WindowTestCase):
         self.frame.settings.set(s.SETTING_DOWNLOAD_FOLDER, folder)
         self.frame.messages_list.SetSelection(0)
         self.frame.on_activate_message(None)
-        self.assertTrue(pump(lambda: not self.frame.is_busy and self.calls("download")))
+        self.assertTrue(pump(lambda: self.calls("download") and not self.frame.transfers))
         self.assertEqual(self.calls("download")[0][2], folder + os.sep)
         self.assertEqual(self.heard, [])
         self.assertIn(folder, self.spoken[-1])

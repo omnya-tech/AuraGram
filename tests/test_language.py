@@ -115,12 +115,48 @@ class InstalledLanguageTest(unittest.TestCase):
         self.assertEqual(self.settings(self.folder_with("fr")).get(s.SETTING_LANGUAGE), "ar")
         self.assertEqual(self.settings(self.folder_with(None)).get(s.SETTING_LANGUAGE), "ar")
 
+    def test_each_install_sets_the_language_once_even_over_a_choice_made_before(self):
+        folder = self.folder_with("en\r\n20261021101500123")
+        path = os.path.join(tempfile.mkdtemp(), "settings.json")
+        with open(path, "w") as file:
+            json.dump({s.SETTING_LANGUAGE: "ar"}, file)
+
+        def start():
+            with mock.patch.object(s, "BASE_DIR", folder), mock.patch.object(s, "SETTINGS_FILE", path):
+                return s.Settings()
+        # Installed again in English: English, and remembered as done.
+        self.assertEqual(start().get(s.SETTING_LANGUAGE), "en")
+        # Arabic chosen in the settings afterwards stays, start after start.
+        settings = start()
+        settings.set(s.SETTING_LANGUAGE, "ar")
+        with mock.patch.object(s, "SETTINGS_FILE", path):
+            settings.save()
+        self.assertEqual(start().get(s.SETTING_LANGUAGE), "ar")
+        self.assertEqual(start().get(s.SETTING_LANGUAGE), "ar")
+        # Until the next install, or update, in English.
+        with open(os.path.join(folder, c.INSTALL_LANGUAGE_FILE), "w", encoding="utf-8") as file:
+            file.write("en\r\n20261101090000000")
+        self.assertEqual(start().get(s.SETTING_LANGUAGE), "en")
+
+    def test_a_first_start_after_installing_remembers_the_install(self):
+        folder = self.folder_with("en\r\n20261021101500123")
+        path = os.path.join(tempfile.mkdtemp(), "settings.json")
+        with mock.patch.object(s, "BASE_DIR", folder), mock.patch.object(s, "SETTINGS_FILE", path):
+            settings = s.Settings()
+            self.assertEqual(settings.get(s.SETTING_LANGUAGE), "en")
+            settings.set(s.SETTING_LANGUAGE, "ar")
+            settings.save()
+            # The same install does not undo what was chosen since.
+            self.assertEqual(s.Settings().get(s.SETTING_LANGUAGE), "ar")
+
     def test_the_installer_writes_the_same_file_in_the_language_it_ran_in(self):
         with open(os.path.join(c.BASE_DIR, "installer.iss"), encoding="utf-8") as file:
             script = file.read()
         self.assertIn('#define InstallLanguageFile "%s"' % c.INSTALL_LANGUAGE_FILE, script)
         self.assertIn(r"{app}\{#InstallLanguageFile}", script)
         self.assertIn("ActiveLanguage = 'arabic'", script)
+        # With the time of the install, so the program can tell one install from the next.
+        self.assertIn("GetDateTimeString('yyyymmddhhnnsszzz'", script)
 
 
 class LanguageDialogTest(WindowTestCase):

@@ -96,7 +96,7 @@ class ChatToolsTest(WindowTestCase):
         self.frame.show_progress = lambda key, percent: (seen.append(percent), show(key, percent))
         with mock.patch.object(wx, "LaunchDefaultApplication"):
             self.frame.on_activate_message(None)
-            self.assertTrue(pump(lambda: self.calls("download") and not self.frame.is_busy))
+            self.assertTrue(pump(lambda: self.calls("download") and not self.frame.transfers))
         pump(timeout=0.1)
         # Each whole percent once, though the transfer reported 50% twice.
         self.assertEqual(seen, [50, 100])

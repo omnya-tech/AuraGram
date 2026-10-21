@@ -127,14 +127,13 @@ class ShareWindowTest(WindowTestCase):
         self.assertTrue(pump(lambda: len(self.sent()) == 1))
         self.assertEqual(self.sent()[0], ("send_file", 2, "notes.pdf", "look", False, None))
         self.assertIsNone(self.frame.current_dialog_id)
-        self.assertTrue(pump(lambda: not self.frame.is_busy))
-        self.assertEqual(self.spoken[-1], self.text(c.MSG_FILE_SENT_KEY))
+        self.assertTrue(pump(lambda: self.frame.upload is None and self.spoken[-1:] == [self.text(c.MSG_FILE_SENT_KEY)]))
 
     def test_several_chats_get_the_same_files_one_after_another_with_one_caption(self):
         FakeChooser.picked = [0, 1]
         FakeChooser.values = ["look"]
         self.frame.share_files(["notes.pdf", "more.pdf"])
-        self.assertTrue(pump(lambda: len(self.sent()) == 2 and not self.frame.is_busy))
+        self.assertTrue(pump(lambda: len(self.sent()) == 2 and self.frame.upload is None))
         self.assertEqual(
             [call[1:5] for call in self.sent()],
             [(1, ["notes.pdf", "more.pdf"], "look", False), (2, ["notes.pdf", "more.pdf"], "look", False)]

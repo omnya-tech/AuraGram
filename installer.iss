@@ -169,8 +169,9 @@ begin
   Result := True;
 end;
 
-// The language the installer was run in is the one the program first opens in, for every
-// user of this computer who has not chosen one in its settings yet.
+// The language the installer was run in is the one the program opens in from now on, for every
+// user of this computer, even one who chose another in its settings before. The time of this
+// install goes with it, so the program takes it on once and a choice made later still stands.
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   Language: String;
@@ -181,7 +182,8 @@ begin
     Language := 'ar'
   else
     Language := 'en';
-  SaveStringToFile(ExpandConstant('{app}\{#InstallLanguageFile}'), Language, False);
+  SaveStringToFile(ExpandConstant('{app}\{#InstallLanguageFile}'),
+    Language + #13#10 + GetDateTimeString('yyyymmddhhnnsszzz', #0, #0), False);
 end;
 
 // The Telegram session and settings live in the user's Roaming folder, not in

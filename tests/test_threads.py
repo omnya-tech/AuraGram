@@ -117,9 +117,8 @@ class ThreadsTest(WindowTestCase):
         self.frame.messages_list.SetSelection(1)
         with mock.patch.object(wx, "LaunchDefaultApplication"):
             self.frame.on_activate_message(None)
-            self.assertTrue(pump(lambda: self.calls("download") and not self.frame.is_busy))
+            self.assertTrue(pump(lambda: (TALK_ID, 502) in self.frame.downloaded))
         self.assertEqual(self.calls("download")[0][1], 502)
-        self.assertIn((TALK_ID, 502), self.frame.downloaded)
 
     def test_files_go_under_the_post_too(self):
         self.open_comments()

@@ -83,6 +83,8 @@ FEEDBACK_SETTINGS = {kind: "speak_" + kind for kind in FEEDBACK_KINDS}
 SETTING_SPEECH_LEVEL = "speech_level"
 # Whether the level was asked for, the first time the main window opened.
 SPEECH_LEVEL_ASKED = "speech_level_asked"
+# Which install's language the program last took on, so each install sets it once.
+INSTALL_STAMP = "install_stamp"
 # The accounts signed in on this computer, as [{"id", "name", "phone"}], and the one in use.
 SETTING_ACCOUNTS = "accounts"
 SETTING_CURRENT_ACCOUNT = "current_account"
@@ -157,18 +159,22 @@ BACKUP_SECRETS = (SETTING_GEMINI_KEY, SETTING_PROXY_PASSWORD, SETTING_PROXY_SECR
 # Of this computer only, or kept for the program's own use: no copy carries them.
 BACKUP_LEFT_OUT = (
     WINDOW_PLACEMENT, SHORTCUT_CONFLICTS_TOLD, SETTING_COUNTRIES, SPEECH_LEVEL_ASKED, SETTING_ACCOUNTS,
-    SETTING_CURRENT_ACCOUNT,
+    SETTING_CURRENT_ACCOUNT, INSTALL_STAMP,
 )
 
 def installed_language():
-    """The language the installer was run in, if it left one beside the program; None otherwise."""
+    """(language, stamp) the installer left beside the program: the language it was run in, and what
+    tells this install from the one before. (None, None) if there is none; a stamp of None from an
+    installer that wrote none."""
     folder = os.path.dirname(sys.executable) if IS_FROZEN else BASE_DIR
     try:
         with open(os.path.join(folder, INSTALL_LANGUAGE_FILE), READ_MODE, encoding=ENCODING_UTF8) as file:
-            language = file.read().strip()
+            lines = file.read().split()
     except OSError:
-        return None
-    return language if language in LANGUAGES else None
+        return None, None
+    if not lines or lines[0] not in LANGUAGES:
+        return None, None
+    return lines[0], (lines[1] if len(lines) > 1 else None)
 
 
 class Settings:
@@ -179,7 +185,7 @@ class Settings:
         for key, (allowed, default) in CHOICES.items():
             self.values[key] = default
         # Until a language is chosen in the settings, the one the program was installed in.
-        self.values[SETTING_LANGUAGE] = installed_language() or DEFAULT_LANG
+        self.values[SETTING_LANGUAGE] = installed_language()[0] or DEFAULT_LANG
         self.values.update(TEXTS)
         self.values[SETTING_SHORTCUTS] = {}
         self.values[SHORTCUT_CONFLICTS_TOLD] = []
@@ -188,7 +194,10 @@ class Settings:
         self.values[SPEECH_LEVEL_ASKED] = False
         self.values[SETTING_ACCOUNTS] = []
         self.values[SETTING_CURRENT_ACCOUNT] = 0
+        self.values[INSTALL_STAMP] = ""
         self.load()
+        # With or without settings saved before: a new install has its say once.
+        self.follow_installer()
 
     def load(self):
         if not os.path.exists(SETTINGS_FILE):
@@ -204,6 +213,21 @@ class Settings:
         self.take(stored)
         if stored.get(SPEECH_LEVEL_ASKED) is True:
             self.values[SPEECH_LEVEL_ASKED] = True
+        if isinstance(stored.get(INSTALL_STAMP), str):
+            self.values[INSTALL_STAMP] = stored[INSTALL_STAMP]
+
+    def follow_installer(self):
+        """Installed again, or updated, in a language: the program now speaks it, whatever was chosen
+        before. Each install counts once, so a language chosen in the settings afterwards stays."""
+        language, stamp = installed_language()
+        if language is None or stamp is None or stamp == self.values[INSTALL_STAMP]:
+            return
+        self.values[SETTING_LANGUAGE] = language
+        self.values[INSTALL_STAMP] = stamp
+        try:
+            self.save()
+        except OSError:
+            pass
 
     def apply_level(self, level):
         """Tick what a level of experience says, and untick the rest of what it decides."""
