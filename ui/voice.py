@@ -118,5 +118,9 @@ class VoiceMixin:
         if not self.player.is_playing():
             return False
         self.player.stop()
+        if self.stream_request is not None:
+            # Nothing more of it is wanted from Telegram.
+            self.stream_request.cancel()
+            self.stream_request = None
         self.notify(MSG_PLAYBACK_STOPPED_KEY)
         return True

@@ -26,6 +26,7 @@ from telethon.utils import get_display_name, get_input_peer, get_peer_id, parse_
 from core.config import load_credentials
 from core.proxy import client_arguments
 from core.constants import (
+    STREAM_REQUEST_BYTES,
     SERVICE_GROUP_CREATE_FORMAT_KEY,
     BUTTON_NEEDS_PHONE, BUTTON_NEEDS_LOCATION, BOT_START_COMMAND,
     MEDIA_PERMISSIONS, SENDING_PERMISSIONS, SETTING_ANTISPAM, SETTING_HIDE_MEMBERS, SETTING_SIGNATURE_PROFILES,
@@ -621,6 +622,11 @@ class TelegramManager(threading.Thread):
 
     def set_pinned(self, dialog_id, message_id, pinned, on_result):
         self._request(on_result, self._set_pinned_async, dialog_id, message_id, pinned)
+
+    def stream_media(self, dialog_id, message_id, buffer, on_result):
+        """Hand a message's sound to `buffer` piece by piece as it comes from Telegram, for playing
+        while the rest is still on its way. Returns the request, to cancel when the listening stops."""
+        return self._request(on_result, self._stream_media_async, dialog_id, message_id, buffer)
 
     def fetch_media(self, dialog_id, message_id, on_result, on_progress=None):
         """The message's media as bytes, held in memory only: nothing is written to the disk."""
@@ -2141,6 +2147,18 @@ class TelegramManager(threading.Thread):
         if not path:
             raise ValueError("message has no downloadable media")
         return path
+
+    async def _stream_media_async(self, dialog_id, message_id, buffer):
+        try:
+            message = await self.client.get_messages(self.entities[dialog_id], ids=message_id)
+            async for piece in self.client.iter_download(getattr(message, "media", None) or message, request_size=STREAM_REQUEST_BYTES):
+                if buffer.abandoned:
+                    break
+                buffer.feed(piece)
+        except BaseException as error:
+            buffer.finish(error)
+            raise
+        buffer.finish()
 
     async def _fetch_media_async(self, dialog_id, message_id, report):
         message = await self.client.get_messages(self.entities[dialog_id], ids=message_id)

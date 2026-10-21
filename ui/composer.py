@@ -277,7 +277,7 @@ class ComposerMixin:
             # The chats are still on their way: asked again once they are in.
             self.shared_paths = paths
             return
-        if self.is_busy:
+        if self.upload is not None:
             self.notify(MSG_SHARE_BUSY_KEY)
             return
         chats = [chat for chat in self.all_dialogs if chat.get("can_send", True)]
@@ -289,7 +289,6 @@ class ComposerMixin:
             return
         how = self.ask_how_to_send(paths)
         if how is not None:
-            self.is_busy = True
             self.send_to_chats(paths, *how, [chat["id"] for chat in chosen])
 
     def send_to_chats(self, paths, caption, as_documents, dialog_ids, position=0):
@@ -411,10 +410,13 @@ class ComposerMixin:
 
     def send_paths(self, paths):
         """Send files to the open chat as one message, after asking what goes with them; cancelling either question sends nothing."""
+        if self.upload is not None:
+            # One lot of files at a time: the row at the end of the chat stands for one.
+            self.notify(MSG_SHARE_BUSY_KEY)
+            return
         how = self.ask_how_to_send(paths)
         if how is None:
             return
-        self.is_busy = True
         self.set_status(MSG_UPLOADING_KEY)
         dialog_id = self.current_dialog_id
         on_progress = self.start_upload(dialog_id, paths)

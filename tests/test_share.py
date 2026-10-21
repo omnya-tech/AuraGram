@@ -184,10 +184,11 @@ class ShareWindowTest(WindowTestCase):
         self.assertEqual(self.sent()[0][1:3], (1, "early.pdf"))
         self.assertEqual(self.frame.shared_paths, [])
 
-        self.assertTrue(pump(lambda: not self.frame.is_busy))
-        self.frame.is_busy = True
+        self.assertTrue(pump(lambda: self.frame.upload is None))
+        # Files already going up: the next lot waits its turn.
+        self.frame.upload = {"dialog_id": 1, "names": ["first.pdf"], "text": "first.pdf"}
         self.frame.share_files(["late.pdf"])
         self.assertEqual(self.spoken[-1], self.text(c.MSG_SHARE_BUSY_KEY))
-        self.frame.is_busy = False
+        self.frame.upload = None
         pump(timeout=0.1)
         self.assertEqual(len(self.sent()), 1)

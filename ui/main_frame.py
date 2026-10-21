@@ -173,8 +173,12 @@ class MainFrame(
         # Ids of the messages marked for a group action (delete, forward, copy).
         self.marked = set()
         self.has_older = False
-        # True while older messages or a media file are being fetched.
+        # True while older messages, a search or a sound are being fetched: what the list waits for.
         self.is_busy = False
+        # Files coming down beside everything else, which hold nothing up while they come, and
+        # (chat, message) of each, so the same one is not asked for twice at once.
+        self.transfers = 0
+        self.downloading = set()
         # (dialog id, message id) -> what Gemini said of that picture, so asking twice costs once.
         self.descriptions = {}
         # Whether this run has already looked for a newer release by itself.
@@ -186,9 +190,8 @@ class MainFrame(
         self.upload = None
         sounds.set_volume(SOUND_VOLUMES[settings.get(SETTING_SOUND_VOLUME)])
         self.init_downloads()
-        # (dialog id, message id) -> the sound of a voice message or song heard in this run, held in
-        # memory only, newest last, so hearing it again needs no second fetch and nothing is saved.
-        self.heard = {}
+        # The request handing a sound to the player as it arrives, to cancel when the listening stops.
+        self.stream_request = None
         # chat id -> what someone there is doing ("typing", "recording"), shown on its row for a while.
         self.typing_in = {}
         # The search window while its results are being looked through, and the result opened from it.
@@ -507,7 +510,7 @@ class MainFrame(
 
     def show_progress(self, format_key, percent):
         # A late report must not bring the bar back after the transfer has ended.
-        if not self or not self.is_busy:
+        if not self or not (self.is_busy or self.transfers or self.upload is not None):
             return
         if not self.progress_gauge.IsShown():
             self.progress_gauge.Show()
@@ -1251,6 +1254,24 @@ class MainFrame(
             self.i18n.get_string(error_key), self.i18n.get_string(APP_TITLE_KEY),
             wx.OK | wx.ICON_ERROR, self
         )
+
+    def on_transfer_done(self, handler, *args, cleanup=None):
+        """Like on_ui_thread, for a file coming down beside everything else: the window is never held
+        up for it, and the progress bar goes once the last of them is over. `cleanup` runs either way."""
+        self.transfers += 1
+        def deliver(result, error_key):
+            wx.CallAfter(self.finish_transfer, handler, result, error_key, cleanup, *args)
+        return deliver
+
+    def finish_transfer(self, handler, result, error_key, cleanup, *args):
+        if not self:
+            return
+        self.transfers -= 1
+        if cleanup is not None:
+            cleanup()
+        if not self.transfers and self.upload is None:
+            self.hide_progress()
+        self.handle_result(handler, result, error_key, *args)
 
     def on_ui_thread(self, handler, *args):
         """Wrap a handler so the Telegram thread can deliver its result to the UI."""

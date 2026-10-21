@@ -1457,7 +1457,8 @@ TYPE_AHEAD_PAUSE_SECONDS = 1.0
 # What Space plays straight from Telegram, held in memory only; Enter saves it instead.
 PLAYABLE_MEDIA = (MEDIA_VOICE, "MEDIA_AUDIO")
 # How many of those stay in memory during a run, so hearing one again needs no second fetch.
-HEARD_KEPT = 30
+# How much of a sound is asked for at a time while it plays: small, so the first of it comes at once.
+STREAM_REQUEST_BYTES = 32 * 1024
 MSG_FETCHING_SOUND_KEY = "MSG_FETCHING_SOUND"
 MEDIA_FILE = "MEDIA_FILE"
 

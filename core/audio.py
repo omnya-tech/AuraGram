@@ -29,6 +29,9 @@ AUTO_LEVEL_MAX_GAIN = 8.0
 # How much of a recording may be louder than what its level is measured by: a tap or a cough
 # that stands far above the voice is not allowed to hold the whole recording down.
 LEVEL_PEAK_PERCENTILE = 99.9
+# How little of a sound is read to know what it is before playing starts: Telegram's voice notes
+# (Ogg/Opus) and songs (MP3) say what they are in their first bytes.
+STREAM_PROBE_OPTIONS = {"probesize": "32768", "analyzeduration": "0"}
 # Above this share of the loudest a sample can be, what is left is bent smoothly under it rather than cut.
 LIMIT_KNEE = 0.9
 
@@ -195,12 +198,62 @@ def encode_voice(samples, path):
             container.mux(packet)
 
 
+class StreamBuffer:
+    """The bytes of a sound as they arrive from Telegram, read by the player as they come.
+
+    Read like a file that cannot seek: read() waits for more until the last piece is in. Nothing of
+    it is kept: what was read is let go, and nothing is written to the disk."""
+
+    def __init__(self):
+        self.data = bytearray()
+        self.condition = threading.Condition()
+        self.done = False
+        self.error = None
+        # Set when the listening stopped: the reader gets nothing more, and the sender can stop sending.
+        self.abandoned = False
+
+    def feed(self, data):
+        with self.condition:
+            self.data.extend(data)
+            self.condition.notify_all()
+
+    def finish(self, error=None):
+        """No more is coming: all of it is in, or `error` stopped it."""
+        with self.condition:
+            self.done = True
+            self.error = error
+            self.condition.notify_all()
+
+    def abandon(self):
+        with self.condition:
+            self.abandoned = True
+            self.condition.notify_all()
+
+    def read(self, size=-1):
+        with self.condition:
+            while not self.data and not self.done and not self.abandoned:
+                self.condition.wait()
+            if self.abandoned:
+                return b""
+            if not self.data:
+                if self.error is not None:
+                    raise IOError(str(self.error))
+                return b""
+            count = len(self.data) if size is None or size < 0 else min(size, len(self.data))
+            piece = bytes(self.data[:count])
+            del self.data[:count]
+            return piece
+
+
 class Player:
-    """Plays one file at a time on a background thread."""
+    """Plays one sound at a time on a background thread."""
 
     def __init__(self):
         self.thread = None
         self.stopped = False
+        # While a sound plays as it arrives: where it comes from, and the sound card's stream.
+        self.buffer = None
+        self.output = None
 
     def is_playing(self):
         return self.thread is not None and self.thread.is_alive()
@@ -223,11 +276,59 @@ class Player:
         else:
             on_finished(not self.stopped, None)
 
+    def play_stream(self, buffer, on_finished, speed=1.0):
+        """Play a sound as its bytes arrive in `buffer`, starting with the first of them.
+        on_finished(completed, error, started) is called from the playback thread; `started` says
+        whether any of it was heard, so a sound that cannot be read this way can be fetched whole."""
+        self.stop()
+        self.stopped = False
+        self.buffer = buffer
+        self.thread = threading.Thread(target=self._run_stream, args=(buffer, on_finished, speed), daemon=True)
+        self.thread.start()
+
+    def _run_stream(self, buffer, on_finished, speed):
+        started = False
+        try:
+            resampler = av.AudioResampler(format="s16", layout="mono", rate=SAMPLE_RATE)
+            # Started as soon as the kind of sound is known, not after reading far into it to be sure.
+            with av.open(buffer, mode="r", options=STREAM_PROBE_OPTIONS) as container:
+                stream = container.streams.audio[0]
+                frames = container.decode(stream)
+                if speed != 1.0:
+                    frames = _at_speed(frames, stream, speed)
+                with sounddevice.OutputStream(samplerate=SAMPLE_RATE, channels=1, dtype=SAMPLE_FORMAT) as output:
+                    self.output = output
+                    for frame in frames:
+                        if self.stopped:
+                            break
+                        for out in resampler.resample(frame):
+                            output.write(out.to_ndarray().reshape(-1, 1))
+                            started = True
+                    if not self.stopped:
+                        for out in resampler.resample(None):
+                            output.write(out.to_ndarray().reshape(-1, 1))
+        except Exception as error:
+            on_finished(False, None if self.stopped else error, started)
+        else:
+            on_finished(not self.stopped, None, started)
+        finally:
+            self.output = None
+
     def stop(self):
         if self.is_playing():
             self.stopped = True
+            if self.buffer is not None:
+                # A read waiting for the next piece gives up at once.
+                self.buffer.abandon()
+            output = self.output
+            if output is not None:
+                try:
+                    output.abort()
+                except Exception:
+                    pass
             sounddevice.stop()
             self.thread.join()
+        self.buffer = None
 
 
 class Recorder:

@@ -31,6 +31,27 @@ class ChatToolsTest(WindowTestCase):
             )
         ])
 
+    def test_a_file_coming_down_holds_nothing_up(self):
+        self.open_chat(0)
+        gate = FakeTelegramClient.transfer_gate = asyncio.Event()
+        self.frame.messages_list.SetSelection(1)
+        with mock.patch.object(wx, "LaunchDefaultApplication") as launch:
+            self.frame.on_activate_message(None)
+            self.assertTrue(pump(lambda: self.calls("download")))
+            # Still coming: the chat answers as ever, and Enter again does not ask for it twice.
+            self.assertFalse(self.frame.is_busy)
+            self.frame.on_activate_message(None)
+            pump(timeout=0.1)
+            self.assertEqual(len(self.calls("download")), 1)
+            self.frame.on_open_dialog(None)
+            self.frame.dialogs_list.SetSelection(1)
+            self.frame.on_open_dialog(None)
+            self.assertTrue(pump(lambda: self.frame.current_dialog_id == 2))
+            self.manager.loop.call_soon_threadsafe(gate.set)
+            self.assertTrue(pump(lambda: launch.called))
+        self.assertFalse(self.frame.progress_gauge.IsShown())
+        self.assertEqual(self.frame.transfers, 0)
+
     def test_progress_bar_follows_an_upload_and_goes_away_after_it(self):
         self.open_chat(0)
         gate = FakeTelegramClient.transfer_gate = asyncio.Event()
@@ -47,13 +68,16 @@ class ChatToolsTest(WindowTestCase):
         self.assertEqual(self.frame.progress_gauge.GetValue(), 50)
         self.assertEqual(self.frame.messages_list.GetString(rows - 1), half)
         self.assertEqual(rows, len(self.frame.messages) + 1)
-        # The row is not a message: Enter on it opens nothing.
+        # The row is not a message: Enter on it offers to stop the files, and No lets them go on.
         self.frame.messages_list.SetSelection(rows - 1)
         self.assertIsNone(self.frame.selected_message())
+        self.box_answer = wx.NO
         self.frame.on_activate_message(None)
+        self.assertIn(self.text(c.MSG_CANCEL_UPLOAD_CONFIRM_KEY), self.boxes[-1])
+        self.assertIsNotNone(self.frame.upload)
 
         self.manager.loop.call_soon_threadsafe(gate.set)
-        self.assertTrue(pump(lambda: self.calls("send_file") and not self.frame.is_busy))
+        self.assertTrue(pump(lambda: self.calls("send_file") and self.frame.upload is None))
         self.assertFalse(self.frame.progress_gauge.IsShown())
         self.assertEqual(self.frame.progress_gauge.GetValue(), 0)
         self.assertTrue(pump(lambda: self.frame.messages_list.GetCount() == len(self.frame.messages)))

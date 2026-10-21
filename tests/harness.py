@@ -211,6 +211,14 @@ class FakeTelegramClient:
     async def edit_folder(self, entity, folder):
         self.calls.append(("folder", telegram_client.get_peer_id(entity), folder))
 
+    async def iter_download(self, media, request_size=None):
+        """The sound of a message piece by piece, as Telegram sends it to be played on arrival."""
+        self.calls.append(("stream", request_size))
+        yield b"sou"
+        if self.transfer_gate is not None:
+            await self.transfer_gate.wait()
+        yield b"nd"
+
     async def download_media(self, message, file, progress_callback=None):
         self.calls.append(("download", getattr(message, "id", None), file))
         for done in self.progress_steps if progress_callback else ():

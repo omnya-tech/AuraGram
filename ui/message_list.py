@@ -3,9 +3,10 @@ import os
 import wx
 from core.speech import speak
 from core import audio
-from core.settings import SETTING_MARK_READ_ON_OPEN, SETTING_MESSAGE_STATS, SETTING_TIME_STYLE
+from core.settings import SETTING_VOICE_SPEED, SETTING_MARK_READ_ON_OPEN, SETTING_MESSAGE_STATS, SETTING_TIME_STYLE
 from ui.layout import duration_text, file_kind, file_size
 from core.constants import (
+    FEEDBACK_WAITING,
     FEEDBACK_NAVIGATION,
     FEEDBACK_COUNT,
     FEEDBACK_UNAVAILABLE,
@@ -26,7 +27,7 @@ from core.constants import (
     CONTEXT_OPEN_MEDIA_KEY, MSG_SEARCH_MESSAGES_PROMPT_KEY, MSG_SEARCH_RESULTS_FORMAT_KEY,
     MSG_SEARCH_NO_RESULTS_KEY, MSG_SEARCH_CLOSED_KEY, MEDIA_VOICE, MESSAGES_LIMIT,
     MSG_LOAD_OLDER_KEY, MSG_DOWNLOADING_KEY, DOWNLOADABLE_MEDIA, SAFE_OPEN_EXTENSIONS,
-    PLAYABLE_MEDIA, HEARD_KEPT, MSG_FETCHING_SOUND_KEY, SERVICE_NAMES_SEPARATOR_KEY,
+    PLAYABLE_MEDIA, MSG_FETCHING_SOUND_KEY, MSG_PLAYING_KEY, VOICE_SPEEDS, SERVICE_NAMES_SEPARATOR_KEY,
     SNIPPET_LENGTH, REPLY_PREFIX_FORMAT_KEY, APP_TITLE_KEY, MESSAGE_FORMAT_KEY, SENDER_YOU_KEY,
     MESSAGE_NO_SENDER_FORMAT_KEY, MESSAGE_NO_SENDER_NO_TIME_FORMAT, CATEGORY_BROADCASTS,
     MSG_NO_TEXT_KEY, MSG_LOADING_KEY, STATUS_READY_KEY, TIME_FORMAT, DATE_TIME_FORMAT,
@@ -399,22 +400,19 @@ class MessageListMixin:
 
     def on_save_as_menu(self, event):
         message = self.actionable_message()
-        if message is None or message["media"] not in DOWNLOADABLE_MEDIA or self.is_busy:
+        if message is None or message["media"] not in DOWNLOADABLE_MEDIA:
             return
         with wx.DirDialog(self, self.i18n.get_string(MSG_CHOOSE_SAVE_FOLDER_KEY)) as folder_dialog:
             if folder_dialog.ShowModal() != wx.ID_OK:
                 return
             folder = folder_dialog.GetPath()
-        self.is_busy = True
         self.set_status(MSG_DOWNLOADING_KEY)
         self.telegram_manager.download_media(
-            self.peer(self.current_dialog_id), message["id"], self.on_ui_thread(self.on_media_saved), folder=folder,
+            self.peer(self.current_dialog_id), message["id"], self.on_transfer_done(self.on_media_saved), folder=folder,
             on_progress=self.progress_reporter(MSG_DOWNLOAD_PROGRESS_FORMAT_KEY)
         )
 
     def on_media_saved(self, path):
-        self.is_busy = False
-        self.hide_progress()
         self.announce(self.i18n.get_string(MSG_SAVED_FORMAT_KEY).format(path=path))
 
     def download_media(self, message):
@@ -423,49 +421,52 @@ class MessageListMixin:
         if cached and os.path.exists(cached):
             self.open_media(cached, cache_key, message["media"])
             return
-        self.is_busy = True
+        if cache_key in self.downloading:
+            # Already on its way: Enter again only says so.
+            self.notify(MSG_DOWNLOADING_KEY, FEEDBACK_WAITING)
+            return
+        self.downloading.add(cache_key)
         self.set_status(MSG_DOWNLOADING_KEY)
         self.telegram_manager.download_media(
             self.peer(self.current_dialog_id), message["id"],
-            self.on_ui_thread(self.open_media, cache_key, message["media"]),
+            self.on_transfer_done(
+                self.open_media, cache_key, message["media"], cleanup=lambda: self.downloading.discard(cache_key)
+            ),
             folder=self.downloads_folder(), on_progress=self.progress_reporter(MSG_DOWNLOAD_PROGRESS_FORMAT_KEY)
         )
 
     def listen(self):
-        """Space on a voice message or a song: play it straight from Telegram, holding it in memory only,
-        or stop it if it is playing. False if the selected message has no sound to play."""
+        """Space on a voice message or a song: play it from Telegram as it arrives, as Telegram's own
+        apps do, or stop it if it is playing. False if the selected message has no sound to play."""
         message = self.selected_message()
         if message is None or message["media"] not in PLAYABLE_MEDIA or not audio.AVAILABLE:
             return False
         if self.stop_playback():
             return True
-        if self.is_busy:
-            return True
         key = (self.peer(self.current_dialog_id), message["id"])
-        sound = self.heard.get(key)
-        if sound is not None:
-            self.play_voice(sound)
-            return True
-        self.is_busy = True
-        self.set_status(MSG_FETCHING_SOUND_KEY)
-        self.telegram_manager.fetch_media(
-            key[0], message["id"], self.on_ui_thread(self.on_sound_fetched, key),
-            on_progress=self.progress_reporter(MSG_DOWNLOAD_PROGRESS_FORMAT_KEY)
+        buffer = audio.StreamBuffer()
+        # Whatever happens to the request reaches the player through the buffer.
+        self.stream_request = self.telegram_manager.stream_media(key[0], key[1], buffer, lambda result, error_key: None)
+        self.set_status(MSG_PLAYING_KEY)
+        self.player.play_stream(
+            buffer, lambda completed, error, started: wx.CallAfter(self.on_stream_finished, key, completed, error, started),
+            speed=VOICE_SPEEDS[self.settings.get(SETTING_VOICE_SPEED)]
         )
         return True
 
-    def on_sound_fetched(self, sound, key):
-        self.is_busy = False
-        self.hide_progress()
-        self.heard[key] = sound
-        while len(self.heard) > HEARD_KEPT:
-            # The one heard longest ago goes first.
-            self.heard.pop(next(iter(self.heard)))
-        self.play_voice(sound)
+    def on_stream_finished(self, key, completed, error, started):
+        if not self:
+            return
+        self.stream_request = None
+        if error is not None and not started:
+            # A song whose file must be read from its end first cannot play as it arrives: fetched
+            # whole, into memory only, it plays all the same.
+            self.set_status(MSG_FETCHING_SOUND_KEY)
+            self.telegram_manager.fetch_media(key[0], key[1], self.on_transfer_done(self.play_voice))
+            return
+        self.on_playback_finished(completed, error)
 
     def open_media(self, path, cache_key, media):
-        self.is_busy = False
-        self.hide_progress()
         self.downloaded[cache_key] = path
         self.set_status(STATUS_READY_KEY)
         if media in PLAYABLE_MEDIA:
@@ -662,11 +663,11 @@ class MessageListMixin:
             if story_dialog.ShowModal() != wx.ID_OK:
                 return
             story = group["stories"][story_dialog.GetSelection()]
-        self.is_busy = True
         self.set_status(MSG_DOWNLOADING_KEY)
         cache_key = ("story", group["peer_id"], story["id"])
+        # Comes down like any other file, holding nothing up.
         self.telegram_manager.open_story(
-            group["peer_id"], story["id"], self.on_ui_thread(self.open_media, cache_key, story["media"])
+            group["peer_id"], story["id"], self.on_transfer_done(self.open_media, cache_key, story["media"])
         )
 
     def on_message_stats_menu(self, event):

@@ -1,4 +1,4 @@
-"""Space plays a voice message straight from Telegram and keeps nothing; Enter saves it.
+"""Space plays a voice message from Telegram as it arrives and keeps nothing; Enter saves it.
 And in any list, typing the start of a name goes to it."""
 import os
 import tempfile
@@ -48,8 +48,12 @@ class ListenTest(WindowTestCase):
     def setUp(self):
         super().setUp()
         self.heard = []
+        self.streams = []
         for patch in (
             mock.patch.object(self.frame, "play_voice", self.heard.append),
+            mock.patch.object(self.frame.player, "play_stream", lambda buffer, on_finished, speed=1.0: self.streams.append(
+                (buffer, on_finished)
+            )),
             mock.patch("core.audio.AVAILABLE", True),
         ):
             patch.start()
@@ -63,21 +67,43 @@ class ListenTest(WindowTestCase):
             self.frame.on_char_hook(event)
         return event.GetSkipped()
 
-    def test_space_plays_from_memory_and_writes_nothing(self):
+    def arrived(self, buffer):
+        pieces = []
+        while True:
+            piece = buffer.read()
+            if not piece:
+                return b"".join(pieces)
+            pieces.append(piece)
+
+    def test_space_plays_it_as_it_arrives_and_keeps_nothing(self):
         self.frame.messages_list.SetSelection(0)
         self.assertFalse(self.space())
-        self.assertTrue(pump(lambda: self.heard))
-        self.assertEqual(self.heard, [b"sound"])
-        # Asked for in memory, not into any folder.
-        self.assertEqual([call[2] for call in self.calls("download")], [bytes])
+        # The player is handed the sound at once, and reads it as Telegram sends it.
+        self.assertEqual(len(self.streams), 1)
+        buffer, on_finished = self.streams[0]
+        self.assertEqual(self.arrived(buffer), b"sound")
+        self.assertEqual(self.calls("stream"), [("stream", c.STREAM_REQUEST_BYTES)])
+        # Nothing fetched whole, and nothing written anywhere.
+        self.assertEqual(self.calls("download"), [])
+        self.assertFalse(self.frame.is_busy)
 
-    def test_heard_once_it_plays_again_without_a_second_fetch(self):
+    def test_heard_again_it_comes_from_telegram_again(self):
         self.frame.messages_list.SetSelection(0)
         self.space()
-        self.assertTrue(pump(lambda: self.heard))
+        self.streams[0][1](True, None, True)
+        pump(timeout=0.1)
         self.space()
-        self.assertEqual(len(self.heard), 2)
-        self.assertEqual(len(self.calls("download")), 1)
+        self.assertEqual(len(self.streams), 2)
+        self.assertTrue(pump(lambda: len(self.calls("stream")) == 2))
+
+    def test_a_sound_that_cannot_play_as_it_arrives_is_fetched_whole_and_played(self):
+        self.frame.messages_list.SetSelection(0)
+        self.space()
+        # Nothing of it could be heard: fetched whole into memory, as a last resort.
+        self.streams[0][1](False, ValueError("not streamable"), False)
+        self.assertTrue(pump(lambda: self.heard))
+        self.assertEqual(self.heard, [b"sound"])
+        self.assertEqual([call[2] for call in self.calls("download")], [bytes])
 
     def test_space_while_it_plays_stops_it(self):
         self.frame.messages_list.SetSelection(0)
@@ -86,11 +112,12 @@ class ListenTest(WindowTestCase):
             self.space()
         stop.assert_called_once()
         self.assertEqual(self.calls("download"), [])
+        self.assertEqual(self.streams, [])
 
     def test_space_on_a_message_without_sound_is_left_alone(self):
         self.frame.messages_list.SetSelection(1)
         self.assertTrue(self.space())
-        self.assertEqual(self.calls("download"), [])
+        self.assertEqual((self.calls("download"), self.streams), ([], []))
 
     def test_enter_saves_it_to_the_downloads_and_plays_nothing(self):
         folder = tempfile.mkdtemp()
@@ -180,3 +207,67 @@ class TypeAheadTest(unittest.TestCase):
         self.assertEqual(fold("إسلام"), fold("اسلام"))
         self.assertEqual(fold("مدرسة"), fold("مدرسه"))
         self.assertEqual(fold("مُصْطَفى"), fold("مصطفي"))
+
+
+class StreamingPlayerTest(unittest.TestCase):
+    """The real decoder, reading a voice message as it arrives, with the sound card stood in for."""
+
+    def setUp(self):
+        from core import audio
+        if not audio.AVAILABLE:
+            self.skipTest("audio libraries not installed")
+        self.audio = audio
+        path = os.path.join(tempfile.mkdtemp(), "voice.ogg")
+        audio.encode_voice(audio.numpy.zeros(audio.SAMPLE_RATE // 2, dtype=audio.SAMPLE_FORMAT), path)
+        with open(path, "rb") as file:
+            self.voice = file.read()
+
+    def play(self, pieces_later):
+        import threading
+        written = []
+
+        class Output:
+            def __init__(self, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def write(self, samples):
+                written.append(len(samples))
+
+            def abort(self):
+                pass
+        buffer = self.audio.StreamBuffer()
+        done = threading.Event()
+        result = []
+        with mock.patch.object(self.audio.sounddevice, "OutputStream", Output):
+            player = self.audio.Player()
+            player.play_stream(buffer, lambda *finished: (result.append(finished), done.set()))
+            pieces_later(buffer)
+            self.assertTrue(done.wait(10))
+        return result[0], written
+
+    def test_it_plays_while_the_rest_is_still_coming(self):
+        def send(buffer):
+            # A few bytes at a time, as Telegram might send them, from another thread.
+            import threading
+            def feed():
+                for start in range(0, len(self.voice), 300):
+                    buffer.feed(self.voice[start:start + 300])
+                buffer.finish()
+            threading.Thread(target=feed).start()
+        (completed, error, started), written = self.play(send)
+        self.assertEqual((completed, error, started), (True, None, True))
+        self.assertGreater(sum(written), self.audio.SAMPLE_RATE // 4)
+
+    def test_what_is_not_a_sound_says_nothing_was_heard(self):
+        def send(buffer):
+            buffer.feed(b"not a sound at all" * 50)
+            buffer.finish()
+        (completed, error, started), written = self.play(send)
+        self.assertFalse(completed or started)
+        self.assertIsNotNone(error)
