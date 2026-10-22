@@ -52,7 +52,7 @@ from core.constants import (
     BTN_SELECT_ALL_KEY, INPUT_MENU_TITLE_KEY, MENU_BOT_START_KEY, MENU_BOT_COMMANDS_KEY, MENU_BOT_KEYBOARD_KEY, ATTACH_COMMANDS, MESSAGE_MENU_TITLE_KEY, MENU_GO_KEY, MENU_GO_CHATS_KEY, MENU_GO_MESSAGES_KEY,
     MENU_GO_INPUT_KEY, MENU_NEXT_UNREAD_KEY, MENU_NEXT_VIEW_KEY, MENU_PREVIOUS_VIEW_KEY,
     MENU_CHAT_INFO_KEY, MENU_CHAT_MANAGE_KEY, MENU_CHAT_READ_KEY, MENU_CHAT_FAVORITE_KEY, MENU_CHAT_PIN_KEY, MENU_CHAT_MUTE_KEY, MENU_CHAT_ARCHIVE_KEY,
-    MENU_CHAT_CLEAR_KEY, MENU_CHAT_LEAVE_KEY, MENU_COPY_KEY, MENU_COPY_LINK_KEY, MENU_OPEN_MEDIA_KEY,
+    MENU_CHAT_CLEAR_KEY, MENU_CHAT_LEAVE_KEY, MENU_COPY_KEY, MENU_COPY_LINK_KEY, MENU_OPEN_MEDIA_KEY, MENU_SHOW_IN_FOLDER_KEY,
     MENU_SAVE_AS_KEY, MENU_OPEN_DOWNLOADS_KEY, MENU_CONNECTION_KEY, DOWNLOADS_DIR,
     TRAY_STATUS_FORMAT_KEY, CONNECTION_STATE_KEYS, CONNECTION_CONNECTING, MENU_BUTTONS_KEY, MENU_SAVED_KEY,
     MESSAGES_OF_LABEL_STATUS_FORMAT_KEY, STATUS_LAST_SEEN_FORMAT_KEY, DATE_TIME_FORMAT,
@@ -442,6 +442,7 @@ class MainFrame(
             (MENU_COPY_LINK_KEY, self.on_copy_link_menu),
             (MENU_OPEN_MEDIA_KEY, self.on_activate_message),
             (MENU_SAVE_AS_KEY, self.on_save_as_menu),
+            (MENU_SHOW_IN_FOLDER_KEY, self.on_show_in_folder_menu),
             (MENU_BUTTONS_KEY, self.on_buttons_menu),
             (MENU_OPEN_LINK_KEY, self.on_open_link_menu),
             (MENU_COMMENTS_KEY, self.on_comments_menu),
@@ -1409,6 +1410,9 @@ class MainFrame(
             pass
         elif is_enter and focused is self.dialogs_list:
             self.on_open_dialog(event)
+        elif is_enter and focused is self.messages_list and shortcuts.from_key_event(event) == "Shift+Enter":
+            # Shift with Enter: the attachment, fetched if need be, shown in its folder instead of opened.
+            self.on_show_in_folder_menu(event)
         elif is_enter and focused is self.messages_list:
             self.on_activate_message(event)
         elif is_enter and focused is self.message_input \

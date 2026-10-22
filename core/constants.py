@@ -280,6 +280,9 @@ MENU_COPY_KEY = "MENU_COPY"
 MENU_COPY_LINK_KEY = "MENU_COPY_LINK"
 MENU_OPEN_MEDIA_KEY = "MENU_OPEN_MEDIA"
 MENU_SAVE_AS_KEY = "MENU_SAVE_AS"
+MENU_SHOW_IN_FOLDER_KEY = "MENU_SHOW_IN_FOLDER"
+CONTEXT_SHOW_IN_FOLDER_KEY = "CONTEXT_SHOW_IN_FOLDER"
+MSG_RUN_PROGRAM_FORMAT_KEY = "MSG_RUN_PROGRAM_FORMAT"
 MENU_OPEN_DOWNLOADS_KEY = "MENU_OPEN_DOWNLOADS"
 # The download manager: pick files of a chat, and they come down one after another.
 MENU_DOWNLOAD_FILES_KEY = "MENU_DOWNLOAD_FILES"
@@ -1505,11 +1508,14 @@ DOWNLOADABLE_MEDIA = {
     "MEDIA_VIDEO", "MEDIA_AUDIO", "MEDIA_FILE",
 }
 # Formats that are safe to hand straight to their default app.
-SAFE_OPEN_EXTENSIONS = {
-    ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp",
-    ".oga", ".ogg", ".opus", ".mp3", ".m4a", ".wav", ".flac", ".aac",
-    ".mp4", ".mov", ".mkv", ".webm", ".avi",
+# Files that run as programs when opened, rather than show something: opening one asks first.
+RUNNABLE_EXTENSIONS = {
+    ".exe", ".msi", ".msix", ".appx", ".com", ".scr", ".pif", ".bat", ".cmd", ".ps1", ".vbs", ".vbe",
+    ".js", ".jse", ".wsf", ".wsh", ".hta", ".cpl", ".msc", ".jar", ".lnk", ".reg", ".inf",
 }
+# Written beside every file opened from a chat, as browsers do, so Windows knows it came from the
+# internet and checks a program (SmartScreen) before it runs.
+INTERNET_ZONE_MARK = "[ZoneTransfer]\r\nZoneId=3\r\n"
 
 DIALOGS_LIMIT = 100
 MESSAGES_LIMIT = 50

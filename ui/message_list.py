@@ -1,5 +1,6 @@
 import datetime
 import os
+import subprocess
 import wx
 from core.speech import speak
 from core import audio
@@ -26,7 +27,8 @@ from core.constants import (
     PINNED_FORMAT_KEY, CONTEXT_REPLY_KEY, CONTEXT_EDIT_KEY, CONTEXT_DELETE_KEY, CONTEXT_COPY_KEY,
     CONTEXT_OPEN_MEDIA_KEY, MSG_SEARCH_MESSAGES_PROMPT_KEY, MSG_SEARCH_RESULTS_FORMAT_KEY,
     MSG_SEARCH_NO_RESULTS_KEY, MSG_SEARCH_CLOSED_KEY, MEDIA_VOICE, MESSAGES_LIMIT,
-    MSG_LOAD_OLDER_KEY, MSG_DOWNLOADING_KEY, DOWNLOADABLE_MEDIA, SAFE_OPEN_EXTENSIONS,
+    MSG_LOAD_OLDER_KEY, MSG_DOWNLOADING_KEY, DOWNLOADABLE_MEDIA, RUNNABLE_EXTENSIONS, INTERNET_ZONE_MARK,
+    CONTEXT_SHOW_IN_FOLDER_KEY, MSG_RUN_PROGRAM_FORMAT_KEY,
     PLAYABLE_MEDIA, MSG_FETCHING_SOUND_KEY, MSG_PLAYING_KEY, VOICE_SPEEDS, SERVICE_NAMES_SEPARATOR_KEY,
     SNIPPET_LENGTH, REPLY_PREFIX_FORMAT_KEY, APP_TITLE_KEY, MESSAGE_FORMAT_KEY, SENDER_YOU_KEY,
     MESSAGE_NO_SENDER_FORMAT_KEY, MESSAGE_NO_SENDER_NO_TIME_FORMAT, CATEGORY_BROADCASTS,
@@ -374,6 +376,7 @@ class MessageListMixin:
             entries.append((CONTEXT_MESSAGE_STATS_KEY, self.on_message_stats_menu))
         if has_media:
             entries.append((CONTEXT_OPEN_MEDIA_KEY, self.on_activate_message))
+            entries.append((CONTEXT_SHOW_IN_FOLDER_KEY, self.on_show_in_folder_menu))
             entries.append((CONTEXT_SAVE_AS_KEY, self.on_save_as_menu))
         if message["media"] in DESCRIBABLE_MEDIA:
             entries.append((CONTEXT_DESCRIBE_IMAGE_KEY, self.on_describe_image_menu))
@@ -415,11 +418,14 @@ class MessageListMixin:
     def on_media_saved(self, path):
         self.announce(self.i18n.get_string(MSG_SAVED_FORMAT_KEY).format(path=path))
 
-    def download_media(self, message):
+    def download_media(self, message, then=None):
+        """Fetch the message's attachment into the downloads, unless it is there already, then open it,
+        or hand it to `then`(path, cache_key, media) instead."""
+        then = then or self.open_media
         cache_key = (self.peer(self.current_dialog_id), message["id"])
         cached = self.downloaded.get(cache_key)
         if cached and os.path.exists(cached):
-            self.open_media(cached, cache_key, message["media"])
+            then(cached, cache_key, message["media"])
             return
         if cache_key in self.downloading:
             # Already on its way: Enter again only says so.
@@ -430,7 +436,7 @@ class MessageListMixin:
         self.telegram_manager.download_media(
             self.peer(self.current_dialog_id), message["id"],
             self.on_transfer_done(
-                self.open_media, cache_key, message["media"], cleanup=lambda: self.downloading.discard(cache_key)
+                then, cache_key, message["media"], cleanup=lambda: self.downloading.discard(cache_key)
             ),
             folder=self.downloads_folder(), on_progress=self.progress_reporter(MSG_DOWNLOAD_PROGRESS_FORMAT_KEY)
         )
@@ -466,18 +472,41 @@ class MessageListMixin:
             return
         self.on_playback_finished(completed, error)
 
-    def open_media(self, path, cache_key, media):
+    def keep_download(self, path, cache_key):
         self.downloaded[cache_key] = path
         self.set_status(STATUS_READY_KEY)
-        if media in PLAYABLE_MEDIA:
-            # Enter asked for it to be kept: it is, in the downloads; Space is what plays it.
-            self.announce(self.i18n.get_string(MSG_SAVED_FORMAT_KEY).format(path=path))
-        # Only hand known media formats to their default app; anything else
-        # could be a program, so just show the folder it was saved in.
-        elif os.path.splitext(path)[1].lower() in SAFE_OPEN_EXTENSIONS:
-            wx.LaunchDefaultApplication(path)
-        else:
-            wx.LaunchDefaultApplication(os.path.dirname(path))
+        try:
+            # Only beside a file that is there: opening the mark would make an empty one otherwise.
+            if not os.path.isfile(path):
+                return
+            with open(path + ":Zone.Identifier", "w") as mark:
+                mark.write(INTERNET_ZONE_MARK)
+        except OSError:
+            # A drive that keeps no such marks (FAT, a network share): the file opens all the same.
+            pass
+
+    def open_media(self, path, cache_key, media):
+        """Open the file itself in the program Windows has for it: a song in the player, a document
+        in its editor. A program runs, so that is asked first, and Windows checks it as well."""
+        self.keep_download(path, cache_key)
+        if os.path.splitext(path)[1].lower() in RUNNABLE_EXTENSIONS and not self.confirm(
+            self.i18n.get_string(MSG_RUN_PROGRAM_FORMAT_KEY).format(name=os.path.basename(path))
+        ):
+            return
+        if not wx.LaunchDefaultApplication(path):
+            # Nothing on this computer opens it: there it is, in its folder.
+            self.reveal_file(path, cache_key, media)
+
+    def reveal_file(self, path, cache_key, media):
+        """Show the file in its folder in File Explorer, selected there."""
+        self.keep_download(path, cache_key)
+        subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
+
+    def on_show_in_folder_menu(self, event):
+        message = self.selected_message()
+        if message is None or message["media"] not in DOWNLOADABLE_MEDIA or self.is_busy:
+            return
+        self.download_media(message, then=self.reveal_file)
 
     def on_search_messages_menu(self, event):
         if self.current_dialog_id is None or self.is_busy:

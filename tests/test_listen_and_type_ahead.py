@@ -1,4 +1,5 @@
-"""Space plays a voice message from Telegram as it arrives and keeps nothing; Enter saves it.
+"""Space plays a voice message from Telegram as it arrives and keeps nothing; Enter opens it in the
+program Windows has for it, and Shift+Enter shows it in its folder.
 And in any list, typing the start of a name goes to it."""
 import os
 import tempfile
@@ -119,15 +120,66 @@ class ListenTest(WindowTestCase):
         self.assertTrue(self.space())
         self.assertEqual((self.calls("download"), self.streams), ([], []))
 
-    def test_enter_saves_it_to_the_downloads_and_plays_nothing(self):
+    def test_enter_saves_it_to_the_downloads_and_opens_the_file_itself(self):
         folder = tempfile.mkdtemp()
         self.frame.settings.set(s.SETTING_DOWNLOAD_FOLDER, folder)
         self.frame.messages_list.SetSelection(0)
-        self.frame.on_activate_message(None)
-        self.assertTrue(pump(lambda: self.calls("download") and not self.frame.transfers))
+        with mock.patch.object(wx, "LaunchDefaultApplication", return_value=True) as launch:
+            self.frame.on_activate_message(None)
+            self.assertTrue(pump(lambda: self.calls("download") and not self.frame.transfers))
+            self.assertTrue(pump(lambda: launch.called))
         self.assertEqual(self.calls("download")[0][2], folder + os.sep)
+        # The file, in its own player: not its folder, and not played here.
+        self.assertEqual(launch.call_args[0][0], folder + os.sep + "saved.bin")
         self.assertEqual(self.heard, [])
-        self.assertIn(folder, self.spoken[-1])
+
+    def test_shift_enter_shows_the_file_selected_in_its_folder(self):
+        folder = tempfile.mkdtemp()
+        self.frame.settings.set(s.SETTING_DOWNLOAD_FOLDER, folder)
+        self.frame.messages_list.SetSelection(0)
+        self.frame.messages_list.SetFocus()
+        event = wx.KeyEvent(wx.wxEVT_CHAR_HOOK)
+        event.SetKeyCode(wx.WXK_RETURN)
+        event.SetShiftDown(True)
+        with mock.patch("ui.message_list.subprocess.Popen") as explorer, \
+                mock.patch.object(wx, "LaunchDefaultApplication") as launch:
+            self.frame.ProcessEvent(event)
+            self.assertTrue(pump(lambda: explorer.called))
+        self.assertEqual(explorer.call_args[0][0], ["explorer", "/select,", os.path.normpath(folder + os.sep + "saved.bin")])
+        self.assertFalse(launch.called)
+        # Downloaded once: asked again, it is shown from where it is.
+        open(os.path.join(folder, "saved.bin"), "wb").close()
+        with mock.patch("ui.message_list.subprocess.Popen") as explorer:
+            self.frame.on_show_in_folder_menu(None)
+        self.assertTrue(explorer.called)
+        self.assertEqual(len(self.calls("download")), 1)
+
+    def test_a_program_asks_before_it_runs_and_is_marked_as_from_the_internet(self):
+        path = os.path.join(tempfile.mkdtemp(), "setup.exe")
+        with open(path, "wb") as file:
+            file.write(b"MZ")
+        self.box_answer = wx.NO
+        with mock.patch.object(wx, "LaunchDefaultApplication") as launch:
+            self.frame.open_media(path, ("chat", 1), c.MEDIA_FILE)
+        self.assertFalse(launch.called)
+        self.assertIn("setup.exe", self.boxes[-1])
+        # Windows checks it too, as it does a program from a browser.
+        with open(path + ":Zone.Identifier") as mark:
+            self.assertIn("ZoneId=3", mark.read())
+        self.box_answer = wx.YES
+        with mock.patch.object(wx, "LaunchDefaultApplication", return_value=True) as launch:
+            self.frame.open_media(path, ("chat", 1), c.MEDIA_FILE)
+        launch.assert_called_once_with(path)
+
+    def test_a_file_nothing_opens_is_shown_in_its_folder(self):
+        path = os.path.join(tempfile.mkdtemp(), "notes.xyz")
+        with mock.patch.object(wx, "LaunchDefaultApplication", return_value=False), \
+                mock.patch("ui.message_list.subprocess.Popen") as explorer:
+            self.frame.open_media(path, ("chat", 1), c.MEDIA_FILE)
+        self.assertEqual(explorer.call_args[0][0][2], os.path.normpath(path))
+        self.assertEqual(self.boxes, [])
+        # No file there, so no mark made beside it either.
+        self.assertFalse(os.path.exists(path))
 
 
 class ChatListTypingTest(WindowTestCase):
