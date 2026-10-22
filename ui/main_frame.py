@@ -21,6 +21,7 @@ from ui.settings_dialog import SettingsDialog
 from core.chat_views import build_views
 from ui.text_dialog import TextDialog
 from core.constants import (
+    MENU_OPEN_CHAT_KEY, CATEGORY_GROUPS, MESSAGE_VIEW_MENTIONS, CATEGORY_BOTS,
     MENU_USER_GUIDE_KEY, GUIDE_NO_SHORTCUT_KEY, MSG_GUIDE_OPENED_KEY, ERR_GUIDE_KEY,
     MENU_ACCOUNTS_KEY, MSG_CHOOSE_ACCOUNT_KEY, ACCOUNT_ROW_FORMAT_KEY, ACCOUNT_CURRENT_FORMAT_KEY, ACCOUNT_UNNAMED_KEY,
     ACCOUNT_ADD_KEY,
@@ -86,6 +87,10 @@ from ui.downloads import DownloadsMixin
 from ui.chat_extras import ChatExtrasMixin
 from ui.reminders import RemindersMixin
 from ui.mouse_bars import MouseBarsMixin
+
+# Stands for a chat that has every kind of entry, to gather every command the menus can hold.
+EVERY_CHAT = object()
+
 
 class MainFrame(
     ChatListMixin, MessageListMixin, ComposerMixin, MessageActionsMixin,
@@ -343,6 +348,8 @@ class MainFrame(
         between its own controls only, and nothing of another chat is in the way.
         """
         self.in_chat = in_chat
+        # Its menus, once the key or command that got here is done with the menu bar there was.
+        wx.CallAfter(self.refresh_menu_bar_if_alive)
         # A transfer under way is shown on either screen.
         progress_shown = self.progress_gauge.IsShown()
         self.screens.Show(self.dialogs_box, not in_chat, recursive=True)
@@ -485,6 +492,14 @@ class MainFrame(
         table = shortcuts.current(self.settings)
         menu = wx.Menu()
         entries = [entry for entry in self.send_entries() if only is None or (entry is not None and entry[0] in only)]
+        # Only what the open chat's kind has: someone to mention or a name to send as in a group, bots in a bot's chat or a group.
+        category = self.current_dialog().get("category") if self.current_dialog_id is not None else None
+        missing = set()
+        if category != CATEGORY_GROUPS:
+            missing |= {MENU_MENTION_KEY, MENU_SEND_AS_KEY}
+        if category not in (CATEGORY_GROUPS, CATEGORY_BOTS):
+            missing |= {MENU_BOT_START_KEY, MENU_BOT_COMMANDS_KEY, MENU_BOT_KEYBOARD_KEY}
+        entries = [entry for entry in entries if entry is None or entry[0] not in missing]
         if with_editing:
             entries += [None] + [
                 (CONTEXT_CUT_KEY, lambda event: self.message_input.Cut()),
@@ -492,10 +507,15 @@ class MainFrame(
                 (CONTEXT_PASTE_KEY, lambda event: self.paste_files() or self.message_input.Paste()),
                 (BTN_SELECT_ALL_KEY, lambda event: self.message_input.SelectAll()),
             ]
+        separator_due = False
         for entry in entries:
             if entry is None:
-                menu.AppendSeparator()
+                # One line between groups, never two in a row nor one at an end.
+                separator_due = menu.GetMenuItemCount() > 0
                 continue
+            if separator_due:
+                menu.AppendSeparator()
+                separator_due = False
             label_key, handler = entry
             label = self.i18n.get_string(label_key)
             shortcut = table.get(label_key)
@@ -596,72 +616,115 @@ class MainFrame(
         return text
 
     def init_menu(self):
-        """The menu bar holds every command the app has, so nothing depends on finding a button or a context menu."""
+        """The menu bar: what can be done from where the user is. On the list of chats, the commands
+        for chats; inside a chat, those for that chat, and only those its kind has. Every command keeps
+        its shortcut wherever the user is (apply_shortcuts), and the shortcuts guide lists them all."""
+        self.refresh_menu_bar()
+
+    def menu_layout(self, chat):
+        """[(menu title, [(command, handler) or None, ...]), ...] for the list of chats (`chat` None),
+        inside `chat`, or, for EVERY_CHAT, with every entry any chat could have."""
+        every = chat is EVERY_CHAT
+        # Whether `chat` has something, asked of a function so EVERY_CHAT, which has everything, is never looked into.
+        has = lambda condition: every or bool(condition())
         on_chat = self.on_chat_menu
-        menu_bar = wx.MenuBar()
-        for title_key, entries in (
-            (MENU_FILE_KEY, (
-                (MENU_SETTINGS_KEY, self.on_settings_menu, wx.ID_PREFERENCES),
-                (MENU_OPEN_DOWNLOADS_KEY, self.on_open_downloads_menu),
-                (MENU_DOWNLOAD_FILES_KEY, self.on_download_files_menu),
-                (MENU_DOWNLOAD_STATUS_KEY, self.on_download_status_menu),
-                (MENU_CANCEL_DOWNLOADS_KEY, self.on_cancel_downloads_menu),
-                (MENU_ACCOUNTS_KEY, self.on_accounts_menu),
-                (MENU_EXPORT_SETTINGS_KEY, self.on_export_settings_menu),
-                (MENU_IMPORT_SETTINGS_KEY, self.on_import_settings_menu),
-                (MENU_LOGOUT_KEY, self.on_logout_menu),
-                None,
-                (MENU_EXIT_KEY, self.on_exit_menu, wx.ID_EXIT),
-            )),
-            (MENU_CHATS_KEY, (
-                (MENU_NEW_CHAT_KEY, self.on_new_chat_menu),
-                (MENU_FIND_CHAT_KEY, self.on_find_chat_menu),
-                (MENU_SAVED_KEY, self.on_saved_messages_menu),
-                (MENU_NEW_GROUP_KEY, lambda event: self.create_chat(is_channel=False)),
-                (MENU_NEW_CHANNEL_KEY, lambda event: self.create_chat(is_channel=True)),
-                (MENU_ADD_CONTACT_KEY, self.on_add_contact_menu),
-                (MENU_BLOCKED_KEY, self.on_blocked_menu),
-                (MENU_FOLDERS_KEY, self.on_folders_menu),
-                (MENU_MARK_ALL_READ_KEY, self.on_mark_all_read_menu),
-                (MENU_REMINDERS_KEY, self.on_reminders_menu),
-                None,
-                (MENU_CHAT_INFO_KEY, lambda event: on_chat(self.show_chat_info)),
-                (MENU_CHAT_MANAGE_KEY, lambda event: on_chat(self.manage_chat)),
-                (MENU_COPY_INVITE_KEY, lambda event: on_chat(self.copy_invite_link)),
-                (MENU_EXPORT_CHAT_KEY, lambda event: on_chat(self.on_export_chat)),
-                (MENU_CHAT_READ_KEY, lambda event: on_chat(self.toggle_dialog_read)),
-                (MENU_CHAT_PIN_KEY, lambda event: on_chat(lambda chat: self.set_chat_pinned(chat, not chat["pinned"]))),
-                (MENU_CHAT_FAVORITE_KEY, lambda event: on_chat(self.toggle_favorite)),
-                (MENU_CHAT_MUTE_KEY, lambda event: on_chat(self.toggle_dialog_muted)),
-                (MENU_CHAT_TONE_KEY, lambda event: on_chat(self.on_chat_tone)),
-                (MENU_CHAT_ARCHIVE_KEY, lambda event: on_chat(lambda chat: self.set_chat_archived(chat, not chat["archived"]))),
-                (MENU_CHAT_JOIN_KEY, lambda event: on_chat(self.join_dialog)),
-                (MENU_CHAT_CONTACT_KEY, lambda event: on_chat(self.toggle_contact)),
-                (MENU_CHAT_BLOCK_KEY, lambda event: on_chat(self.toggle_blocked)),
-                None,
-                # Last, away from the everyday entries: these cannot be undone.
-                (MENU_CHAT_CLEAR_KEY, lambda event: on_chat(self.clear_history)),
-                (MENU_CHAT_LEAVE_KEY, lambda event: on_chat(lambda chat: self.leave_chat(chat, self.is_private_chat(chat)))),
-            )),
-            (MENU_CHAT_VIEWS_KEY, (
-                (MENU_NEXT_VIEW_KEY, lambda event: self.cycle_view(1)),
-                (MENU_PREVIOUS_VIEW_KEY, lambda event: self.cycle_view(-1)),
-                None,
-                (MENU_TOPICS_KEY, self.on_topics_menu),
-                (MENU_STORIES_KEY, self.on_stories_menu),
-                (MENU_POST_STORY_KEY, self.on_post_story_menu),
-            ) + tuple(
-                (view, lambda event, view=view: self.open_message_view(view)) for view in MESSAGE_VIEWS
+        file_menu = (MENU_FILE_KEY, (
+            (MENU_SETTINGS_KEY, self.on_settings_menu, wx.ID_PREFERENCES),
+            (MENU_OPEN_DOWNLOADS_KEY, self.on_open_downloads_menu),
+            (MENU_DOWNLOAD_STATUS_KEY, self.on_download_status_menu),
+            (MENU_CANCEL_DOWNLOADS_KEY, self.on_cancel_downloads_menu),
+            None,
+            (MENU_ACCOUNTS_KEY, self.on_accounts_menu),
+            (MENU_EXPORT_SETTINGS_KEY, self.on_export_settings_menu),
+            (MENU_IMPORT_SETTINGS_KEY, self.on_import_settings_menu),
+            (MENU_LOGOUT_KEY, self.on_logout_menu),
+            None,
+            (MENU_EXIT_KEY, self.on_exit_menu, wx.ID_EXIT),
+        ))
+        help_menu = (MENU_HELP_KEY, (
+            (MENU_USER_GUIDE_KEY, self.on_user_guide_menu, wx.ID_HELP),
+            (MENU_SHORTCUTS_KEY, self.on_shortcuts_menu),
+            (MENU_EXPORT_SHORTCUTS_KEY, self.on_export_shortcuts_menu),
+            (MENU_CONNECTION_KEY, self.on_connection_menu),
+            (MENU_CHECK_UPDATES_KEY, lambda event: self.check_for_updates(quiet=False)),
+            (MENU_PROBLEM_REPORT_KEY, self.on_problem_report_menu),
+            (MENU_ABOUT_KEY, self.on_about_menu, wx.ID_ABOUT),
+            (MENU_LICENSE_KEY, self.on_license_menu),
+        ))
+        # What can be done to one chat: the one selected in the list, or the one open.
+        chat_entries = (
+            (MENU_CHAT_INFO_KEY, lambda event: on_chat(self.show_chat_info)),
+            (MENU_CHAT_MANAGE_KEY, lambda event: on_chat(self.manage_chat)) if chat is None or has(lambda: chat.get("is_admin")) else None,
+            (MENU_COPY_INVITE_KEY, lambda event: on_chat(self.copy_invite_link)) if chat is None or has(lambda: not self.is_private_chat(chat)) else None,
+            (MENU_CHAT_JOIN_KEY, lambda event: on_chat(self.join_dialog)) if chat is None or has(lambda: not chat.get("joined", True)) else None,
+            None,
+            (MENU_CHAT_READ_KEY, lambda event: on_chat(self.toggle_dialog_read)),
+            (MENU_CHAT_PIN_KEY, lambda event: on_chat(lambda dialog: self.set_chat_pinned(dialog, not dialog["pinned"]))),
+            (MENU_CHAT_FAVORITE_KEY, lambda event: on_chat(self.toggle_favorite)),
+            (MENU_CHAT_MUTE_KEY, lambda event: on_chat(self.toggle_dialog_muted)),
+            (MENU_CHAT_TONE_KEY, lambda event: on_chat(self.on_chat_tone)),
+            (MENU_CHAT_ARCHIVE_KEY, lambda event: on_chat(lambda dialog: self.set_chat_archived(dialog, not dialog["archived"]))),
+            (MENU_EXPORT_CHAT_KEY, lambda event: on_chat(self.on_export_chat)),
+            (MENU_DOWNLOAD_FILES_KEY, self.on_download_files_menu),
+            (MENU_CHAT_CONTACT_KEY, lambda event: on_chat(self.toggle_contact)) if chat is None or has(lambda: self.is_person(chat)) else None,
+            (MENU_CHAT_BLOCK_KEY, lambda event: on_chat(self.toggle_blocked)) if chat is None or has(lambda: self.is_private_chat(chat)) else None,
+            None,
+            # Last, away from the everyday entries: these cannot be undone.
+            (MENU_CHAT_CLEAR_KEY, lambda event: on_chat(self.clear_history)),
+            (MENU_CHAT_LEAVE_KEY, lambda event: on_chat(lambda dialog: self.leave_chat(dialog, self.is_private_chat(dialog)))),
+        )
+        if chat is None:
+            return [
+                file_menu,
+                (MENU_CHATS_KEY, (
+                    (MENU_NEW_CHAT_KEY, self.on_new_chat_menu),
+                    (MENU_FIND_CHAT_KEY, self.on_find_chat_menu),
+                    (MENU_SAVED_KEY, self.on_saved_messages_menu),
+                    (MENU_NEW_GROUP_KEY, lambda event: self.create_chat(is_channel=False)),
+                    (MENU_NEW_CHANNEL_KEY, lambda event: self.create_chat(is_channel=True)),
+                    (MENU_ADD_CONTACT_KEY, self.on_add_contact_menu),
+                    (MENU_BLOCKED_KEY, self.on_blocked_menu),
+                    (MENU_FOLDERS_KEY, self.on_folders_menu),
+                    (MENU_MARK_ALL_READ_KEY, self.on_mark_all_read_menu),
+                    (MENU_REMINDERS_KEY, self.on_reminders_menu),
+                    (MENU_NEXT_UNREAD_KEY, self.on_next_unread_menu),
+                    None,
+                ) + chat_entries),
+                (MENU_CHAT_VIEWS_KEY, (
+                    (MENU_NEXT_VIEW_KEY, lambda event: self.cycle_view(1)),
+                    (MENU_PREVIOUS_VIEW_KEY, lambda event: self.cycle_view(-1)),
+                    None,
+                    (MENU_STORIES_KEY, self.on_stories_menu),
+                    (MENU_POST_STORY_KEY, self.on_post_story_menu),
+                )),
+                (MENU_SEARCH_KEY, (
+                    (MENU_FIND_KEY, self.on_find_menu),
+                    (MENU_FIND_NEXT_KEY, self.on_find_next_menu),
+                    (MENU_SEARCH_ALL_KEY, self.on_search_all_menu),
+                    (MENU_GLOBAL_SEARCH_KEY, self.on_global_search_menu),
+                )),
+                help_menu,
+            ]
+        is_group = has(lambda: chat.get("category") == CATEGORY_GROUPS)
+        views = tuple(
+            (view, lambda event, view=view: self.open_message_view(view)) for view in MESSAGE_VIEWS
+            # Only a group has others in it to mention this account.
+            if view != MESSAGE_VIEW_MENTIONS or is_group
+        )
+        return [
+            file_menu,
+            (MENU_OPEN_CHAT_KEY, chat_entries),
+            (MENU_CHAT_VIEWS_KEY, views + (
+                (None, (MENU_TOPICS_KEY, self.on_topics_menu)) if has(lambda: chat.get("is_forum")) else ()
             )),
             (MENU_GO_KEY, (
                 (MENU_GO_CHATS_KEY, lambda event: self.close_chat() if self.in_chat else self.dialogs_list.SetFocus()),
                 (MENU_GO_MESSAGES_KEY, lambda event: self.messages_list.SetFocus()),
                 (MENU_GO_INPUT_KEY, lambda event: self.message_input.SetFocus()),
                 None,
-                (MENU_NEXT_UNREAD_KEY, self.on_next_unread_menu),
-                None,
                 (MENU_GO_TO_DATE_KEY, self.on_go_to_date_menu),
                 (MENU_GO_TO_REPLY_KEY, self.on_go_to_reply_menu),
+                (MENU_NEXT_UNREAD_KEY, self.on_next_unread_menu),
             )),
             (MENU_SEARCH_KEY, (
                 (MENU_FIND_KEY, self.on_find_menu),
@@ -670,29 +733,53 @@ class MainFrame(
                 (MENU_SEARCH_ALL_KEY, self.on_search_all_menu),
                 (MENU_GLOBAL_SEARCH_KEY, self.on_global_search_menu),
             )),
-            (MENU_HELP_KEY, (
-                (MENU_USER_GUIDE_KEY, self.on_user_guide_menu, wx.ID_HELP),
-                (MENU_SHORTCUTS_KEY, self.on_shortcuts_menu),
-                (MENU_EXPORT_SHORTCUTS_KEY, self.on_export_shortcuts_menu),
-                (MENU_CONNECTION_KEY, self.on_connection_menu),
-                (MENU_CHECK_UPDATES_KEY, lambda event: self.check_for_updates(quiet=False)),
-                (MENU_PROBLEM_REPORT_KEY, self.on_problem_report_menu),
-                (MENU_ABOUT_KEY, self.on_about_menu, wx.ID_ABOUT),
-                (MENU_LICENSE_KEY, self.on_license_menu),
-            )),
-        ):
+            help_menu,
+        ]
+
+    def all_commands(self):
+        """Every command with its handler, wherever it is offered: in the menu bar on either screen,
+        in a message's menu, or in the writing field's."""
+        commands = {}
+        for layout in (self.menu_layout(None), self.menu_layout(EVERY_CHAT)):
+            for title, entries in layout:
+                for entry in entries:
+                    if entry is not None:
+                        commands.setdefault(entry[0], entry[1])
+        for entry in self.message_entries() + self.send_entries():
+            if entry is not None:
+                commands.setdefault(entry[0], entry[1])
+        return commands
+
+    def refresh_menu_bar_if_alive(self):
+        if self:
+            self.refresh_menu_bar()
+
+    def refresh_menu_bar(self):
+        """Put up the menu bar for where the user is now: the list of chats, or the chat open, as it is now."""
+        chat = self.current_dialog() if self.in_chat and self.current_dialog_id is not None else None
+        self.menu_items = {}
+        menu_bar = wx.MenuBar()
+        for title_key, entries in self.menu_layout(chat):
             menu = wx.Menu()
+            separator_due = False
             for entry in entries:
                 if entry is None:
-                    menu.AppendSeparator()
+                    # One line between groups, never two in a row nor one at an end.
+                    separator_due = menu.GetMenuItemCount() > 0
                     continue
+                if separator_due:
+                    menu.AppendSeparator()
+                    separator_due = False
                 label_key, handler, *item_id = entry
                 item = menu.Append(item_id[0] if item_id else wx.ID_ANY, self.i18n.get_string(label_key))
                 self.Bind(wx.EVT_MENU, handler, item)
                 self.menu_items[label_key] = item
             menu_bar.Append(menu, self.i18n.get_string(title_key))
-        self.apply_shortcuts()
+        old = self.GetMenuBar()
         self.SetMenuBar(menu_bar)
+        if old is not None:
+            old.Destroy()
+        self.apply_shortcuts()
 
     def apply_shortcuts(self):
         """Give every menu entry the shortcut the user has for it; wx reads it from after the tab in the label."""
@@ -700,9 +787,10 @@ class MainFrame(
         for command, item in self.menu_items.items():
             label = self.i18n.get_string(command)
             item.SetItemLabel(label + "\t" + table[command] if table[command] else label)
+        # Commands not in the menu bar where the user is now still answer their shortcuts, from anywhere.
         self.menu_less_shortcuts = {
-            table[entry[0]]: entry[1] for entry in self.message_entries() + self.send_entries()
-            if entry is not None and table[entry[0]]
+            table[command]: handler for command, handler in self.all_commands().items()
+            if command not in self.menu_items and table.get(command)
         }
         self.menu_shortcuts = ({table[command] for command in self.menu_items} | set(self.menu_less_shortcuts)) - {""}
         self.update_mouse_tooltips()
@@ -936,13 +1024,18 @@ class MainFrame(
         """(the keys that never change, [(menu, [(shortcut, command), ...]), ...]) with the shortcuts as they are now."""
         sections = []
         table = shortcuts.current(self.settings)
-        for menu, title in self.GetMenuBar().GetMenus():
-            rows = [
-                (item.GetItemLabel().partition("\t")[2], item.GetItemLabelText())
-                for item in menu.GetMenuItems() if "\t" in item.GetItemLabel()
-            ]
+        # Every menu of both screens, each command once: the list's menus, then those only a chat has.
+        merged, seen = {}, set()
+        for layout in (self.menu_layout(None), self.menu_layout(EVERY_CHAT)):
+            for title_key, entries in layout:
+                rows = merged.setdefault(title_key, [])
+                for entry in entries:
+                    if entry is not None and entry[0] not in seen and table.get(entry[0]):
+                        seen.add(entry[0])
+                        rows.append((table[entry[0]], self.i18n.get_string(entry[0])))
+        for title_key, rows in merged.items():
             if rows:
-                sections.append((wx.MenuItem.GetLabelText(title), rows))
+                sections.append((wx.MenuItem.GetLabelText(self.i18n.get_string(title_key)), rows))
         # Where the Message and Send menus used to be: just before the search menu.
         titles = [title for title, rows in sections]
         search = wx.MenuItem.GetLabelText(self.i18n.get_string(MENU_SEARCH_KEY))

@@ -126,7 +126,8 @@ li { margin: .3rem 0; }
 <p>In a chat, Tab goes between the message list, the writing field, the Attach button, the Record button and the Search button. On purpose it passes by the view tabs, the rows of mouse buttons and the Send button (Enter sends), to keep the way short. To have Tab stop at everything, turn off "Short Tab navigation" on the Accessibility tab.</p>
 <h3>Menus</h3>
 <ul>
-<li><b>The menu bar</b> opens with Alt: File, Chats, View, Go, Search, Help. Each command shows its shortcut.</li>
+<li><b>The menu bar</b> opens with Alt, and each command shows its shortcut. It changes with where you are: on the chat list it has File, Chats, View, Search, Help, and the Chats menu holds the general commands and then those for the chat you are on. Inside a chat it has File, Chat, View, Go, Search, Help, and the Chat menu shows only what fits this chat: contact and block in a private chat, copying the invite link in a group or channel, management if you run it. Its View menu holds the message views, with mentions in groups only.</li>
+<li>Any command's shortcut works anywhere in the window, even when its command is not on the menu bar shown now, and the shortcuts guide ({{MENU_SHORTCUTS}}) lists every command.</li>
 <li><b>The menu of what you are on</b> opens with the Applications key or Shift+F10: a chat in the chat list, a message, or the writing field. It offers only what works there.</li>
 <li>Message commands and send commands are not in the menu bar, to keep it short, but in the message's menu and the writing field's menu. Their shortcuts still work anywhere in the window.</li>
 <li>Submenus (like Send and More) open with the arrow pointing their way, and close with the other arrow or Escape.</li>
@@ -236,7 +237,7 @@ li { margin: .3rem 0; }
 <li>To edit: stand on your message and press {{MENU_EDIT}}; its text comes into the writing field. Change it and send.</li>
 </ul>
 <h3>The send menu</h3>
-<p>The Applications key (or a right click) in the writing field opens every way of sending with its shortcut, then Cut, Copy, Paste and Select all. The Attach button beside the field offers just what is attached to a message.</p>
+<p>The Applications key (or a right click) in the writing field opens every way of sending with its shortcut, then Cut, Copy, Paste and Select all. The Attach button beside the field offers just what is attached to a message. Mentioning someone and sending as a channel appear in groups only, and the bot commands in a bot's chat or a group.</p>
 <ul>
 <li><b>One or more files</b> ({{MENU_SEND_FILE}}): choose one or several; the app tells each file's name, kind and size, asks for a caption to go with them, and for pictures or videos whether they go as an album or as files. While they go up, a row at the end of the chat says how much is up, and which file of how many.</li>
 <li><b>A voice message</b> ({{MENU_RECORD}}): once to start recording, once to stop and send. Cancel stops it without sending.</li>

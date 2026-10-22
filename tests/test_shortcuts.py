@@ -166,7 +166,14 @@ class ShortcutsWindowTest(WindowTestCase):
         # The message's and the send commands live in their own menus instead, and answer their shortcuts from there.
         own = {entry[0] for entry in self.frame.message_entries() + self.frame.send_entries() if entry is not None}
         self.assertFalse(own & set(self.frame.menu_items))
-        self.assertEqual(set(self.frame.menu_items) | own | {c.SHORTCUT_SHOW_WINDOW}, set(shortcuts.COMMANDS))
+        # Every command is offered somewhere: on one screen's menu bar or the other's, or in its own menu.
+        self.assertEqual(set(self.frame.all_commands()) | {c.SHORTCUT_SHOW_WINDOW}, set(shortcuts.COMMANDS))
+        # And those not on this screen's menu bar still answer their shortcuts.
+        table = shortcuts.defaults()
+        self.assertEqual(
+            {table[command] for command in self.frame.all_commands() if command not in self.frame.menu_items},
+            set(self.frame.menu_less_shortcuts)
+        )
         table = shortcuts.defaults()
         for command, accelerator in self.menu_accelerators().items():
             self.assertEqual(accelerator, table[command])

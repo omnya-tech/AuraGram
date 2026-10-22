@@ -7,10 +7,12 @@ import wx
 
 import core.constants as c
 import core.settings as s
+import core.shortcuts as shortcut_table
 import core.telegram_client as telegram_client
 from tests.harness import (
     FakeChooser, FakeTelegramClient, Record, WindowTestCase, make_channel, make_message, make_user, pump
 )
+from ui.main_frame import EVERY_CHAT
 
 ALI = make_user(1, "Ali")
 NEWS = make_channel(3, "News")
@@ -744,13 +746,11 @@ class DraftAndReadingTest(WindowTestCase):
 
     def test_shortcut_list_mentions_every_menu_shortcut(self):
         _, text = self.shown_text(self.frame.on_shortcuts_menu)
-        menu_bar = self.frame.GetMenuBar()
-        shortcuts = []
-        for menu, _ in menu_bar.GetMenus():
-            for item in menu.GetMenuItems():
-                accelerator = item.GetItemLabel().partition("\t")[2]
-                if accelerator and accelerator != "Alt+F4":
-                    shortcuts.append(accelerator)
+        # Those of both screens' menu bars, not only the one up now.
+        table = shortcut_table.defaults()
+        commands = {entry[0] for layout in (self.frame.menu_layout(None), self.frame.menu_layout(EVERY_CHAT))
+                    for _, entries in layout for entry in entries if entry is not None}
+        shortcuts = [table[command] for command in commands if table.get(command) and table[command] != "Alt+F4"]
         self.assertGreater(len(shortcuts), 15)
         self.assertEqual([shortcut for shortcut in shortcuts if shortcut not in text], [])
 

@@ -1028,6 +1028,7 @@
     "VIEW_FOLDER_FORMAT": "Folder: {title}",
     "MSG_VIEW_COUNT_FORMAT": "{view}, {count} chats",
     "MENU_CHATS": "&Chats",
+    "MENU_OPEN_CHAT": "&Chat",
     "MENU_NEW_CHAT": "New chat with a contact",
     "MENU_FIND_CHAT": "Open a chat by username, phone number or link",
     "MENU_FORWARD": "Forward the selected message",

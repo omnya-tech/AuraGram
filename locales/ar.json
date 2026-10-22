@@ -1028,6 +1028,7 @@
     "VIEW_FOLDER_FORMAT": "مجلد: {title}",
     "MSG_VIEW_COUNT_FORMAT": "{view}، عدد المحادثات: {count}",
     "MENU_CHATS": "م&حادثات",
+    "MENU_OPEN_CHAT": "الم&حادثة",
     "MENU_NEW_CHAT": "محادثة جديدة مع جهة اتصال",
     "MENU_FIND_CHAT": "فتح محادثة باسم مستخدم أو رقم هاتف أو رابط",
     "MENU_FORWARD": "إعادة توجيه الرسالة المحددة",

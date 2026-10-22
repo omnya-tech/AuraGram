@@ -873,8 +873,8 @@ class ChatListMixin:
         return dialog["category"] not in (CATEGORY_GROUPS, CATEGORY_BROADCASTS)
 
     def on_chat_menu(self, action):
-        """Run one of the menu bar's entries for the selected chat; `action` is given that chat."""
-        dialog = self.selected_dialog()
+        """Run one of the menu bar's entries for the chat open, or else the one selected; `action` is given that chat."""
+        dialog = self.current_dialog() if self.in_chat and self.current_dialog_id is not None else self.selected_dialog()
         if dialog is None:
             self.notify(MSG_NO_CHAT_SELECTED_KEY)
         else:
