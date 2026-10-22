@@ -158,9 +158,11 @@ class MessagesTest(WindowTestCase):
         self.open_chat(0)
         self.messages = self.frame.messages_list
 
-    def test_messages_read_with_sender_reply_quote_and_pin_mark(self):
+    def test_messages_read_with_sender_reply_and_pin_mark(self):
         self.assertTrue(self.messages.GetString(0).startswith("Ali: first"))
-        self.assertIn("رداً على Ali «first»", self.messages.GetString(1))
+        self.assertIn("رداً على Ali: ", self.messages.GetString(1))
+        # Who it answers, without saying again what that message said.
+        self.assertNotIn("first", self.messages.GetString(1))
         self.assertIn("مثبتة", self.messages.GetString(2))
 
     def test_send_appears_in_the_list_and_clears_the_field(self):
@@ -293,7 +295,9 @@ class MessagesTest(WindowTestCase):
     def test_live_edit_and_delete_update_the_open_chat(self):
         self.frame.on_message_edited(1, dict(self.frame.messages[0], text="first, edited"))
         self.assertIn("first, edited", self.messages.GetString(0))
-        self.assertIn("first, edited", self.messages.GetString(1))
+        # The reply to it still names whom it answers, and does not quote it.
+        self.assertIn("رداً على Ali: ", self.messages.GetString(1))
+        self.assertNotIn("first, edited", self.messages.GetString(1))
         self.frame.on_messages_deleted(None, [1])
         self.assertEqual(self.messages.GetCount(), 2)
         self.assertNotIn("رداً على", self.messages.GetString(0))

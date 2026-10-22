@@ -845,12 +845,11 @@ class MessageListMixin:
         local_date = message["date"].astimezone()
         is_today = local_date.date() == datetime.date.today()
         text = self.message_text(message)
-        # The replied-to message can only be quoted if it is among the loaded ones.
+        # Who it answers, if that message is among the loaded ones; not what it said, which the
+        # user has heard already, and which "go to the replied message" reads in full.
         replied = next((m for m in self.messages if m["id"] == message["reply_to"]), None)
         if replied is not None:
-            text = self.i18n.get_string(REPLY_PREFIX_FORMAT_KEY).format(
-                sender=self.sender_name(replied), quote=self.message_snippet(replied), text=text
-            )
+            text = self.i18n.get_string(REPLY_PREFIX_FORMAT_KEY).format(sender=self.sender_name(replied), text=text)
         if message["forwarded_from"] is not None:
             forward_key = FORWARDED_FORMAT_KEY if message["forwarded_from"] else FORWARDED_UNKNOWN_FORMAT_KEY
             text = self.i18n.get_string(forward_key).format(name=message["forwarded_from"], text=text)

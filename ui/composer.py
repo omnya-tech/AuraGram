@@ -59,9 +59,7 @@ class ComposerMixin:
         self.reply_to = reply_to
         self.editing = editing
         if reply_to is not None:
-            label = self.i18n.get_string(REPLY_LABEL_FORMAT_KEY).format(
-                sender=self.sender_name(reply_to), text=self.message_snippet(reply_to)
-            )
+            label = self.i18n.get_string(REPLY_LABEL_FORMAT_KEY).format(sender=self.sender_name(reply_to))
         elif editing is not None:
             label = self.i18n.get_string(EDIT_LABEL_KEY)
         else:
