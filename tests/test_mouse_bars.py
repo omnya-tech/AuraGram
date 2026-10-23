@@ -37,6 +37,20 @@ class MouseBarsTest(WindowTestCase):
             command=self.text(c.MENU_REPLY_KEY), shortcut="Ctrl+R"
         ))
 
+    def test_the_writing_buttons_tell_the_shortcuts_as_they_are_now(self):
+        tip = lambda key, shortcut: self.text(c.TOOLTIP_COMMAND_FORMAT_KEY).format(command=self.text(key), shortcut=shortcut)
+        self.assertEqual(self.frame.record_btn.GetToolTipText(), tip(c.TOOLTIP_RECORD_KEY, "Ctrl+M"))
+        self.assertEqual(self.frame.send_btn.GetToolTipText(), tip(c.TOOLTIP_SEND_KEY, "Enter"))
+        # Changed in the settings: the tooltips follow, and Send goes with Ctrl+Enter once Enter breaks the line.
+        self.frame.settings.set(s.SETTING_SHORTCUTS, {c.MENU_RECORD_KEY: "Ctrl+Alt+F7", c.MENU_SEARCH_MESSAGES_KEY: ""})
+        self.frame.settings.set(s.SETTING_ENTER_SENDS, False)
+        self.frame.apply_shortcuts()
+        self.assertEqual(self.frame.record_btn.GetToolTipText(), tip(c.TOOLTIP_RECORD_KEY, "Ctrl+Alt+F7"))
+        self.assertEqual(self.frame.search_btn.GetToolTipText(), self.text(c.TOOLTIP_SEARCH_MESSAGES_KEY))
+        self.assertEqual(self.frame.send_btn.GetToolTipText(), tip(c.TOOLTIP_SEND_KEY, "Ctrl+Enter"))
+        # And recording says the key that sends it.
+        self.assertEqual(self.frame.recording_text(), self.text(c.MSG_RECORDING_FORMAT_KEY).format(shortcut="Ctrl+Alt+F7"))
+
     def test_a_button_does_what_its_menu_command_does(self):
         self.open_chat(0)
         self.frame.messages_list.SetSelection(0)

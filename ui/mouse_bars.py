@@ -6,8 +6,10 @@ from core.constants import (
     BTN_MORE_ACTIONS_KEY, CONTEXT_REPLY_KEY, CONTEXT_FORWARD_KEY, CONTEXT_REACT_KEY, BTN_PLAY_KEY, BTN_OPEN_KEY,
     BTN_COMMENTS_KEY, BTN_STATS_KEY, BTN_REMIND_KEY, MSG_NOTHING_TO_PLAY_KEY, TOOLTIP_COMMAND_FORMAT_KEY,
     MENU_NEW_CHAT_KEY, MENU_GLOBAL_SEARCH_KEY, MENU_DOWNLOAD_FILES_KEY, MENU_CHAT_INFO_KEY, MENU_REPLY_KEY,
-    MENU_FORWARD_KEY, MENU_REACT_KEY, MENU_OPEN_MEDIA_KEY, MENU_COMMENTS_KEY, MENU_MESSAGE_STATS_KEY, MENU_REMIND_KEY
+    MENU_FORWARD_KEY, MENU_REACT_KEY, MENU_OPEN_MEDIA_KEY, MENU_COMMENTS_KEY, MENU_MESSAGE_STATS_KEY, MENU_REMIND_KEY,
+    TOOLTIP_SEARCH_MESSAGES_KEY, MENU_SEARCH_MESSAGES_KEY, TOOLTIP_RECORD_KEY, MENU_RECORD_KEY, TOOLTIP_SEND_KEY,
 )
+from core.settings import SETTING_ENTER_SENDS
 
 class MouseBarsMixin:
     """Rows of buttons for the mouse: the commands used most, in sight, on each of the two screens.
@@ -66,6 +68,20 @@ class MouseBarsMixin:
                 self.i18n.get_string(TOOLTIP_COMMAND_FORMAT_KEY).format(command=command, shortcut=shortcut)
                 if shortcut else command
             )
+        # The buttons beside the writing field, likewise; Send goes with Enter or Ctrl+Enter, as set.
+        send_key = "Enter" if self.settings.get(SETTING_ENTER_SENDS) else "Ctrl+Enter"
+        for name, text_key, shortcut in (
+            ("search_btn", TOOLTIP_SEARCH_MESSAGES_KEY, table.get(MENU_SEARCH_MESSAGES_KEY)),
+            ("record_btn", TOOLTIP_RECORD_KEY, table.get(MENU_RECORD_KEY)),
+            ("send_btn", TOOLTIP_SEND_KEY, send_key),
+        ):
+            button = getattr(self, name, None)
+            if button is not None:
+                text = self.i18n.get_string(text_key)
+                button.SetToolTip(
+                    self.i18n.get_string(TOOLTIP_COMMAND_FORMAT_KEY).format(command=text, shortcut=shortcut)
+                    if shortcut else text
+                )
 
     def no_position(self, list_box):
         """A context-menu request as the Menu key makes it: on the selected item, wherever the mouse is."""

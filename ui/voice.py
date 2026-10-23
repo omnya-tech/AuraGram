@@ -1,12 +1,12 @@
 import os
 import wx
-from core import audio, sounds
+from core import audio, sounds, shortcuts, speech
 from core.settings import (
     SETTING_VOICE_SPEED, SETTING_MIC_DEVICE, SETTING_MIC_LEVEL, SETTING_NOISE, SETTING_RECORD_SOUND
 )
 from core.constants import (
     MSG_UPLOAD_PROGRESS_FORMAT_KEY, VOICE_SPEEDS, MSG_VOICE_SPEED_FORMAT_KEY, MIC_LEVELS, NOISE_LEVELS,
-    BTN_RECORD_KEY, BTN_STOP_AND_SEND_KEY, VOICE_NOTE_FILE, MIN_VOICE_SECONDS, MSG_RECORDING_KEY, MSG_RECORDING_CANCELLED_KEY,
+    BTN_RECORD_KEY, BTN_STOP_AND_SEND_KEY, VOICE_NOTE_FILE, MIN_VOICE_SECONDS, MSG_RECORDING_KEY, MSG_RECORDING_FORMAT_KEY, MENU_RECORD_KEY, MSG_RECORDING_CANCELLED_KEY,
     MSG_RECORDING_TOO_SHORT_KEY, MSG_SENDING_VOICE_KEY, MSG_VOICE_SENT_KEY, MSG_PLAYING_KEY,
     MSG_PLAYBACK_STOPPED_KEY, ERR_AUDIO_KEY, ERR_NO_AUDIO_SUPPORT_KEY, STATUS_READY_KEY,
     SOUND_RECORD_START, SOUND_RECORD_STOP
@@ -53,9 +53,16 @@ class VoiceMixin:
         if self.settings.get(SETTING_RECORD_SOUND):
             # A tone, and the words only on screen: spoken, they would be the start of the voice message.
             sounds.play(SOUND_RECORD_START)
-            self.set_status(MSG_RECORDING_KEY)
+            self.SetStatusText(self.recording_text())
         else:
-            self.notify(MSG_RECORDING_KEY)
+            self.announce(self.recording_text(), speech.kind_of(MSG_RECORDING_KEY))
+
+    def recording_text(self):
+        """How to send what is being recorded: with the recording shortcut as it is now, or the button if it has none."""
+        shortcut = shortcuts.current(self.settings).get(MENU_RECORD_KEY)
+        if shortcut:
+            return self.i18n.get_string(MSG_RECORDING_FORMAT_KEY).format(shortcut=shortcut)
+        return self.i18n.get_string(MSG_RECORDING_KEY)
 
     def finish_recording(self):
         try:

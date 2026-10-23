@@ -62,7 +62,7 @@ li { margin: .3rem 0; }
 <li><b>You decide what is said.</b> The app tells you what happens, but how much it talks is your choice, from "everything" to "only what you must hear".</li>
 <li><b>No surprises.</b> What cannot be undone (deleting, leaving, clearing history) asks before it happens, and sits last in its menu, away from the rest.</li>
 </ul>
-<p>It has been tried with the NVDA screen reader. It is free, open-source software under the GNU GPL version 3.</p>
+<p>It has been tried with the NVDA screen reader. AuraGram is free, open-source software under the GNU GPL version 3.</p>
 
 <h2 id="start">Installing and signing in</h2>
 <h3>Installing</h3>
@@ -201,8 +201,8 @@ li { margin: .3rem 0; }
 <h3>Channels</h3>
 <ul>
 <li>Posts are not each led by the channel's name, so you hear the post straight away.</li>
-<li>Right arrow on a post says its statistics once: views, comments, forwards and reactions ({{MENU_MESSAGE_STATS}} does the same).</li>
-<li>Left arrow on a post opens its comments ({{MENU_COMMENTS}}).</li>
+<li>Left arrow on a post says its statistics once: views, comments, forwards and reactions ({{MENU_MESSAGE_STATS}} does the same).</li>
+<li>Right arrow on a post opens its comments ({{MENU_COMMENTS}}).</li>
 </ul>
 <h3>Moving within a chat</h3>
 <ul>
@@ -244,7 +244,7 @@ li { margin: .3rem 0; }
 <li><b>A sticker</b> ({{MENU_SEND_STICKER}}): choose a set, then the sticker; each is read by the emoji it stands for.</li>
 <li><b>A contact</b> ({{MENU_SEND_CONTACT}}) from your contacts.</li>
 <li><b>A location</b> ({{MENU_SEND_LOCATION}}): type the latitude and longitude with a comma between, like <code>51.50, -0.12</code>.</li>
-<li><b>A poll</b> ({{MENU_NEW_POLL}}): the question, then the options one by one, then whether more than one answer may be chosen.</li>
+<li><b>A poll</b> ({{MENU_NEW_POLL}}): type the question, then the options, one on each line (from two to ten).</li>
 <li><b>Send without a sound</b> ({{MENU_SEND_SILENT}}): it arrives without ringing for the receiver.</li>
 <li><b>Schedule</b> ({{MENU_SCHEDULE}}): choose a time and it is sent then by itself. Scheduled messages are in their view ({{MESSAGE_VIEW_SCHEDULED}}), to cancel if you wish.</li>
 <li><b>Mention a member</b> of a group ({{MENU_MENTION}}): choose the member and their name is written in.</li>
@@ -303,12 +303,13 @@ li { margin: .3rem 0; }
 <h3>Listening</h3>
 <ul>
 <li><b>Space</b> on a voice message or song plays it from Telegram as it arrives, as Telegram's phone app does: the sound starts with its first piece, without waiting for the rest, and nothing of it is kept on your computer. Space again stops it, and what is left stops coming.</li>
-<li><b>Enter</b> on a voice message saves it to the downloads folder.</li>
+<li><b>Enter</b> on a voice message or song downloads it and opens it in your audio player, for when you want to skip back and forth in it.</li>
 <li>Playback speed steps through its settings each time you press {{MENU_VOICE_SPEED}}, from the next message played.</li>
 </ul>
 <h3>Files and pictures</h3>
 <ul>
 <li>Enter on a file, picture or video downloads it and opens it with the usual program on your computer, with a progress bar while it comes.</li>
+<li>Open the file's folder with the file selected: Shift+Enter on the message, or {{MENU_SHOW_IN_FOLDER}}.</li>
 <li>Save to a folder you choose: {{MENU_SAVE_AS}}. Open the downloads folder: {{MENU_OPEN_DOWNLOADS}}.</li>
 </ul>
 <h3>The microphone</h3>
@@ -353,7 +354,7 @@ li { margin: .3rem 0; }
 <h3>Topics</h3>
 <p>Some groups are split into topics. {{MENU_TOPICS}} lists them, Enter opens one. All you do in a chat you do in a topic: read, reply, react, send files, voice and polls, and new messages show there as they come. Escape goes back to the group.</p>
 <h3>Comments on channel posts</h3>
-<p>Left arrow on a post, or {{MENU_COMMENTS}}, opens its comments as a chat: write, reply and react there. Escape goes back to the channel, at that post.</p>
+<p>Right arrow on a post, or {{MENU_COMMENTS}}, opens its comments as a chat: write, reply and react there. Escape goes back to the channel, at that post.</p>
 <h3>Stories</h3>
 <ul>
 <li>{{MENU_STORIES}} shows the stories of those you follow: choose the person, then the story, and it opens and counts as seen.</li>

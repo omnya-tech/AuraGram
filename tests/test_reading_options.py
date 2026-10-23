@@ -78,14 +78,14 @@ class ReadingOptionsTest(WindowTestCase):
         self.open_chat(0)
         played, spoken = self.record()
         self.assertEqual(played, [c.SOUND_RECORD_START])
-        self.assertNotIn(self.text(c.MSG_RECORDING_KEY), spoken)
+        self.assertNotIn(self.text(c.MSG_RECORDING_FORMAT_KEY).format(shortcut="Ctrl+M"), spoken)
         # Still there to see.
         self.assertEqual(self.played[1], c.SOUND_RECORD_STOP)
 
         self.frame.settings.set(s.SETTING_RECORD_SOUND, False)
         played, spoken = self.record()
         self.assertEqual(played, [])
-        self.assertEqual(spoken, [self.text(c.MSG_RECORDING_KEY)])
+        self.assertEqual(spoken, [self.text(c.MSG_RECORDING_FORMAT_KEY).format(shortcut="Ctrl+M")])
         self.assertNotIn(c.SOUND_RECORD_STOP, self.played)
 
     def press_enter(self, shift=False, control=False, alt=False):

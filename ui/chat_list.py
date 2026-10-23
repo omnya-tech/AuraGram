@@ -485,6 +485,9 @@ class ChatListMixin:
             self.refresh_dialog_row(dialog)
             if dialog["id"] == self.current_dialog_id:
                 self.enable_chat(True)
+                # Joined: the chat's menu no longer offers to join it.
+                if self.in_chat:
+                    self.refresh_menu_bar()
         else:
             self.open_chat(chat)
         self.announce(self.i18n.get_string(MSG_JOINED_FORMAT_KEY).format(title=chat["title"]))
