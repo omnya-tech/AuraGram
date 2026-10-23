@@ -6,7 +6,6 @@ from unittest import mock
 
 import core.constants as c
 import core.shortcuts as shortcuts
-import ui.main_frame
 from core import user_guide
 from tests.harness import WindowTestCase
 
@@ -46,8 +45,8 @@ class GuideWindowTest(WindowTestCase):
         folder = tempfile.mkdtemp()
         opened = []
         with mock.patch.object(user_guide, "DATA_DIR", folder), \
-                mock.patch.object(ui.main_frame.user_guide.write, "__defaults__", (folder,)), \
-                mock.patch.object(ui.main_frame.os, "startfile", opened.append, create=True):
+                mock.patch.object(user_guide.write, "__defaults__", (folder,)), \
+                mock.patch.object(os, "startfile", opened.append, create=True):
             self.frame.on_user_guide_menu(None)
         self.assertEqual(len(opened), 1)
         with open(opened[0], encoding="utf-8") as file:

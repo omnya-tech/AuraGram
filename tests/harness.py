@@ -11,7 +11,9 @@ import unittest
 from unittest import mock
 
 import wx
+from telethon.errors import RPCError
 from telethon.tl import types
+from telethon.utils import get_input_peer, parse_username
 
 import core.key_conflicts
 import core.settings
@@ -201,7 +203,7 @@ class FakeTelegramClient:
         return [
             Record(
                 id=telegram_client.get_peer_id(entity), entity=entity, unread_count=unread,
-                pinned=False, archived=archived, input_entity=telegram_client.get_input_peer(entity),
+                pinned=False, archived=archived, input_entity=get_input_peer(entity),
                 dialog=Record(notify_settings=Record(mute_until=None), unread_mark=False),
                 draft=Record(text=self.drafts.get(telegram_client.get_peer_id(entity))),
                 # The chat list previews the newest message of each chat.
@@ -343,7 +345,7 @@ class FakeTelegramClient:
 
     async def get_entity(self, peer):
         if isinstance(peer, str):
-            username = telegram_client.parse_username(peer)[0]
+            username = parse_username(peer)[0]
             if username not in self.public:
                 raise ValueError("nobody by that name")
             return self.public[username]
@@ -522,7 +524,7 @@ class FakeTelegramClient:
             ))
         if name in ("GetBroadcastStatsRequest", "GetMegagroupStatsRequest"):
             if self.stats is None:
-                raise telegram_client.RPCError(None, "BROADCAST_REQUIRED", 400)
+                raise RPCError(None, "BROADCAST_REQUIRED", 400)
             return self.stats
         if name == "GetFullUserRequest":
             return Record(users=[make_user(1, "Me")], full_user=Record(about=""))

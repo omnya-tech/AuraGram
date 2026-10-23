@@ -12,7 +12,7 @@ import core.telegram_client as telegram_client
 from tests.harness import (
     FakeChooser, FakeTelegramClient, Record, WindowTestCase, make_channel, make_message, make_user, pump
 )
-from ui.main_frame import EVERY_CHAT
+from ui.menu_bar import EVERY_CHAT
 
 ALI = make_user(1, "Ali")
 NEWS = make_channel(3, "News")

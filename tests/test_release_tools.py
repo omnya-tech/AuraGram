@@ -13,6 +13,7 @@ import wx
 
 import core.constants as c
 import core.settings as s
+import ui.help_menu
 import ui.message_actions
 from core import diagnostics, proxy, updates, vision
 from tests.harness import FakeChooser, FakeTelegramClient, WindowTestCase, make_message, make_user, pump
@@ -255,7 +256,7 @@ class UpdateWindowTest(WindowTestCase):
         self.opened, self.started, self.fetched = [], [], []
         self.failure = None
         patches = [
-            mock.patch.object(ui.main_frame, "DOWNLOADS_DIR", self.folder),
+            mock.patch.object(ui.help_menu, "DOWNLOADS_DIR", self.folder),
             mock.patch.object(wx, "LaunchDefaultBrowser", self.opened.append),
             mock.patch.object(os, "startfile", self.started.append, create=True),
             mock.patch.object(updates, "download_package", self.download),
@@ -425,7 +426,7 @@ class ProblemReportTest(WindowTestCase):
         folder = tempfile.mkdtemp()
         shown = []
         FakeChooser.values = ["cannot hear new messages"]
-        with mock.patch.object(ui.main_frame, "DOWNLOADS_DIR", folder), \
+        with mock.patch.object(ui.help_menu, "DOWNLOADS_DIR", folder), \
                 mock.patch.object(os, "startfile", shown.append, create=True):
             self.frame.on_problem_report_menu(None)
         files = os.listdir(folder)
@@ -694,7 +695,7 @@ class ReleasePapersTest(WindowTestCase):
     def test_help_explains_the_licence_then_shows_the_components_and_its_text(self):
         shown = []
         self.frame.show_text = lambda title_key, text: shown.append((title_key, text))
-        with mock.patch.object(ui.main_frame, "SOURCE_CODE_URL", ""):
+        with mock.patch.object(ui.help_menu, "SOURCE_CODE_URL", ""):
             self.frame.on_license_menu(None)
         title_key, text = shown[0]
         self.assertEqual(title_key, c.LICENSE_TITLE_KEY)
@@ -703,7 +704,7 @@ class ReleasePapersTest(WindowTestCase):
         self.assertIn("Version 3, 29 June 2007", text)
         # No address for the code is shown until there is one.
         self.assertNotIn(self.text(c.LICENSE_SOURCE_FORMAT_KEY).format(url=""), text)
-        with mock.patch.object(ui.main_frame, "SOURCE_CODE_URL", "https://example.org/code"):
+        with mock.patch.object(ui.help_menu, "SOURCE_CODE_URL", "https://example.org/code"):
             self.frame.on_license_menu(None)
         self.assertIn(self.text(c.LICENSE_SOURCE_FORMAT_KEY).format(url="https://example.org/code"), shown[1][1])
 

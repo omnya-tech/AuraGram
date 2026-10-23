@@ -5,7 +5,7 @@ import core.constants as c
 import core.shortcuts as shortcuts
 import core.telegram_client as telegram_client
 from tests.harness import WindowTestCase, make_channel, make_user, pump
-from ui.main_frame import EVERY_CHAT
+from ui.menu_bar import EVERY_CHAT
 
 ALI = make_user(1, "Ali")
 HELPER = make_user(2, "Helper", contact=False, bot=True)
