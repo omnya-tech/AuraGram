@@ -31,7 +31,7 @@ class LocaleParityTest(unittest.TestCase):
                            "SHORTCUT_ROW_FORMAT", "SHORTCUTS_HELP_LINE_FORMAT",
                            # A bare percentage reads the same in both.
                            "MIC_LEVEL_40", "MIC_LEVEL_80", "MIC_LEVEL_130", "MIC_LEVEL_250",
-                           "EXPORT_LINE_FORMAT", "REMINDER_ROW_FORMAT", "TOOLTIP_COMMAND_FORMAT"}
+                           "EXPORT_LINE_FORMAT", "REMINDER_ROW_FORMAT", "TOOLTIP_COMMAND_FORMAT", "FORWARD_FAILURE_ROW_FORMAT"}
         untranslated = [key for key in ar if ar[key] == en[key] and key not in same_on_purpose]
         self.assertEqual(untranslated, [], "these English values are still the Arabic text")
 

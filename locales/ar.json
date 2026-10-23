@@ -1375,5 +1375,9 @@
     "MSG_CHAT_PICKER_COUNT_FORMAT": "عدد المحادثات: {count}",
     "MSG_CHAT_PICKER_NONE": "لا توجد محادثة بهذا الاسم",
     "CHAT_PICKER_HINT": "اكتب جزءاً من الاسم للبحث، ثم حدّد بالمسافة في القائمة. إن لم تحدد شيئاً أُخذت المحادثة التي تقف عليها القائمة.",
-    "MSG_FORWARDED_TO_CHATS_FORMAT": "تمت إعادة التوجيه إلى المحادثات المختارة. عددها: {count}"
+    "MSG_FORWARDED_TO_CHATS_FORMAT": "تمت إعادة التوجيه إلى المحادثات المختارة. عددها: {count}",
+    "MSG_FORWARD_FAILED_FORMAT": "لم تتم إعادة التوجيه إلى أي من المحادثات المختارة:\n{failures}",
+    "MSG_FORWARD_PARTLY_FORMAT": "تمت إعادة التوجيه إلى {count} من المحادثات المختارة، ولم تتم إلى:\n{failures}",
+    "FORWARD_FAILURE_ROW_FORMAT": "{title} ({kind}): {reason}",
+    "MSG_NO_CHAT_TO_FORWARD_TO": "لا توجد محادثة يمكنك الكتابة فيها لإعادة التوجيه إليها."
 }

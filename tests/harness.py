@@ -164,6 +164,8 @@ class FakeTelegramClient:
         cls.send_as = []
         cls.stats = None
         cls.transfer_gate = None
+        # Chats (by peer id) that refuse what is forwarded to them, as one this account may not write in does.
+        cls.refused_forwards = set()
         cls.muted_kinds = set()
         cls.drafts = {}
         cls.profile_photos = []
@@ -328,6 +330,9 @@ class FakeTelegramClient:
         self.calls.append(("unpin", message_id))
 
     async def forward_messages(self, to_entity, message_ids, from_entity):
+        if telegram_client.get_peer_id(to_entity) in self.refused_forwards:
+            from telethon.errors import ChatWriteForbiddenError
+            raise ChatWriteForbiddenError(request=None)
         self.calls.append((
             "forward", telegram_client.get_peer_id(to_entity), message_ids,
             telegram_client.get_peer_id(from_entity)

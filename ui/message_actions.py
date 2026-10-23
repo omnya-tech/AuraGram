@@ -12,7 +12,9 @@ from core.constants import (
     MESSAGE_VIEW_SCHEDULED, MSG_CONFIRM_CANCEL_SCHEDULED_KEY, MSG_SCHEDULED_CANCELLED_KEY,
     MSG_POLL_CLOSED_KEY, MSG_VOTED_KEY, MSG_CHOOSE_REACTION_KEY, REACTION_REMOVE_KEY,
     REACTION_CHOICE_FORMAT_KEY, MSG_REACTED_KEY, REACTION_EMOJIS, REACTION_NAME_KEY_PREFIX,
-    MSG_FORWARD_TO_KEY, MSG_FORWARDED_FORMAT_KEY, MSG_FORWARDED_TO_CHATS_FORMAT_KEY, MSG_PINNED_KEY, MSG_UNPINNED_KEY,
+    MSG_FORWARD_TO_KEY, MSG_FORWARDED_FORMAT_KEY, MSG_FORWARDED_TO_CHATS_FORMAT_KEY, MSG_FORWARD_FAILED_FORMAT_KEY,
+    MSG_FORWARD_PARTLY_FORMAT_KEY, FORWARD_FAILURE_ROW_FORMAT_KEY, MSG_NO_CHAT_TO_FORWARD_TO_KEY, CHAT_KIND_USER,
+    CHAT_KIND_GROUP, CHAT_KIND_CHANNEL, SEARCH_KIND_BOT_KEY, CATEGORY_GROUPS, CATEGORY_BROADCASTS, CATEGORY_BOTS, MSG_PINNED_KEY, MSG_UNPINNED_KEY,
     MSG_CANNOT_PIN_KEY, MSG_CONFIRM_DELETE_OTHER_KEY, MSG_COPIED_KEY, MSG_CANNOT_DELETE_KEY,
     MSG_CONFIRM_DELETE_KEY, MSG_DELETED_KEY, APP_TITLE_KEY, MSG_LOADING_KEY, STATUS_READY_KEY,
     MSG_MARKED_COUNT_FORMAT_KEY, MSG_MARKS_CLEARED_KEY, MSG_CONFIRM_DELETE_MANY_FORMAT_KEY,
@@ -225,28 +227,54 @@ class MessageActionsMixin:
         message = self.actionable_message()
         if message is None or not self.all_dialogs:
             return
-        targets = self.choose_chats(MSG_FORWARD_TO_KEY, self.all_dialogs)
+        # Only where this account may write: a channel it only reads would refuse.
+        chats = [chat for chat in self.all_dialogs if chat.get("can_send", True)]
+        if not chats:
+            self.notify(MSG_NO_CHAT_TO_FORWARD_TO_KEY)
+            return
+        targets = self.choose_chats(MSG_FORWARD_TO_KEY, chats)
         if not targets:
             return
         marked = self.marked_messages()
         # Marked messages go together, in the order they appear in the chat.
         message_ids = [marked_message["id"] for marked_message in marked] if marked else message["id"]
-        self.forward_to(self.peer(self.current_dialog_id), message_ids, targets, 0)
+        self.forward_to(self.peer(self.current_dialog_id), message_ids, targets, 0, [])
 
-    def forward_to(self, source, message_ids, targets, position):
-        """Forward to one chosen chat after another."""
-        self.telegram_manager.forward_message(
-            source, message_ids, targets[position]["id"],
-            self.on_ui_thread(self.on_forwarded, source, message_ids, targets, position)
-        )
+    def forward_to(self, source, message_ids, targets, position, failures):
+        """Forward to one chosen chat after another; one that refuses is noted, and the rest still get it."""
+        def deliver(result, error_key):
+            wx.CallAfter(self.on_forwarded, error_key, source, message_ids, targets, position, failures)
+        self.telegram_manager.forward_message(source, message_ids, targets[position]["id"], deliver)
 
-    def on_forwarded(self, result, source, message_ids, targets, position):
+    def chat_kind_text(self, chat):
+        """What kind of chat it is, in a word: private chat, group, channel or bot."""
+        return self.i18n.get_string({
+            CATEGORY_GROUPS: CHAT_KIND_GROUP, CATEGORY_BROADCASTS: CHAT_KIND_CHANNEL, CATEGORY_BOTS: SEARCH_KIND_BOT_KEY,
+        }.get(chat.get("category"), CHAT_KIND_USER))
+
+    def on_forwarded(self, error_key, source, message_ids, targets, position, failures):
+        if not self:
+            return
+        if error_key:
+            failures.append(self.i18n.get_string(FORWARD_FAILURE_ROW_FORMAT_KEY).format(
+                title=targets[position]["title"], kind=self.chat_kind_text(targets[position]),
+                reason=self.i18n.get_string(error_key)
+            ))
         if position + 1 < len(targets):
-            self.forward_to(source, message_ids, targets, position + 1)
+            self.forward_to(source, message_ids, targets, position + 1, failures)
             return
         if self.marked:
             self.marked = set()
             self.render_messages(self.messages_list.GetSelection() - self.message_offset())
+        if failures:
+            # Each chat that refused, what it is and why, so it can be told apart from the others.
+            sent = len(targets) - len(failures)
+            text = (
+                self.i18n.get_string(MSG_FORWARD_PARTLY_FORMAT_KEY).format(count=sent, failures="\n".join(failures))
+                if sent else self.i18n.get_string(MSG_FORWARD_FAILED_FORMAT_KEY).format(failures="\n".join(failures))
+            )
+            wx.MessageBox(text, self.i18n.get_string(APP_TITLE_KEY), wx.OK | wx.ICON_WARNING, self)
+            return
         self.announce(
             self.i18n.get_string(MSG_FORWARDED_FORMAT_KEY).format(title=targets[0]["title"]) if len(targets) == 1
             else self.i18n.get_string(MSG_FORWARDED_TO_CHATS_FORMAT_KEY).format(count=len(targets))

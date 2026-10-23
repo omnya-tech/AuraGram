@@ -1375,5 +1375,9 @@
     "MSG_CHAT_PICKER_COUNT_FORMAT": "{count} chats",
     "MSG_CHAT_PICKER_NONE": "No chat with this name",
     "CHAT_PICKER_HINT": "Type part of a name to search, then tick with Space in the list. With none ticked, the chat the list stands on is taken.",
-    "MSG_FORWARDED_TO_CHATS_FORMAT": "Forwarded to {count} chats"
+    "MSG_FORWARDED_TO_CHATS_FORMAT": "Forwarded to {count} chats",
+    "MSG_FORWARD_FAILED_FORMAT": "Nothing was forwarded to the chosen chats:\n{failures}",
+    "MSG_FORWARD_PARTLY_FORMAT": "Forwarded to {count} of the chosen chats, but not to:\n{failures}",
+    "FORWARD_FAILURE_ROW_FORMAT": "{title} ({kind}): {reason}",
+    "MSG_NO_CHAT_TO_FORWARD_TO": "There is no chat you can write in to forward to."
 }
