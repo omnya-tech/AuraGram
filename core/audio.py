@@ -4,6 +4,7 @@ Needs the optional packages av, numpy and sounddevice; `AVAILABLE` says
 whether they could be loaded.
 """
 import io
+import logging
 import threading
 
 try:
@@ -15,6 +16,8 @@ except Exception:
     AVAILABLE = False
 
 # What Telegram voice notes use: Opus, mono, 48 kHz.
+logger = logging.getLogger(__name__)
+
 SAMPLE_RATE = 48000
 SAMPLE_FORMAT = "int16"
 LOUDEST = 32767
@@ -32,17 +35,21 @@ LEVEL_PEAK_PERCENTILE = 99.9
 # How little of a sound is read to know what it is before playing starts: Telegram's voice notes
 # (Ogg/Opus) and songs (MP3) say what they are in their first bytes.
 STREAM_PROBE_OPTIONS = {"probesize": "32768", "analyzeduration": "0"}
+# How far back a sound being played can be taken: what was heard is kept this long, in memory only.
+REWIND_SECONDS = 120
+# Samples handed to the sound card at a time: short, so a jump is heard at once.
+PLAY_BLOCK = 2048
+# The longest stopping a sound may hold up the program.
+STOP_WAIT_SECONDS = 2
 # Above this share of the loudest a sample can be, what is left is bent smoothly under it rather than cut.
 LIMIT_KNEE = 0.9
 
 
-def decode(source, speed=1.0):
-    """Read any audio, a file's path or its bytes held in memory, into a mono int16 array at SAMPLE_RATE.
-
-    `speed` shortens or stretches it without changing how high the voice sounds.
-    """
+def decode_pieces(source, speed=1.0, halted=None):
+    """Read any audio, a file's path or its bytes held in memory, as mono int16 pieces at SAMPLE_RATE,
+    one after another as they are decoded, so a long sound is never held whole. `speed` shortens or
+    stretches it without changing how high the voice sounds; `halted()` true stops the reading."""
     resampler = av.AudioResampler(format="s16", layout="mono", rate=SAMPLE_RATE)
-    chunks = []
     with av.open(io.BytesIO(source) if isinstance(source, bytes) else source) as container:
         stream = container.streams.audio[0]
         if speed == 1.0:
@@ -50,8 +57,17 @@ def decode(source, speed=1.0):
         else:
             frames = _at_speed(container.decode(stream), stream, speed)
         for frame in frames:
-            chunks.extend(out.to_ndarray()[0] for out in resampler.resample(frame))
-        chunks.extend(out.to_ndarray()[0] for out in resampler.resample(None))
+            if halted is not None and halted():
+                return
+            for out in resampler.resample(frame):
+                yield out.to_ndarray()[0]
+        for out in resampler.resample(None):
+            yield out.to_ndarray()[0]
+
+
+def decode(source, speed=1.0):
+    """The whole of a sound as one mono int16 array at SAMPLE_RATE: for short sounds, like the tones."""
+    chunks = list(decode_pieces(source, speed))
     if not chunks:
         return numpy.zeros(0, dtype=SAMPLE_FORMAT)
     return numpy.concatenate(chunks)
@@ -246,48 +262,122 @@ class StreamBuffer:
 
 
 class Player:
-    """Plays one sound at a time on a background thread."""
+    """Plays one sound at a time on a background thread, and goes back or forward in it on request."""
 
     def __init__(self):
         self.thread = None
-        self.stopped = False
+        # Set to stop the sound playing now; each sound gets a new one.
+        self.halt = threading.Event()
         # While a sound plays as it arrives: where it comes from, and the sound card's stream.
         self.buffer = None
         self.output = None
+        self.lock = threading.Lock()
+        # Seconds of the sound heard so far, and how far back it can be taken from here.
+        self.position = 0.0
+        self.earliest = 0.0
+        # How long the whole sound is, when the caller knows; 0 when not.
+        self.duration = 0.0
+        # Seconds to go forward (or back, below zero), asked for and not yet done.
+        self.jump = 0.0
+        self.speed = 1.0
 
     def is_playing(self):
         return self.thread is not None and self.thread.is_alive()
 
+    def seek(self, seconds):
+        """Go `seconds` forward, or back below zero, in the sound playing. Returns where that lands, in
+        seconds of the sound; None if nothing is playing."""
+        if not self.is_playing():
+            return None
+        with self.lock:
+            self.jump += seconds
+            target = max(self.earliest, self.position + self.jump)
+            return min(target, self.duration) if self.duration else target
+
+    def _play_through(self, pieces, output, halt):
+        """Play pieces of sound (int16 arrays) as they are decoded, going back or forward when seek()
+        asks. What was heard is kept for REWIND_SECONDS behind the place being played, and no longer."""
+        kept = bytearray()
+        kept_start = 0
+        decoded_end = 0
+        play_at = 0
+        window = int(REWIND_SECONDS * SAMPLE_RATE)
+
+        def play_what_is_there():
+            nonlocal kept_start, play_at
+            while not halt.is_set():
+                with self.lock:
+                    jump, self.jump = self.jump, 0.0
+                if jump:
+                    play_at = max(kept_start, play_at + int(jump * SAMPLE_RATE / self.speed))
+                # What is further back than can be returned to is let go, a batch at a time.
+                drop = min(play_at - window, decoded_end) - kept_start
+                if drop > window // 2:
+                    del kept[:drop * 2]
+                    kept_start += drop
+                with self.lock:
+                    self.position = play_at * self.speed / SAMPLE_RATE
+                    self.earliest = kept_start * self.speed / SAMPLE_RATE
+                if play_at >= decoded_end:
+                    return
+                count = min(PLAY_BLOCK, decoded_end - play_at)
+                start = (play_at - kept_start) * 2
+                block = numpy.frombuffer(bytes(kept[start:start + count * 2]), dtype=SAMPLE_FORMAT)
+                output.write(block.reshape(-1, 1))
+                play_at += count
+
+        for piece in pieces:
+            if halt.is_set():
+                break
+            kept.extend(numpy.ascontiguousarray(piece, dtype=SAMPLE_FORMAT).reshape(-1).tobytes())
+            decoded_end += len(piece.reshape(-1))
+            play_what_is_there()
+        play_what_is_there()
+
+    def _start(self, speed):
+        """A fresh stop signal for the sound about to play."""
+        self.halt = threading.Event()
+        with self.lock:
+            self.position = self.earliest = self.jump = 0.0
+            self.speed = speed
+
     def play(self, path, on_finished, speed=1.0):
         """on_finished(completed, error) is called from the playback thread."""
         self.stop()
-        self.stopped = False
-        self.thread = threading.Thread(target=self._run, args=(path, on_finished, speed), daemon=True)
+        self._start(speed)
+        self.thread = threading.Thread(target=self._run, args=(path, on_finished, speed, self.halt), daemon=True)
         self.thread.start()
 
-    def _run(self, path, on_finished, speed):
+    def _run(self, path, on_finished, speed, halt):
+        output = None
         try:
-            samples = decode(path, speed)
-            if not self.stopped:
-                sounddevice.play(samples, SAMPLE_RATE)
-                sounddevice.wait()
+            # Played as it is decoded, a piece at a time: a song of an hour never sits whole in memory.
+            pieces = decode_pieces(path, speed, halt.is_set)
+            with sounddevice.OutputStream(samplerate=SAMPLE_RATE, channels=1, dtype=SAMPLE_FORMAT) as output:
+                self.output = output
+                self._play_through(pieces, output, halt)
         except Exception as error:
-            on_finished(False, error)
+            on_finished(False, None if halt.is_set() else error)
         else:
-            on_finished(not self.stopped, None)
+            on_finished(not halt.is_set(), None)
+        finally:
+            self._let_go(output)
 
     def play_stream(self, buffer, on_finished, speed=1.0):
         """Play a sound as its bytes arrive in `buffer`, starting with the first of them.
         on_finished(completed, error, started) is called from the playback thread; `started` says
         whether any of it was heard, so a sound that cannot be read this way can be fetched whole."""
         self.stop()
-        self.stopped = False
+        self._start(speed)
         self.buffer = buffer
-        self.thread = threading.Thread(target=self._run_stream, args=(buffer, on_finished, speed), daemon=True)
+        self.thread = threading.Thread(
+            target=self._run_stream, args=(buffer, on_finished, speed, self.halt), daemon=True
+        )
         self.thread.start()
 
-    def _run_stream(self, buffer, on_finished, speed):
+    def _run_stream(self, buffer, on_finished, speed, halt):
         started = False
+        output = None
         try:
             resampler = av.AudioResampler(format="s16", layout="mono", rate=SAMPLE_RATE)
             # Started as soon as the kind of sound is known, not after reading far into it to be sure.
@@ -296,27 +386,37 @@ class Player:
                 frames = container.decode(stream)
                 if speed != 1.0:
                     frames = _at_speed(frames, stream, speed)
+                def pieces():
+                    nonlocal started
+                    for frame in frames:
+                        if halt.is_set():
+                            return
+                        for out in resampler.resample(frame):
+                            started = True
+                            yield out.to_ndarray()
+                    for out in resampler.resample(None):
+                        yield out.to_ndarray()
+
                 with sounddevice.OutputStream(samplerate=SAMPLE_RATE, channels=1, dtype=SAMPLE_FORMAT) as output:
                     self.output = output
-                    for frame in frames:
-                        if self.stopped:
-                            break
-                        for out in resampler.resample(frame):
-                            output.write(out.to_ndarray().reshape(-1, 1))
-                            started = True
-                    if not self.stopped:
-                        for out in resampler.resample(None):
-                            output.write(out.to_ndarray().reshape(-1, 1))
+                    self._play_through(pieces(), output, halt)
         except Exception as error:
-            on_finished(False, None if self.stopped else error, started)
+            on_finished(False, None if halt.is_set() else error, started)
         else:
-            on_finished(not self.stopped, None, started)
+            on_finished(not halt.is_set(), None, started)
         finally:
+            self._let_go(output)
+
+    def _let_go(self, output):
+        # Only its own: a sound let go of while stuck must not take the next one's sound card stream with it.
+        if output is not None and self.output is output:
             self.output = None
 
     def stop(self):
+        """Stop the sound playing. Waits STOP_WAIT_SECONDS at most: a sound card or a decoder that does
+        not let go is left to finish on its own, and the program goes on."""
         if self.is_playing():
-            self.stopped = True
+            self.halt.set()
             if self.buffer is not None:
                 # A read waiting for the next piece gives up at once.
                 self.buffer.abandon()
@@ -327,7 +427,11 @@ class Player:
                 except Exception:
                     pass
             sounddevice.stop()
-            self.thread.join()
+            self.thread.join(STOP_WAIT_SECONDS)
+            if self.thread.is_alive():
+                logger.warning("A sound did not stop within %s seconds; it is left to end on its own", STOP_WAIT_SECONDS)
+                self.thread = None
+                self.output = None
         self.buffer = None
 
 

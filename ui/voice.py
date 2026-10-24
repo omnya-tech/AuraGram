@@ -1,6 +1,7 @@
 import os
 import wx
 from core import audio, sounds, shortcuts, speech
+from ui.layout import duration_text
 from core.settings import (
     SETTING_VOICE_SPEED, SETTING_MIC_DEVICE, SETTING_MIC_LEVEL, SETTING_NOISE, SETTING_RECORD_SOUND
 )
@@ -8,7 +9,7 @@ from core.constants import (
     MSG_UPLOAD_PROGRESS_FORMAT_KEY, VOICE_SPEEDS, MSG_VOICE_SPEED_FORMAT_KEY, MIC_LEVELS, NOISE_LEVELS,
     BTN_RECORD_KEY, BTN_STOP_AND_SEND_KEY, VOICE_NOTE_FILE, MIN_VOICE_SECONDS, MSG_RECORDING_KEY, MSG_RECORDING_FORMAT_KEY, MENU_RECORD_KEY, MSG_RECORDING_CANCELLED_KEY,
     MSG_RECORDING_TOO_SHORT_KEY, MSG_SENDING_VOICE_KEY, MSG_VOICE_SENT_KEY, MSG_PLAYING_KEY,
-    MSG_PLAYBACK_STOPPED_KEY, ERR_AUDIO_KEY, ERR_NO_AUDIO_SUPPORT_KEY, STATUS_READY_KEY,
+    MSG_PLAYBACK_STOPPED_KEY, MSG_PLAYBACK_POSITION_FORMAT_KEY, MSG_NOTHING_PLAYING_KEY, SEEK_SECONDS, ERR_AUDIO_KEY, ERR_NO_AUDIO_SUPPORT_KEY, STATUS_READY_KEY,
     SOUND_RECORD_START, SOUND_RECORD_STOP
 )
 
@@ -111,6 +112,35 @@ class VoiceMixin:
         self.settings.set(SETTING_VOICE_SPEED, speed)
         self.settings.save()
         self.announce(self.i18n.get_string(MSG_VOICE_SPEED_FORMAT_KEY).format(speed=self.i18n.get_string(speed)))
+
+    def playback_place(self, seconds):
+        """Where a sound is, as said: "1:05 of 3:20", or only "1:05" when its length is not known."""
+        if self.player.duration:
+            return self.i18n.get_string(MSG_PLAYBACK_POSITION_FORMAT_KEY).format(
+                position=duration_text(seconds), duration=duration_text(self.player.duration)
+            )
+        return duration_text(seconds)
+
+    def say_playback_place(self, seconds):
+        # Asked for by a key, so it is spoken whatever the setting for passing remarks says.
+        text = self.playback_place(seconds)
+        self.SetStatusText(text)
+        speech.speak(text)
+
+    def seek_playback(self, step):
+        """Shift with an arrow on the messages while a sound plays: SEEK_SECONDS forward (1) or back (-1).
+        False when nothing plays, so the key is left to do what it does otherwise."""
+        landed = self.player.seek(step * SEEK_SECONDS)
+        if landed is None:
+            return False
+        self.say_playback_place(landed)
+        return True
+
+    def on_playback_position_menu(self, event):
+        if not self.player.is_playing():
+            self.notify(MSG_NOTHING_PLAYING_KEY)
+            return
+        self.say_playback_place(self.player.position)
 
     def on_playback_finished(self, completed, error):
         if not self:

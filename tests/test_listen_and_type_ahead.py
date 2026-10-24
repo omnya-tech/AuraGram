@@ -182,6 +182,51 @@ class ListenTest(WindowTestCase):
         self.assertFalse(os.path.exists(path))
 
 
+    def key(self, code, shift=False, control=False, alt=False, focus=None):
+        """Press a key with the focus on `focus` (the messages, unless said otherwise); True if it was
+        left to go on to the control, as a key the app does not take."""
+        event = wx.KeyEvent(wx.wxEVT_CHAR_HOOK)
+        event.SetKeyCode(code)
+        event.SetShiftDown(shift)
+        event.SetControlDown(control)
+        event.SetAltDown(alt)
+        skipped = []
+        event.Skip = lambda skip=True: skipped.append(skip)
+        with mock.patch.object(wx.Window, "FindFocus", return_value=focus or self.frame.messages_list):
+            self.frame.on_char_hook(event)
+        return bool(skipped)
+
+    def test_shift_with_an_arrow_on_the_messages_seeks_while_a_sound_plays(self):
+        self.frame.messages_list.SetSelection(0)
+        self.space()
+        asked = []
+        with mock.patch.object(self.frame.player, "is_playing", lambda: True),                 mock.patch.object(self.frame.player, "seek", lambda seconds: asked.append(seconds) or 2.0):
+            # In Arabic the window reads right to left: forward is the left arrow.
+            self.key(wx.WXK_LEFT, shift=True)
+            self.key(wx.WXK_RIGHT, shift=True)
+            self.assertEqual(asked, [c.SEEK_SECONDS, -c.SEEK_SECONDS])
+            # Where it landed, against the length Telegram gave with the message.
+            self.assertEqual(self.spoken[-1], self.text(c.MSG_PLAYBACK_POSITION_FORMAT_KEY).format(
+                position="0:02", duration="0:04"))
+            # In the writing field Shift with an arrow selects text, as always: no seeking there.
+            self.assertTrue(self.key(wx.WXK_RIGHT, shift=True, focus=self.frame.message_input))
+            self.assertEqual(len(asked), 2)
+
+    def test_shift_with_an_arrow_does_nothing_of_its_own_with_nothing_playing(self):
+        self.frame.messages_list.SetSelection(0)
+        with mock.patch.object(self.frame.player, "seek", lambda seconds: None):
+            self.assertTrue(self.key(wx.WXK_LEFT, shift=True))
+
+    def test_the_place_in_the_sound_is_said_on_request_from_anywhere(self):
+        self.key(wx.WXK_SPACE, control=True, alt=True, focus=self.frame.message_input)
+        self.assertEqual(self.spoken[-1], self.text(c.MSG_NOTHING_PLAYING_KEY))
+        self.frame.messages_list.SetSelection(0)
+        self.space()
+        with mock.patch.object(self.frame.player, "is_playing", lambda: True),                 mock.patch.object(self.frame.player, "position", 65.4):
+            self.key(wx.WXK_SPACE, control=True, alt=True, focus=self.frame.message_input)
+        self.assertEqual(self.spoken[-1], self.text(c.MSG_PLAYBACK_POSITION_FORMAT_KEY).format(
+            position="1:05", duration="0:04"))
+
 class ChatListTypingTest(WindowTestCase):
     chats = [(ALI, 0, False), (AHMED, 0, False), (TEAM, 0, False)]
 
@@ -271,12 +316,17 @@ class StreamingPlayerTest(unittest.TestCase):
         self.audio = audio
         path = os.path.join(tempfile.mkdtemp(), "voice.ogg")
         audio.encode_voice(audio.numpy.zeros(audio.SAMPLE_RATE // 2, dtype=audio.SAMPLE_FORMAT), path)
+        long_path = os.path.join(tempfile.mkdtemp(), "long.ogg")
+        audio.encode_voice(audio.numpy.zeros(audio.SAMPLE_RATE * 4, dtype=audio.SAMPLE_FORMAT), long_path)
+        with open(long_path, "rb") as file:
+            self.long_voice = file.read()
         with open(path, "rb") as file:
             self.voice = file.read()
 
-    def play(self, pieces_later):
+    def play(self, pieces_later, on_write=None, seconds=None):
         import threading
         written = []
+        player_box = []
 
         class Output:
             def __init__(self, **kwargs):
@@ -290,6 +340,8 @@ class StreamingPlayerTest(unittest.TestCase):
 
             def write(self, samples):
                 written.append(len(samples))
+                if on_write is not None:
+                    on_write(player_box[0], sum(written))
 
             def abort(self):
                 pass
@@ -298,6 +350,7 @@ class StreamingPlayerTest(unittest.TestCase):
         result = []
         with mock.patch.object(self.audio.sounddevice, "OutputStream", Output):
             player = self.audio.Player()
+            player_box.append(player)
             player.play_stream(buffer, lambda *finished: (result.append(finished), done.set()))
             pieces_later(buffer)
             self.assertTrue(done.wait(10))
@@ -323,3 +376,113 @@ class StreamingPlayerTest(unittest.TestCase):
         (completed, error, started), written = self.play(send)
         self.assertFalse(completed or started)
         self.assertIsNotNone(error)
+
+    def send_long(self, buffer):
+        buffer.feed(self.long_voice)
+        buffer.finish()
+
+    def test_going_forward_skips_and_going_back_plays_again(self):
+        rate = self.audio.SAMPLE_RATE
+        _, plain = self.play(self.send_long)
+        whole = sum(plain)
+        self.assertGreater(whole, rate * 3)
+        asked = []
+
+        def forward_once(player, so_far):
+            if not asked:
+                asked.append(player.seek(2))
+        _, skipped = self.play(self.send_long, forward_once)
+        # Two seconds fewer heard, give or take a block, and the jump said where it lands.
+        self.assertAlmostEqual(sum(skipped), whole - 2 * rate, delta=self.audio.PLAY_BLOCK * 2)
+        self.assertAlmostEqual(asked[0], 2, delta=0.2)
+
+        def back_once(player, so_far):
+            if not asked[1:] and so_far >= 3 * rate:
+                asked.append(player.seek(-1))
+        _, again = self.play(self.send_long, back_once)
+        self.assertAlmostEqual(sum(again), whole + rate, delta=self.audio.PLAY_BLOCK * 2)
+
+    def test_going_back_stops_at_the_start_and_nothing_playing_cannot_seek(self):
+        rate = self.audio.SAMPLE_RATE
+        _, plain = self.play(self.send_long)
+        asked = []
+
+        def far_back(player, so_far):
+            if not asked and so_far >= rate:
+                asked.append(player.seek(-1000))
+        _, written = self.play(self.send_long, far_back)
+        self.assertEqual(asked, [0.0])
+        self.assertAlmostEqual(sum(written), sum(plain) + rate, delta=self.audio.PLAY_BLOCK * 2)
+        self.assertIsNone(self.audio.Player().seek(5))
+
+    def stuck_output(self, release):
+        """A sound card whose write never returns until `release` is set, whatever abort does."""
+        class Stuck:
+            def __init__(self, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def write(self, samples):
+                release.wait()
+
+            def abort(self):
+                pass
+        return Stuck
+
+    def test_a_sound_card_that_does_not_let_go_holds_the_program_up_two_seconds_at_most(self):
+        import threading
+        import time
+        release = threading.Event()
+        self.addCleanup(release.set)
+        finished = []
+        with mock.patch.object(self.audio.sounddevice, "OutputStream", self.stuck_output(release)), \
+                mock.patch.object(self.audio.sounddevice, "stop"):
+            player = self.audio.Player()
+            player.play(self.long_voice, lambda *result: finished.append(result))
+            time.sleep(0.3)
+            began = time.monotonic()
+            with self.assertLogs("core.audio", "WARNING"):
+                player.stop()
+            self.assertLess(time.monotonic() - began, self.audio.STOP_WAIT_SECONDS + 1)
+            self.assertFalse(player.is_playing())
+            # The next sound is not held up by the one let go, and that one never plays again.
+            old_halt = player.halt
+            player.play(self.long_voice, lambda *result: None)
+            self.assertTrue(old_halt.is_set())
+            self.assertFalse(player.halt.is_set())
+            release.set()
+            player.stop()
+
+    def test_a_song_fetched_whole_is_played_as_it_is_decoded_not_held_whole(self):
+        import threading
+        written = []
+        done = threading.Event()
+
+        class Output:
+            def __init__(self, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def write(self, samples):
+                written.append(len(samples))
+
+            def abort(self):
+                pass
+        result = []
+        with mock.patch.object(self.audio.sounddevice, "OutputStream", Output), \
+                mock.patch.object(self.audio, "decode", side_effect=AssertionError("decoded whole")):
+            player = self.audio.Player()
+            player.play(self.long_voice, lambda *finished: (result.append(finished), done.set()))
+            self.assertTrue(done.wait(10))
+        self.assertEqual(result, [(True, None)])
+        self.assertAlmostEqual(sum(written), 4 * self.audio.SAMPLE_RATE, delta=self.audio.SAMPLE_RATE // 10)

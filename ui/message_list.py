@@ -489,6 +489,8 @@ class MessageListMixin:
         if self.stop_playback():
             return True
         key = (self.peer(self.current_dialog_id), message["id"])
+        # Telegram tells a sound's length with it, before any of it arrives.
+        self.player.duration = (message.get("file") or {}).get("duration") or 0
         buffer = audio.StreamBuffer()
         # Whatever happens to the request reaches the player through the buffer.
         self.stream_request = self.telegram_manager.stream_media(key[0], key[1], buffer, lambda result, error_key: None)

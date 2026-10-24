@@ -683,6 +683,11 @@ class MainFrame(
                 and not self.messages_type_ahead.is_typing() and self.listen():
             # A voice message or a song played, or stopped, straight from Telegram.
             pass
+        elif sideways and focused is self.messages_list and event.ShiftDown() and not event.ControlDown() \
+                and not event.AltDown() and self.seek_playback(self.view_tabs.sideways_step(event.GetKeyCode())):
+            # Shift with the arrow forward or back, while a sound plays: a few seconds that way.
+            # Only on the messages, never in a field, where Shift with an arrow selects text.
+            pass
         elif sideways and focused is self.messages_list and not event.HasAnyModifiers():
             # Up and down move through the messages. Forward (left, in a right-to-left window) goes
             # into the post's comments; back says its numbers.
