@@ -373,6 +373,30 @@ class InstallerScriptTest(unittest.TestCase):
         self.assertEqual(script.count("#ifdef UpdateOnly") + script.count("#ifndef UpdateOnly"), script.count("#endif") - script.count("#ifndef App"))
 
 
+class ShippedCodeTest(unittest.TestCase):
+    def test_nothing_the_program_ships_imports_the_build_tools(self):
+        """protect.py is the developer's own tool for the build, with its passphrase in it. The builder
+        bundles every module the program imports, so a single import of it from the program's code
+        would hand it to every user."""
+        import ast
+        build_only = {"protect", "build"}
+        shipped = [os.path.join(c.BASE_DIR, "main.py")]
+        for folder in ("core", "ui"):
+            for root, _, names in os.walk(os.path.join(c.BASE_DIR, folder)):
+                shipped += [os.path.join(root, name) for name in names if name.endswith(".py")]
+        found = []
+        for path in shipped:
+            with open(path, encoding="utf-8") as source:
+                tree = ast.parse(source.read(), path)
+            for node in ast.walk(tree):
+                names = [alias.name for alias in node.names] if isinstance(node, ast.Import) else \
+                    [node.module or ""] if isinstance(node, ast.ImportFrom) and not node.level else []
+                found += ["%s: %s" % (os.path.relpath(path, c.BASE_DIR), name) for name in names
+                          if name.split(".")[0] in build_only]
+        self.assertGreater(len(shipped), 40)
+        self.assertEqual(found, [])
+
+
 class DiagnosticsTest(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.mkdtemp()
