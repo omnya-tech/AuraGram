@@ -38,8 +38,9 @@ def get_app():
     return _app
 
 
-def pump(condition=None, timeout=3.0):
-    """Run pending UI events until `condition()` is true; returns whether it became true."""
+def pump(condition=None, timeout=10.0):
+    """Run pending UI events until `condition()` is true; returns whether it became true.
+    Ten seconds before giving up: a machine busy building can be slow, and a condition met returns at once."""
     app = get_app()
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -588,6 +589,10 @@ class FakeChooser:
     def GetChildren(self):
         # No real list inside to type in.
         return []
+
+    def Destroy(self):
+        # Nothing real to take down.
+        pass
 
 
 class FakeChatPicker(FakeChooser):

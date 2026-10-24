@@ -60,12 +60,17 @@ class DownloadsMixin:
             return
         row = self.i18n.get_string(DOWNLOAD_FILE_ROW_FORMAT_KEY)
         rows = [row.format(file=self.media_label(message), time=self.time_text(message["date"], True)) for message in files]
-        with DownloadFilesDialog(
+        dialog = DownloadFilesDialog(
             self, self.i18n, chat["title"], rows, checked=self.settings.get(SETTING_DOWNLOAD_CHECK_ALL)
-        ) as dialog:
+        )
+        try:
             if dialog.ShowModal() != wx.ID_OK:
                 return
             chosen = [files[index] for index in dialog.chosen()]
+        finally:
+            # Gone already if the main window closed while it was open, taking it along.
+            if dialog:
+                dialog.Destroy()
         folder = self.downloads_folder()
         if self.settings.get(SETTING_DOWNLOAD_PER_CHAT):
             folder = os.path.join(folder, folder_name(chat["title"]))

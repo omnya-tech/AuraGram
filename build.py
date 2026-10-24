@@ -28,6 +28,8 @@ from core.constants import (
 
 DIST_DIR = os.path.join(BASE_DIR, "dist")
 WORK_DIR = os.path.join(BASE_DIR, "build")
+# What the tests printed in the last build.
+TESTS_LOG_FILE = os.path.join(WORK_DIR, "tests.log")
 PROGRAM = os.path.join(DIST_DIR, APP_NAME, APP_NAME + ".exe")
 PACKAGES = {
     kind: os.path.join(DIST_DIR, name.format(version=APP_VERSION)) for kind, name in PACKAGE_FILE_FORMATS.items()
@@ -91,8 +93,20 @@ def run(command):
 
 
 def run_tests():
+    """Run every test; what they print is shown and also kept in TESTS_LOG_FILE, so a failure
+    that scrolled out of sight can still be read whole."""
     step("Running the tests")
-    run([sys.executable, "-m", "unittest", "discover", "-s", "tests", "-t", "."])
+    os.makedirs(WORK_DIR, exist_ok=True)
+    command = [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-t", "."]
+    with open(TESTS_LOG_FILE, "w", encoding="utf-8") as log:
+        process = subprocess.Popen(command, cwd=BASE_DIR, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   text=True, encoding="utf-8", errors="replace")
+        for line in process.stdout:
+            sys.stdout.write(line)
+            log.write(line)
+        process.wait()
+    if process.returncode != 0:
+        sys.exit("Build stopped: the tests failed. Everything they printed is in %s" % TESTS_LOG_FILE)
 
 
 def write_version_info():
