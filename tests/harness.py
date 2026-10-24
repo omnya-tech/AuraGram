@@ -289,10 +289,14 @@ class FakeTelegramClient:
         if thread is not None and schedule is None:
             thread.append(make_message(1000 + len(thread), text, outgoing=True, reply_to_msg_id=reply_to))
         self.calls.append(("send", peer_id, text, reply_to, schedule))
+        if isinstance(file, types.InputMediaPoll):
+            # What was asked of the poll: its settings, and a quiz's right answer and explanation.
+            self.calls.append(("poll", peer_id, file))
         if schedule is None and text is not None:
             messages = self.history.setdefault(peer_id, [])
             next_id = max((message.id for message in messages), default=0) + 1
             messages.append(make_message(next_id, text, outgoing=True, reply_to_msg_id=reply_to))
+            return messages[-1]
 
     async def send_file(self, entity, file, caption=None, force_document=False, voice_note=False, reply_to=None,
                         progress_callback=None):
@@ -614,6 +618,7 @@ class WindowTestCase(unittest.TestCase):
         settings_file = os.path.join(tempfile.mkdtemp(), "settings.json")
         FakeTelegramClient.reset(list(self.chats), {key: list(value) for key, value in self.history.items()})
         FakeChooser.confirmed, FakeChooser.selection, FakeChooser.values = True, 0, []
+        FakeChooser.selections = []
         FakeChooser.picked = None
 
         def message_box(message, *args, **kwargs):

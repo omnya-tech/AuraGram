@@ -22,7 +22,7 @@ from core.constants import (
     DATE_WORDS_FORMAT_KEY, DATE_WORDS_YEAR_FORMAT_KEY, DATE_TIME_WORDS_FORMAT_KEY, MESSAGE_NO_TIME_FORMAT, CONTEXT_SELECT_KEY, CONTEXT_UNSELECT_KEY,
     MSG_CHOOSE_SAVE_FOLDER_KEY, MSG_SAVED_FORMAT_KEY, CONTEXT_READ_MESSAGE_KEY, READ_MESSAGE_TITLE_KEY, READ_MESSAGE_HEADER_FORMAT_KEY, MARKED_FORMAT_KEY, MESSAGE_VIEW_SEARCH, MESSAGE_VIEW_SCHEDULED, MSG_VIEW_RESULTS_FORMAT_KEY, MSG_VIEW_EMPTY_KEY,
     POLL_FORMAT_KEY, POLL_OPTION_FORMAT_KEY, POLL_CHOSEN_KEY, POLL_VOTERS_FORMAT_KEY,
-    POLL_CLOSED_SUFFIX_KEY, CONTEXT_VOTE_KEY, CONTEXT_REACT_KEY, REACTIONS_FORMAT_KEY,
+    POLL_CLOSED_SUFFIX_KEY, QUIZ_FORMAT_KEY, POLL_CORRECT_KEY, POLL_EXPLANATION_FORMAT_KEY, CONTEXT_VOTE_KEY, CONTEXT_REACT_KEY, REACTIONS_FORMAT_KEY,
     REACTION_COUNT_FORMAT_KEY, CONTEXT_FORWARD_KEY, CONTEXT_PIN_KEY, CONTEXT_UNPIN_KEY,
     PINNED_FORMAT_KEY, CONTEXT_REPLY_KEY, CONTEXT_EDIT_KEY, CONTEXT_DELETE_KEY, CONTEXT_COPY_KEY,
     CONTEXT_OPEN_MEDIA_KEY, MSG_SEARCH_MESSAGES_PROMPT_KEY, MSG_SEARCH_RESULTS_FORMAT_KEY,
@@ -807,6 +807,8 @@ class MessageListMixin:
             details = []
             if option["chosen"]:
                 details.append(self.i18n.get_string(POLL_CHOSEN_KEY))
+            if option.get("correct"):
+                details.append(self.i18n.get_string(POLL_CORRECT_KEY))
             # Telegram hides the counts until this account has voted.
             if option["voters"] is not None:
                 details.append(self.i18n.get_string(POLL_VOTERS_FORMAT_KEY).format(count=option["voters"]))
@@ -816,10 +818,13 @@ class MessageListMixin:
                 ))
             else:
                 options.append(option["text"])
-        return self.i18n.get_string(POLL_FORMAT_KEY).format(
+        text = self.i18n.get_string(QUIZ_FORMAT_KEY if poll.get("quiz") else POLL_FORMAT_KEY).format(
             closed=self.i18n.get_string(POLL_CLOSED_SUFFIX_KEY) if poll["closed"] else "",
             question=poll["question"], options=self.i18n.get_string(FILE_LABEL_SEPARATOR_KEY).join(options)
         )
+        if poll.get("explanation"):
+            text = self.i18n.get_string(POLL_EXPLANATION_FORMAT_KEY).format(text=text, explanation=poll["explanation"])
+        return text
 
     def message_text(self, message):
         service = message.get("service")

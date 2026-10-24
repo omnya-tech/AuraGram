@@ -16,7 +16,12 @@ from core.constants import (
     CATEGORY_BOTS, CATEGORY_GROUPS, MSG_NOT_A_BOT_CHAT_KEY, MSG_BOT_STARTED_KEY, MSG_CHOOSE_BOT_COMMAND_KEY,
     BOT_COMMAND_FORMAT_KEY, MSG_NO_BOT_COMMANDS_KEY, MSG_NO_BOT_BUTTONS_KEY,
     SOUND_SENT, MSG_SHARE_TO_KEY, MSG_SHARE_BUSY_KEY, MSG_SHARE_NO_CHAT_KEY, MSG_SHARED_TO_CHATS_FORMAT_KEY,
-    MSG_POLL_QUESTION_PROMPT_KEY, MSG_POLL_OPTIONS_PROMPT_KEY, MSG_POLL_SENT_KEY,
+    MSG_POLL_QUESTION_PROMPT_KEY, MSG_POLL_OPTIONS_PROMPT_KEY, MSG_POLL_SENT_KEY, POLL_QUESTION_MAX, POLL_OPTION_MAX, MESSAGE_TEXT_MAX,
+    MSG_POLL_QUESTION_AS_MESSAGE_FORMAT_KEY, MSG_POLL_SHORT_QUESTION_PROMPT_KEY, POLL_SHORT_QUESTION_KEY,
+    POLL_SETTING_ANONYMOUS, POLL_SETTING_MULTIPLE, POLL_SETTING_QUIZ, MSG_POLL_SETTINGS_KEY, MSG_POLL_CORRECT_ANSWER_KEY,
+    MSG_POLL_EXPLANATION_PROMPT_KEY, ERR_POLL_QUIZ_MULTIPLE_KEY, ERR_POLL_EXPLANATION_LONG_FORMAT_KEY,
+    POLL_EXPLANATION_MAX, MSG_QUIZ_SENT_KEY, CATEGORY_BROADCASTS,
+    ERR_POLL_QUESTION_LONG_FORMAT_KEY, ERR_POLL_OPTION_LONG_FORMAT_KEY, ERR_POLL_OPTION_TWICE_FORMAT_KEY,
     ERR_POLL_OPTIONS_KEY, POLL_MIN_OPTIONS, POLL_MAX_OPTIONS, MSG_SCHEDULE_PROMPT_KEY,
     MSG_SCHEDULED_FORMAT_KEY, MSG_NOTHING_TO_SCHEDULE_KEY, ERR_BAD_TIME_KEY, REPLY_LABEL_FORMAT_KEY,
     EDIT_LABEL_KEY, MSG_CANNOT_EDIT_KEY, MSG_CHOOSE_FILE_KEY, MSG_UPLOADING_KEY, MSG_FILE_SENT_KEY,
@@ -32,6 +37,11 @@ from core.constants import (
     MSG_STORY_CAPTION_PROMPT_KEY, MSG_STORY_AUDIENCE_KEY, STORY_AUDIENCES,
     MSG_STORY_POSTED_KEY, MSG_SENDING_FILES_FORMAT_KEY, FILE_LABEL_SEPARATOR_KEY, MSG_CHOOSE_PHOTO_KEY, PHOTO_FILES_KEY, PHOTO_FILE_PATTERNS, MSG_CHOOSE_SEND_AS_KEY, MSG_SEND_AS_SAVED_FORMAT_KEY, MSG_NO_SEND_AS_KEY
 )
+
+
+def telegram_length(text):
+    """A text's length as Telegram counts it: in UTF-16 units, so an emoji counts two."""
+    return len(text.encode("utf-16-le")) // 2
 
 class ComposerMixin:
     """Writing and sending: plain messages, replies, edits, files, polls and scheduling.
@@ -688,27 +698,134 @@ class ComposerMixin:
             time=when.strftime(DATE_TIME_FORMAT)
         ))
 
+    def ask_poll_text(self, prompt_key, value, multiline=False):
+        """The text typed for a poll, stripped; None if the user backs out."""
+        style = wx.TextEntryDialogStyle | wx.TE_MULTILINE if multiline else wx.TextEntryDialogStyle
+        with wx.TextEntryDialog(
+            self, self.i18n.get_string(prompt_key), self.i18n.get_string(APP_TITLE_KEY), value=value, style=style
+        ) as text_dialog:
+            if text_dialog.ShowModal() != wx.ID_OK:
+                return None
+            return text_dialog.GetValue().strip()
+
+    def poll_question_problem(self, question):
+        """What Telegram would refuse in a poll question, said; None if it would take it."""
+        length = telegram_length(question)
+        if length > POLL_QUESTION_MAX:
+            return self.i18n.get_string(ERR_POLL_QUESTION_LONG_FORMAT_KEY).format(length=length, limit=POLL_QUESTION_MAX)
+        return None
+
+    def poll_options_problem(self, options):
+        """What Telegram would refuse in a poll's options, said; None if it would take them."""
+        if not POLL_MIN_OPTIONS <= len(options) <= POLL_MAX_OPTIONS:
+            return self.i18n.get_string(ERR_POLL_OPTIONS_KEY)
+        for option in options:
+            if telegram_length(option) > POLL_OPTION_MAX:
+                return self.i18n.get_string(ERR_POLL_OPTION_LONG_FORMAT_KEY).format(
+                    option=option, length=telegram_length(option), limit=POLL_OPTION_MAX
+                )
+        seen = set()
+        for option in options:
+            if option.casefold() in seen:
+                return self.i18n.get_string(ERR_POLL_OPTION_TWICE_FORMAT_KEY).format(option=option)
+            seen.add(option.casefold())
+        return None
+
+    def show_poll_problem(self, text):
+        wx.MessageBox(text, self.i18n.get_string(APP_TITLE_KEY), wx.OK | wx.ICON_ERROR, self)
+
     def on_new_poll_menu(self, event):
         if not self.can_send_now():
             return
-        title = self.i18n.get_string(APP_TITLE_KEY)
-        with wx.TextEntryDialog(self, self.i18n.get_string(MSG_POLL_QUESTION_PROMPT_KEY), title) as question_dialog:
-            if question_dialog.ShowModal() != wx.ID_OK:
+        # Asked again, with what was written kept, until Telegram would take it or the user backs out.
+        question = ""
+        # A question too long for a poll, sent as a message before it, with the poll as a reply to it.
+        long_question = None
+        while True:
+            prompt = MSG_POLL_SHORT_QUESTION_PROMPT_KEY if long_question else MSG_POLL_QUESTION_PROMPT_KEY
+            question = self.ask_poll_text(prompt, question)
+            if not question:
                 return
-            question = question_dialog.GetValue().strip()
-        if not question:
-            return
-        with wx.TextEntryDialog(
-            self, self.i18n.get_string(MSG_POLL_OPTIONS_PROMPT_KEY), title, style=wx.TextEntryDialogStyle|wx.TE_MULTILINE
-        ) as options_dialog:
-            if options_dialog.ShowModal() != wx.ID_OK:
+            problem = self.poll_question_problem(question)
+            if problem is None:
+                break
+            length = telegram_length(question)
+            if long_question is None and length <= MESSAGE_TEXT_MAX and self.confirm(
+                self.i18n.get_string(MSG_POLL_QUESTION_AS_MESSAGE_FORMAT_KEY).format(length=length, limit=POLL_QUESTION_MAX)
+            ):
+                long_question, question = question, self.i18n.get_string(POLL_SHORT_QUESTION_KEY)
+                continue
+            self.show_poll_problem(problem)
+        written = ""
+        while True:
+            written = self.ask_poll_text(MSG_POLL_OPTIONS_PROMPT_KEY, written, multiline=True)
+            if written is None:
                 return
-            options = [line.strip() for line in options_dialog.GetValue().splitlines() if line.strip()]
-        if not POLL_MIN_OPTIONS <= len(options) <= POLL_MAX_OPTIONS:
-            self.show_error(ERR_POLL_OPTIONS_KEY)
-            return
+            options = [line.strip() for line in written.splitlines() if line.strip()]
+            problem = self.poll_options_problem(options)
+            if problem is None:
+                break
+            self.show_poll_problem(problem)
         dialog_id = self.current_dialog_id
+        settings = self.ask_poll_settings(options)
+        if settings is None:
+            return
+        if long_question is None:
+            self.send_poll(dialog_id, question, options, self.take_reply(), settings)
+            return
+        # The question in full first, as an answer to what the poll would have answered.
+        self.telegram_manager.send_message(
+            self.peer(dialog_id), long_question,
+            self.on_ui_thread(self.on_poll_question_sent, dialog_id, question, options, settings),
+            reply_to=self.take_reply()
+        )
+
+    def on_poll_question_sent(self, message_id, dialog_id, question, options, settings):
+        # Under the question it asks; where Telegram gave no id, in the same place as the question.
+        self.send_poll(dialog_id, question, options, message_id or self.thread_root(), settings)
+
+    def send_poll(self, dialog_id, question, options, reply_to, settings):
+        sent_key = MSG_QUIZ_SENT_KEY if settings.get("quiz_answer") is not None else MSG_POLL_SENT_KEY
         self.telegram_manager.send_poll(
             self.peer(dialog_id), question, options,
-            self.on_ui_thread(self.on_file_sent, dialog_id, MSG_POLL_SENT_KEY), reply_to=self.take_reply()
+            self.on_ui_thread(self.on_file_sent, dialog_id, sent_key), reply_to=reply_to, settings=settings
         )
+
+    def ask_poll_settings(self, options):
+        """{"anonymous", "multiple", "quiz_answer", "explanation"} as the user sets them; None if they back out.
+        A channel's polls are anonymous by Telegram's rule, so there it is not asked."""
+        in_channel = (self.shown_chat() or {}).get("category") == CATEGORY_BROADCASTS
+        offered = [POLL_SETTING_MULTIPLE, POLL_SETTING_QUIZ] if in_channel else \
+            [POLL_SETTING_ANONYMOUS, POLL_SETTING_MULTIPLE, POLL_SETTING_QUIZ]
+        chosen = [] if in_channel else [0]
+        while True:
+            chosen = self.pick_many(
+                self.i18n.get_string(MSG_POLL_SETTINGS_KEY), [self.i18n.get_string(key) for key in offered], chosen
+            )
+            if chosen is None:
+                return None
+            ticked = {offered[index] for index in chosen}
+            if POLL_SETTING_QUIZ in ticked and POLL_SETTING_MULTIPLE in ticked:
+                self.show_poll_problem(self.i18n.get_string(ERR_POLL_QUIZ_MULTIPLE_KEY))
+                continue
+            break
+        settings = {
+            "anonymous": in_channel or POLL_SETTING_ANONYMOUS in ticked,
+            "multiple": POLL_SETTING_MULTIPLE in ticked, "quiz_answer": None, "explanation": "",
+        }
+        if POLL_SETTING_QUIZ not in ticked:
+            return settings
+        settings["quiz_answer"] = self.pick(self.i18n.get_string(MSG_POLL_CORRECT_ANSWER_KEY), options)
+        if settings["quiz_answer"] is None:
+            return None
+        explanation = ""
+        while True:
+            explanation = self.ask_poll_text(MSG_POLL_EXPLANATION_PROMPT_KEY, explanation, multiline=True)
+            if explanation is None:
+                return None
+            if telegram_length(explanation) <= POLL_EXPLANATION_MAX:
+                settings["explanation"] = explanation
+                return settings
+            self.show_poll_problem(self.i18n.get_string(ERR_POLL_EXPLANATION_LONG_FORMAT_KEY).format(
+                length=telegram_length(explanation), limit=POLL_EXPLANATION_MAX
+            ))

@@ -39,8 +39,10 @@ class MessagesMixin:
         """Votes in a poll (an empty list retracts the vote); the result is the refreshed message."""
         self._request(on_result, self._vote_async, dialog_id, message_id, option_indexes)
 
-    def send_poll(self, dialog_id, question, options, on_result, reply_to=None):
-        self._request(on_result, self._send_poll_async, dialog_id, question, options, reply_to)
+    def send_poll(self, dialog_id, question, options, on_result, reply_to=None, settings=None):
+        """`settings`: {"anonymous", "multiple", "quiz_answer" (index of the right option, or None),
+        "explanation"}; None for an anonymous poll with one answer."""
+        self._request(on_result, self._send_poll_async, dialog_id, question, options, reply_to, settings)
 
     def react(self, dialog_id, message_id, emoji, on_result):
         """Sets this account's reaction (None removes it); the result is the refreshed message."""
@@ -354,10 +356,12 @@ class MessagesMixin:
         return None
 
     async def _send_message_async(self, dialog_id, text, reply_to, schedule, silent):
-        await self.client.send_message(
+        """The result is the id of the message sent, for what is sent as a reply to it."""
+        sent = await self.client.send_message(
             # None, not False: unasked, the chat's own setting for this decides.
             self.entities[dialog_id], text, reply_to=reply_to, schedule=schedule, silent=silent or None
         )
+        return getattr(sent, "id", None)
 
     async def _load_thread_async(self, dialog_id, thread_id, view):
         peer, root = dialog_id, thread_id
@@ -453,6 +457,7 @@ class MessagesMixin:
             return None
         poll, results = media.poll, media.results
         votes = {result.option: result for result in getattr(results, "results", None) or []}
+        solution = getattr(results, "solution", None)
         return {
             # Newer Telegram layers wrap these texts in a formatted-text object.
             "question": getattr(poll.question, "text", poll.question),
@@ -462,11 +467,16 @@ class MessagesMixin:
                     # None while Telegram hides the results (before voting).
                     "voters": getattr(votes.get(answer.option), "voters", None),
                     "chosen": bool(getattr(votes.get(answer.option), "chosen", False)),
+                    # A quiz's right answer, once Telegram shows it (after voting).
+                    "correct": bool(getattr(votes.get(answer.option), "correct", False)),
                 }
                 for answer in poll.answers
             ],
             "closed": bool(poll.closed),
             "multiple": bool(poll.multiple_choice),
+            "quiz": bool(getattr(poll, "quiz", False)),
+            # What explains a quiz's right answer, shown once it has been answered; "" if none.
+            "explanation": solution or "",
         }
 
     async def _vote_async(self, dialog_id, message_id, option_indexes):
@@ -479,14 +489,25 @@ class MessagesMixin:
         message = await self.client.get_messages(entity, ids=message_id)
         return self._describe_message(message, message.sender)
 
-    async def _send_poll_async(self, dialog_id, question, options, reply_to):
+    async def _send_poll_async(self, dialog_id, question, options, reply_to, settings=None):
+        settings = settings or {}
+        quiz_answer = settings.get("quiz_answer")
+        explanation = settings.get("explanation") or None
+
         def formatted(text):
             return types.TextWithEntities(text, [])
         poll = types.Poll(
             id=0, hash=0, question=formatted(question),
-            answers=[types.PollAnswer(formatted(text), bytes([index])) for index, text in enumerate(options)]
+            answers=[types.PollAnswer(formatted(text), bytes([index])) for index, text in enumerate(options)],
+            public_voters=not settings.get("anonymous", True) or None,
+            multiple_choice=bool(settings.get("multiple")) or None,
+            quiz=quiz_answer is not None or None,
         )
-        await self.client.send_message(self.entities[dialog_id], file=types.InputMediaPoll(poll), reply_to=reply_to)
+        media = types.InputMediaPoll(
+            poll, correct_answers=[bytes([quiz_answer])] if quiz_answer is not None else None,
+            solution=explanation, solution_entities=[] if explanation else None,
+        )
+        await self.client.send_message(self.entities[dialog_id], file=media, reply_to=reply_to)
 
     async def _react_async(self, dialog_id, message_id, emoji):
         entity = self.entities[dialog_id]
