@@ -14,7 +14,8 @@ from telethon.errors import (
     UserNotMutualContactError, UserChannelsTooMuchError, MegagroupPrehistoryHiddenError, LinkNotModifiedError,
     MegagroupRequiredError, BroadcastRequiredError, PollQuestionInvalidError, PollOptionInvalidError,
     PollAnswersInvalidError, PollOptionDuplicateError, QuizCorrectAnswersEmptyError, QuizCorrectAnswersTooMuchError,
-    QuizCorrectAnswerInvalidError, QuizMultipleInvalidError, BroadcastPublicVotersForbiddenError,
+    QuizCorrectAnswerInvalidError, QuizMultipleInvalidError, BroadcastPublicVotersForbiddenError, PollVoteRequiredError,
+    MessageAuthorRequiredError,
 )
 from telethon.tl import functions, types
 from telethon.utils import get_display_name, get_peer_id
@@ -32,7 +33,7 @@ from core.constants import (
     TYPING_ACTION_UPLOAD, ERR_NO_PHONE_KEY, ERR_USERNAME_TAKEN_KEY, ERR_USERNAME_INVALID_KEY,
     ERR_PHOTO_INVALID_KEY, ERR_PREHISTORY_HIDDEN_KEY, ERR_DISCUSSION_LINK_KEY, ERR_NO_INVITE_LINK_KEY,
     ERR_EMAIL_UNCONFIRMED_KEY, ERR_PHONE_TAKEN_KEY, EVENT_DRAFT, DEFAULT_LANG, ERR_CANNOT_ADD_KEY,
-    ERR_STATS_UNAVAILABLE_KEY, ERR_POLL_QUESTION_KEY, ERR_POLL_ANSWERS_KEY, ERR_POLL_SETTINGS_KEY,
+    ERR_STATS_UNAVAILABLE_KEY, ERR_POLL_QUESTION_KEY, ERR_POLL_ANSWERS_KEY, ERR_POLL_SETTINGS_KEY, ERR_POLL_VOTE_REQUIRED_KEY,
 )
 from core.tg_chats import ChatsMixin
 from core.tg_messages import MessagesMixin
@@ -233,6 +234,8 @@ class TelegramManager(ChatsMixin, MessagesMixin, MediaMixin, AdminMixin, Account
             on_result(None, ERR_PHONE_INVALID_KEY)
         except (PhoneCodeInvalidError, PhoneCodeExpiredError):
             on_result(None, ERR_CODE_INVALID_KEY)
+        except PollVoteRequiredError:
+            on_result(None, ERR_POLL_VOTE_REQUIRED_KEY)
         except PollQuestionInvalidError:
             on_result(None, ERR_POLL_QUESTION_KEY)
         except (PollOptionInvalidError, PollAnswersInvalidError, PollOptionDuplicateError):
@@ -243,7 +246,7 @@ class TelegramManager(ChatsMixin, MessagesMixin, MediaMixin, AdminMixin, Account
         except VoiceMessagesForbiddenError:
             on_result(None, ERR_VOICE_FORBIDDEN_KEY)
         except (
-            ChatAdminRequiredError, ChatWriteForbiddenError, UserAdminInvalidError,
+            ChatAdminRequiredError, ChatWriteForbiddenError, UserAdminInvalidError, MessageAuthorRequiredError,
             RightForbiddenError, UserCreatorError, MessageDeleteForbiddenError
         ):
             on_result(None, ERR_NO_PERMISSION_KEY)

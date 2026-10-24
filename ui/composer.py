@@ -5,9 +5,10 @@ import tempfile
 import wx
 from core import sounds
 from core.speech import speak
-from core.settings import SETTING_SENT_SOUND
+from core.settings import SETTING_POLL_DEFAULTS, SETTING_SENT_SOUND
 from core.schedule import parse_send_time
 from ui.layout import file_kind, file_size
+from ui.poll_settings_dialog import PollSettingsDialog, telegram_length
 from core.constants import (
     INLINE_QUERY_PATTERN, MSG_NO_INLINE_RESULTS_KEY, MSG_CHOOSE_INLINE_RESULT_FORMAT_KEY, INLINE_RESULT_FORMAT_KEY,
     INLINE_RESULT_UNTITLED_FORMAT_KEY, INLINE_KIND_KEY_PREFIX, MSG_INLINE_SENT_KEY, FEEDBACK_RESULT,
@@ -18,9 +19,7 @@ from core.constants import (
     SOUND_SENT, MSG_SHARE_TO_KEY, MSG_SHARE_BUSY_KEY, MSG_SHARE_NO_CHAT_KEY, MSG_SHARED_TO_CHATS_FORMAT_KEY,
     MSG_POLL_QUESTION_PROMPT_KEY, MSG_POLL_OPTIONS_PROMPT_KEY, MSG_POLL_SENT_KEY, POLL_QUESTION_MAX, POLL_OPTION_MAX, MESSAGE_TEXT_MAX,
     MSG_POLL_QUESTION_AS_MESSAGE_FORMAT_KEY, MSG_POLL_SHORT_QUESTION_PROMPT_KEY, POLL_SHORT_QUESTION_KEY,
-    POLL_SETTING_ANONYMOUS, POLL_SETTING_MULTIPLE, POLL_SETTING_QUIZ, MSG_POLL_SETTINGS_KEY, MSG_POLL_CORRECT_ANSWER_KEY,
-    MSG_POLL_EXPLANATION_PROMPT_KEY, ERR_POLL_QUIZ_MULTIPLE_KEY, ERR_POLL_EXPLANATION_LONG_FORMAT_KEY,
-    POLL_EXPLANATION_MAX, MSG_QUIZ_SENT_KEY, CATEGORY_BROADCASTS,
+    MSG_QUIZ_SENT_KEY, CATEGORY_BROADCASTS,
     ERR_POLL_QUESTION_LONG_FORMAT_KEY, ERR_POLL_OPTION_LONG_FORMAT_KEY, ERR_POLL_OPTION_TWICE_FORMAT_KEY,
     ERR_POLL_OPTIONS_KEY, POLL_MIN_OPTIONS, POLL_MAX_OPTIONS, MSG_SCHEDULE_PROMPT_KEY,
     MSG_SCHEDULED_FORMAT_KEY, MSG_NOTHING_TO_SCHEDULE_KEY, ERR_BAD_TIME_KEY, REPLY_LABEL_FORMAT_KEY,
@@ -38,10 +37,6 @@ from core.constants import (
     MSG_STORY_POSTED_KEY, MSG_SENDING_FILES_FORMAT_KEY, FILE_LABEL_SEPARATOR_KEY, MSG_CHOOSE_PHOTO_KEY, PHOTO_FILES_KEY, PHOTO_FILE_PATTERNS, MSG_CHOOSE_SEND_AS_KEY, MSG_SEND_AS_SAVED_FORMAT_KEY, MSG_NO_SEND_AS_KEY
 )
 
-
-def telegram_length(text):
-    """A text's length as Telegram counts it: in UTF-16 units, so an emoji counts two."""
-    return len(text.encode("utf-16-le")) // 2
 
 class ComposerMixin:
     """Writing and sending: plain messages, replies, edits, files, polls and scheduling.
@@ -792,40 +787,17 @@ class ComposerMixin:
         )
 
     def ask_poll_settings(self, options):
-        """{"anonymous", "multiple", "quiz_answer", "explanation"} as the user sets them; None if they back out.
-        A channel's polls are anonymous by Telegram's rule, so there it is not asked."""
+        """The settings for a poll, as the user sets them in their window; None if they back out.
+        The last ones used are offered again, and kept for the next poll."""
         in_channel = (self.shown_chat() or {}).get("category") == CATEGORY_BROADCASTS
-        offered = [POLL_SETTING_MULTIPLE, POLL_SETTING_QUIZ] if in_channel else \
-            [POLL_SETTING_ANONYMOUS, POLL_SETTING_MULTIPLE, POLL_SETTING_QUIZ]
-        chosen = [] if in_channel else [0]
-        while True:
-            chosen = self.pick_many(
-                self.i18n.get_string(MSG_POLL_SETTINGS_KEY), [self.i18n.get_string(key) for key in offered], chosen
-            )
-            if chosen is None:
+        defaults = self.settings.get(SETTING_POLL_DEFAULTS)
+        with PollSettingsDialog(self, self.i18n, options, defaults, in_channel=in_channel) as settings_dialog:
+            if settings_dialog.ShowModal() != wx.ID_OK:
                 return None
-            ticked = {offered[index] for index in chosen}
-            if POLL_SETTING_QUIZ in ticked and POLL_SETTING_MULTIPLE in ticked:
-                self.show_poll_problem(self.i18n.get_string(ERR_POLL_QUIZ_MULTIPLE_KEY))
-                continue
-            break
-        settings = {
-            "anonymous": in_channel or POLL_SETTING_ANONYMOUS in ticked,
-            "multiple": POLL_SETTING_MULTIPLE in ticked, "quiz_answer": None, "explanation": "",
-        }
-        if POLL_SETTING_QUIZ not in ticked:
-            return settings
-        settings["quiz_answer"] = self.pick(self.i18n.get_string(MSG_POLL_CORRECT_ANSWER_KEY), options)
-        if settings["quiz_answer"] is None:
-            return None
-        explanation = ""
-        while True:
-            explanation = self.ask_poll_text(MSG_POLL_EXPLANATION_PROMPT_KEY, explanation, multiline=True)
-            if explanation is None:
-                return None
-            if telegram_length(explanation) <= POLL_EXPLANATION_MAX:
-                settings["explanation"] = explanation
-                return settings
-            self.show_poll_problem(self.i18n.get_string(ERR_POLL_EXPLANATION_LONG_FORMAT_KEY).format(
-                length=telegram_length(explanation), limit=POLL_EXPLANATION_MAX
-            ))
+            chosen = settings_dialog.settings()
+            self.settings.set(SETTING_POLL_DEFAULTS, dict(defaults, **settings_dialog.remembered()))
+        self.settings.save()
+        if in_channel:
+            chosen["anonymous"] = True
+        return chosen
+

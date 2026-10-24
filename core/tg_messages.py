@@ -9,7 +9,7 @@ from core.constants import (
     SERVICE_LEFT_KEY, SERVICE_REMOVED_FORMAT_KEY, SERVICE_CALL_STARTED_KEY, SERVICE_CALL_ENDED_KEY,
     MEDIA_SERVICE_KEY, EMPTY_STRING, MESSAGES_LIMIT, MEDIA_KINDS, CHAT_EXPORT_LIMIT, CHAT_EXPORT_PAGE,
     MESSAGE_VIEW_SCHEDULED, GLOBAL_SEARCH_LIMIT, MAP_LINK_FORMAT, TOPICS_LIMIT, AUDIENCE_LIMIT,
-    MESSAGE_VIEW_COMMENTS, MESSAGE_VIEW_MENTIONS,
+    MESSAGE_VIEW_COMMENTS, MESSAGE_VIEW_MENTIONS, VOTERS_PAGE, VOTERS_LIMIT,
 )
 from core.tg_shared import MESSAGE_VIEW_FILTERS
 
@@ -43,6 +43,15 @@ class MessagesMixin:
         """`settings`: {"anonymous", "multiple", "quiz_answer" (index of the right option, or None),
         "explanation"}; None for an anonymous poll with one answer."""
         self._request(on_result, self._send_poll_async, dialog_id, question, options, reply_to, settings)
+
+    def load_poll_voters(self, dialog_id, message_id, on_result):
+        """The result is [(option text, [names of who chose it])], in the poll's own order. Only a poll
+        whose votes are public has them; Telegram may ask this account to vote first."""
+        self._request(on_result, self._load_poll_voters_async, dialog_id, message_id)
+
+    def close_poll(self, dialog_id, message_id, on_result):
+        """Stop a poll taking votes, for good; the result is the message as it is then."""
+        self._request(on_result, self._close_poll_async, dialog_id, message_id)
 
     def react(self, dialog_id, message_id, emoji, on_result):
         """Sets this account's reaction (None removes it); the result is the refreshed message."""
@@ -474,6 +483,8 @@ class MessagesMixin:
             ],
             "closed": bool(poll.closed),
             "multiple": bool(poll.multiple_choice),
+            # Whether who voted for what can be seen; never in an anonymous poll.
+            "public": bool(getattr(poll, "public_voters", False)),
             "quiz": bool(getattr(poll, "quiz", False)),
             # What explains a quiz's right answer, shown once it has been answered; "" if none.
             "explanation": solution or "",
@@ -485,6 +496,40 @@ class MessagesMixin:
         answers = message.poll.poll.answers
         await self.client(functions.messages.SendVoteRequest(
             peer=entity, msg_id=message_id, options=[answers[index].option for index in option_indexes]
+        ))
+        message = await self.client.get_messages(entity, ids=message_id)
+        return self._describe_message(message, message.sender)
+
+    async def _load_poll_voters_async(self, dialog_id, message_id):
+        entity = self.entities[dialog_id]
+        message = await self.client.get_messages(entity, ids=message_id)
+        answers = message.poll.poll.answers
+        chose = {answer.option: [] for answer in answers}
+        offset, seen = None, 0
+        while seen < VOTERS_LIMIT:
+            page = await self.client(functions.messages.GetPollVotesRequest(
+                peer=entity, id=message_id, limit=VOTERS_PAGE, offset=offset
+            ))
+            names = {get_peer_id(who): get_display_name(who) for who in list(page.users) + list(page.chats)}
+            for vote in page.votes:
+                name = names.get(get_peer_id(vote.peer), EMPTY_STRING)
+                # One option, or several where the poll lets more than one be chosen.
+                for option in getattr(vote, "options", None) or [getattr(vote, "option", None)]:
+                    if option in chose:
+                        chose[option].append(name)
+            seen += len(page.votes)
+            offset = page.next_offset
+            if not offset or not page.votes:
+                break
+        return [(getattr(answer.text, "text", answer.text), chose[answer.option]) for answer in answers]
+
+    async def _close_poll_async(self, dialog_id, message_id):
+        entity = self.entities[dialog_id]
+        message = await self.client.get_messages(entity, ids=message_id)
+        poll = message.poll.poll
+        poll.closed = True
+        await self.client(functions.messages.EditMessageRequest(
+            peer=entity, id=message_id, media=types.InputMediaPoll(poll=poll)
         ))
         message = await self.client.get_messages(entity, ids=message_id)
         return self._describe_message(message, message.sender)
@@ -502,6 +547,10 @@ class MessagesMixin:
             public_voters=not settings.get("anonymous", True) or None,
             multiple_choice=bool(settings.get("multiple")) or None,
             quiz=quiz_answer is not None or None,
+            shuffle_answers=bool(settings.get("shuffle")) or None,
+            hide_results_until_close=bool(settings.get("hide_results")) or None,
+            revoting_disabled=bool(settings.get("no_revote")) or None,
+            close_period=settings.get("close_after") or None,
         )
         media = types.InputMediaPoll(
             poll, correct_answers=[bytes([quiz_answer])] if quiz_answer is not None else None,

@@ -111,6 +111,7 @@ class FakeTelegramClient:
     progress_steps = (100, 101, 200)  # bytes done, out of 200, that a transfer reports on its way
     transfer_gate = None  # an asyncio.Event a test sets to let a held upload finish
     history_gate = None
+    poll_votes = []
     discussion_groups = []
     common_chats = []  # chats GetCommonChatsRequest says are shared with a person
     discussions = {}  # (channel peer id, post id) -> (discussion group, id of the post's twin there)
@@ -170,6 +171,8 @@ class FakeTelegramClient:
         cls.transfer_gate = None
         # An asyncio.Event a test sets to let a chat's messages arrive; None for at once.
         cls.history_gate = None
+        # (user, [option bytes]) for each vote GetPollVotesRequest answers.
+        cls.poll_votes = []
         # Chats (by peer id) that refuse what is forwarded to them, as one this account may not write in does.
         cls.refused_forwards = set()
         cls.muted_kinds = set()
@@ -399,6 +402,18 @@ class FakeTelegramClient:
     async def __call__(self, request):
         name = type(request).__name__
         self.calls.append((name, request))
+        if name == "GetPollVotesRequest":
+            # Every vote on one page: (voter, the options they chose).
+            users = [user for user, options in self.poll_votes]
+            votes = [types.MessagePeerVoteMultiple(peer=types.PeerUser(user.id), options=options, date=NOW)
+                     for user, options in self.poll_votes]
+            return types.messages.VotesList(count=len(votes), votes=votes, chats=[], users=users, next_offset=None)
+        if name == "EditMessageRequest" and isinstance(request.media, types.InputMediaPoll):
+            peer_id = telegram_client.get_peer_id(request.peer)
+            for message in self.history.get(peer_id, []):
+                if message.id == request.id:
+                    message.poll.poll.closed = request.media.poll.closed
+            return None
         if name == "GetPeerDialogsRequest" and self.read_outbox is not None:
             return Record(dialogs=[Record(read_outbox_max_id=self.read_outbox)])
         if name == "GetContactsRequest":
@@ -595,6 +610,20 @@ class FakeChooser:
         pass
 
 
+class FakePollSettingsWindow(FakeChooser):
+    """Stands in for the poll settings window: OK at once, with the settings it was given."""
+
+    def __init__(self, parent, i18n, options, defaults, in_channel=False):
+        self.defaults = defaults
+
+    def settings(self):
+        return {"anonymous": self.defaults.get("anonymous", True), "multiple": False, "shuffle": False,
+                "hide_results": False, "no_revote": False, "close_after": 0, "quiz_answer": None, "explanation": ""}
+
+    def remembered(self):
+        return {}
+
+
 class FakeChatPicker(FakeChooser):
     """Stands in for the window that picks chats from a searched list."""
 
@@ -615,6 +644,7 @@ class WindowTestCase(unittest.TestCase):
     def setUp(self):
         get_app()
         import ui.chat_list
+        import ui.composer
         import ui.main_frame as main_frame_module
         self.spoken = []
         self.played = []
@@ -643,6 +673,8 @@ class WindowTestCase(unittest.TestCase):
             mock.patch.object(wx, "MultiChoiceDialog", FakeChooser),
             mock.patch.object(wx, "TextEntryDialog", FakeChooser),
             mock.patch.object(ui.chat_list, "ChatPickerDialog", FakeChatPicker),
+            # A real one would wait for a click.
+            mock.patch.object(ui.composer, "PollSettingsDialog", FakePollSettingsWindow),
         ]
         # Every UI module imports speak() by name, so each copy has to be silenced.
         for module in self.speaking_modules():

@@ -7,6 +7,8 @@ import wx
 from core.settings import SETTING_GEMINI_KEY
 from core.vision import VisionError, describe_image, image_mime_type
 from core.constants import (
+    MSG_NOT_A_POLL_KEY, MSG_POLL_ANONYMOUS_KEY, VOTERS_OPTION_FORMAT_KEY, VOTERS_NOBODY_KEY, VOTERS_TITLE_KEY,
+    MSG_CONFIRM_CLOSE_POLL_KEY, MSG_POLL_CLOSED_DONE_KEY, FILE_LABEL_SEPARATOR_KEY,
     FEEDBACK_RESULT,
     BUTTON_NEEDS_PHONE, BUTTON_NEEDS_LOCATION, MSG_CONFIRM_SHARE_PHONE_KEY, MSG_SHARE_LOCATION_PROMPT_KEY,
     MESSAGE_VIEW_SCHEDULED, MSG_CONFIRM_CANCEL_SCHEDULED_KEY, MSG_SCHEDULED_CANCELLED_KEY,
@@ -427,6 +429,53 @@ class MessageActionsMixin:
         else:
             # What the bot does next, a new message or a change to this one, arrives by itself.
             self.announce(result["answer"] or self.i18n.get_string(MSG_BUTTON_PRESSED_KEY), FEEDBACK_RESULT)
+
+    def on_poll_voters_menu(self, event):
+        message = self.actionable_message()
+        if message is None or self.is_busy:
+            return
+        if not message["poll"]:
+            self.notify(MSG_NOT_A_POLL_KEY)
+            return
+        if not message["poll"].get("public"):
+            self.notify(MSG_POLL_ANONYMOUS_KEY)
+            return
+        self.set_status(MSG_LOADING_KEY)
+        self.telegram_manager.load_poll_voters(
+            self.peer(self.current_dialog_id), message["id"], self.on_ui_thread(self.show_poll_voters, message)
+        )
+
+    def show_poll_voters(self, options, message):
+        """Each option with how many chose it and who, one line each, in a window to read at length."""
+        self.set_status(STATUS_READY_KEY)
+        separator = self.i18n.get_string(FILE_LABEL_SEPARATOR_KEY)
+        lines = [message["poll"]["question"], ""] + [
+            self.i18n.get_string(VOTERS_OPTION_FORMAT_KEY).format(
+                option=text, count=len(names), names=separator.join(names) or self.i18n.get_string(VOTERS_NOBODY_KEY)
+            )
+            for text, names in options
+        ]
+        self.show_text(VOTERS_TITLE_KEY, "\n".join(lines))
+
+    def on_close_poll_menu(self, event):
+        message = self.actionable_message()
+        if message is None or self.is_busy:
+            return
+        if not message["poll"]:
+            self.notify(MSG_NOT_A_POLL_KEY)
+            return
+        if message["poll"]["closed"]:
+            self.notify(MSG_POLL_CLOSED_KEY)
+            return
+        if not self.confirm(self.i18n.get_string(MSG_CONFIRM_CLOSE_POLL_KEY)):
+            return
+        dialog_id = self.peer(self.current_dialog_id)
+        self.telegram_manager.close_poll(dialog_id, message["id"], self.on_ui_thread(self.on_poll_closed, dialog_id))
+
+    def on_poll_closed(self, message, dialog_id):
+        # As an edit arriving from Telegram would be: swap the message in and redraw.
+        self.on_message_edited(dialog_id, message)
+        self.notify(MSG_POLL_CLOSED_DONE_KEY)
 
     def on_vote_menu(self, event):
         message = self.actionable_message()

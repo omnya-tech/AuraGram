@@ -90,6 +90,9 @@ SETTING_ACCOUNTS = "accounts"
 SETTING_CURRENT_ACCOUNT = "current_account"
 # The countries Telegram listed at the last sign-in, for the next one: {"language", "countries"}.
 SETTING_COUNTRIES = "countries"
+# The poll settings used last, offered again for the next poll: {setting name: bool, "close_after": seconds}.
+SETTING_POLL_DEFAULTS = "poll_defaults"
+POLL_DEFAULT_FLAGS = ("anonymous", "multiple", "quiz", "shuffle", "hide_results", "no_revote")
 
 DEFAULTS = {
     **{setting: kind != FEEDBACK_PERCENT for kind, setting in FEEDBACK_SETTINGS.items()},
@@ -191,6 +194,7 @@ class Settings:
         self.values[SHORTCUT_CONFLICTS_TOLD] = []
         self.values[SETTING_FAVORITES] = []
         self.values[SETTING_COUNTRIES] = {}
+        self.values[SETTING_POLL_DEFAULTS] = {"anonymous": True}
         self.values[SPEECH_LEVEL_ASKED] = False
         self.values[SETTING_ACCOUNTS] = []
         self.values[SETTING_CURRENT_ACCOUNT] = 0
@@ -300,6 +304,13 @@ class Settings:
         current = stored.get(SETTING_CURRENT_ACCOUNT)
         if isinstance(current, int) and not isinstance(current, bool) and current >= 0:
             self.values[SETTING_CURRENT_ACCOUNT] = current
+        polls = stored.get(SETTING_POLL_DEFAULTS)
+        if isinstance(polls, dict) and all(
+            (key in POLL_DEFAULT_FLAGS and isinstance(value, bool))
+            or (key == "close_after" and isinstance(value, int) and not isinstance(value, bool))
+            for key, value in polls.items()
+        ):
+            self.values[SETTING_POLL_DEFAULTS] = polls
         told = stored.get(SHORTCUT_CONFLICTS_TOLD)
         if isinstance(told, list) and all(isinstance(text, str) for text in told):
             self.values[SHORTCUT_CONFLICTS_TOLD] = told

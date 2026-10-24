@@ -5,7 +5,11 @@ import wx
 
 import core.constants as c
 from telethon.errors import PollQuestionInvalidError
-from tests.harness import FakeChooser, FakeTelegramClient, WindowTestCase, make_channel, make_user, pump
+import core.settings as s
+import core.telegram_client as telegram_client
+import ui.composer
+from telethon.tl import types
+from tests.harness import FakeChooser, FakeTelegramClient, WindowTestCase, make_channel, make_message, make_user, pump
 
 NEWS = make_channel(3, "News", admin_rights=mock.Mock(post_messages=True))
 
@@ -15,6 +19,10 @@ class PollTest(WindowTestCase):
 
     def setUp(self):
         super().setUp()
+        FakePollSettings.chosen = dict(DEFAULT_SETTINGS)
+        patch = mock.patch.object(ui.composer, "PollSettingsDialog", FakePollSettings)
+        patch.start()
+        self.addCleanup(patch.stop)
         self.open_chat(0)
         self.asked = []
         original = FakeChooser.__init__
@@ -83,67 +91,156 @@ class PollTest(WindowTestCase):
         self.assertEqual(self.asked[1], self.text(c.POLL_SHORT_QUESTION_KEY))
 
 
+# What the stand-in settings window answers unless a test says otherwise: an anonymous poll, nothing else.
+DEFAULT_SETTINGS = {"anonymous": True, "multiple": False, "shuffle": False, "hide_results": False,
+                    "no_revote": False, "close_after": 0, "quiz_answer": None, "explanation": ""}
+
+
+class FakePollSettings:
+    """Stands in for the poll settings window; `chosen` is what it answers, None for Cancel."""
+
+    chosen = None
+    opened = []
+
+    def __init__(self, parent, i18n, options, defaults, in_channel=False):
+        FakePollSettings.opened.append((list(options), dict(defaults), in_channel))
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def ShowModal(self):
+        return wx.ID_OK if FakePollSettings.chosen is not None else wx.ID_CANCEL
+
+    def settings(self):
+        return dict(FakePollSettings.chosen)
+
+    def remembered(self):
+        kept = {name: value for name, value in FakePollSettings.chosen.items() if isinstance(value, bool)}
+        kept["quiz"] = FakePollSettings.chosen["quiz_answer"] is not None
+        kept["close_after"] = FakePollSettings.chosen["close_after"]
+        return kept
+
+
+def poll_message(message_id, question, options, public=False, closed=False, outgoing=True):
+    """A poll as Telegram sends it, for the window to read and act on."""
+    poll = types.Poll(
+        id=1, hash=0, question=types.TextWithEntities(question, []), closed=closed, public_voters=public,
+        answers=[types.PollAnswer(types.TextWithEntities(text, []), bytes([index])) for index, text in enumerate(options)],
+    )
+    return make_message(message_id, outgoing=outgoing, poll=types.MessageMediaPoll(poll=poll, results=types.PollResults()))
+
+
 class PollSettingsTest(WindowTestCase):
     chats = [(make_channel(4, "Team", group=True, creator=True), 0, False), (NEWS, 0, False)]
+    history = {
+        telegram_client.get_peer_id(make_channel(4, "Team", group=True, creator=True)): [
+            poll_message(1, "Lunch?", ["Pizza", "Soup"], public=True),
+            poll_message(2, "Secret?", ["Yes", "No"], public=False, outgoing=False),
+        ],
+    }
 
     def setUp(self):
         super().setUp()
+        FakePollSettings.opened = []
+        FakePollSettings.chosen = dict(DEFAULT_SETTINGS)
+        FakePollSettings.chosen = dict(DEFAULT_SETTINGS)
+        patch = mock.patch.object(ui.composer, "PollSettingsDialog", FakePollSettings)
+        patch.start()
+        self.addCleanup(patch.stop)
         self.open_chat(0)
 
     def poll_sent(self):
         self.assertTrue(pump(lambda: self.calls("poll")))
         return self.calls("poll")[-1][2]
 
-    def settings_text(self, *keys):
-        return [self.text(key) for key in keys]
-
-    def test_a_group_poll_offers_its_settings_with_anonymous_ticked(self):
+    def test_every_setting_reaches_telegram(self):
         FakeChooser.values = ["Lunch?", "Pizza\nSoup"]
-        offered = []
-        with mock.patch.object(self.frame, "pick_many",
-                               lambda prompt, choices, selected: offered.append((list(choices), selected)) or [1]):
-            self.frame.on_new_poll_menu(None)
-        self.assertEqual(offered, [(self.settings_text(
-            c.POLL_SETTING_ANONYMOUS, c.POLL_SETTING_MULTIPLE, c.POLL_SETTING_QUIZ), [0])])
-        media = self.poll_sent()
-        # Anonymous unticked, several answers ticked: who voted what is shown, and more than one may be chosen.
-        self.assertTrue(media.poll.public_voters)
-        self.assertTrue(media.poll.multiple_choice)
-        self.assertFalse(media.poll.quiz)
-        self.assertIsNone(media.correct_answers)
+        FakePollSettings.chosen.update(anonymous=False, multiple=True, shuffle=True, hide_results=True,
+                                       no_revote=True, close_after=300)
+        self.frame.on_new_poll_menu(None)
+        poll = self.poll_sent().poll
+        self.assertTrue(poll.public_voters)
+        self.assertTrue(poll.multiple_choice)
+        self.assertTrue(poll.shuffle_answers)
+        self.assertTrue(poll.hide_results_until_close)
+        self.assertTrue(poll.revoting_disabled)
+        self.assertEqual(poll.close_period, 300)
+        self.assertFalse(poll.quiz)
 
     def test_a_quiz_takes_its_right_answer_and_explanation(self):
-        FakeChooser.values = ["2 + 2?", "3\n4\n5", "Two pairs make four."]
-        FakeChooser.selection = 1
-        with mock.patch.object(self.frame, "pick_many", lambda prompt, choices, selected: [0, 2]):
-            self.frame.on_new_poll_menu(None)
+        FakeChooser.values = ["2 + 2?", "3\n4\n5"]
+        FakePollSettings.chosen.update(quiz_answer=1, explanation="Two pairs make four.")
+        self.frame.on_new_poll_menu(None)
         media = self.poll_sent()
         self.assertTrue(media.poll.quiz)
-        self.assertIsNone(media.poll.public_voters)
         self.assertEqual(media.correct_answers, [bytes([1])])
         self.assertEqual(media.solution, "Two pairs make four.")
         self.assertTrue(pump(lambda: self.spoken and self.spoken[-1] == self.text(c.MSG_QUIZ_SENT_KEY)))
 
-    def test_a_quiz_with_several_answers_is_refused_and_the_settings_asked_again(self):
-        FakeChooser.values = ["2 + 2?", "3\n4", ""]
-        answers = iter([[1, 2], [2]])
-        with mock.patch.object(self.frame, "pick_many", lambda prompt, choices, selected: next(answers)):
-            self.frame.on_new_poll_menu(None)
-        self.assertEqual(self.boxes, [self.text(c.ERR_POLL_QUIZ_MULTIPLE_KEY)])
-        media = self.poll_sent()
-        self.assertTrue(media.poll.quiz)
-        self.assertIsNone(media.solution)
+    def test_the_last_settings_are_offered_again_for_the_next_poll(self):
+        FakeChooser.values = ["Lunch?", "Pizza\nSoup"]
+        FakePollSettings.chosen.update(anonymous=False, close_after=60)
+        self.frame.on_new_poll_menu(None)
+        self.poll_sent()
+        FakeChooser.values = ["Dinner?", "Rice\nBread"]
+        self.frame.on_new_poll_menu(None)
+        defaults = FakePollSettings.opened[-1][1]
+        self.assertFalse(defaults["anonymous"])
+        self.assertEqual(defaults["close_after"], 60)
+        # And from one start of the program to the next.
+        self.assertFalse(s.Settings().get(s.SETTING_POLL_DEFAULTS)["anonymous"])
 
-    def test_a_channel_poll_is_anonymous_without_asking(self):
+    def test_cancelling_the_settings_sends_nothing(self):
+        FakeChooser.values = ["Lunch?", "Pizza\nSoup"]
+        FakePollSettings.chosen = None
+        self.frame.on_new_poll_menu(None)
+        pump(timeout=0.3)
+        self.assertEqual(self.calls("poll"), [])
+
+    def test_a_channel_poll_is_anonymous_and_the_window_says_so(self):
         self.frame.close_chat()
         self.open_chat(1)
         FakeChooser.values = ["Lunch?", "Pizza\nSoup"]
-        offered = []
-        with mock.patch.object(self.frame, "pick_many",
-                               lambda prompt, choices, selected: offered.append(list(choices)) or []):
-            self.frame.on_new_poll_menu(None)
-        self.assertEqual(offered, [self.settings_text(c.POLL_SETTING_MULTIPLE, c.POLL_SETTING_QUIZ)])
+        FakePollSettings.chosen.update(anonymous=False)
+        self.frame.on_new_poll_menu(None)
+        self.assertTrue(FakePollSettings.opened[-1][2])
         self.assertIsNone(self.poll_sent().poll.public_voters)
+
+    def test_who_voted_is_shown_for_each_option(self):
+        FakeTelegramClient.poll_votes = [(make_user(7, "Ali"), [bytes([0])]), (make_user(8, "Mona"), [bytes([0])])]
+        self.frame.messages_list.SetSelection(self.frame.message_offset())
+        shown = []
+        with mock.patch.object(self.frame, "show_text", lambda title_key, text: shown.append((title_key, text))):
+            self.frame.on_poll_voters_menu(None)
+            self.assertTrue(pump(lambda: shown))
+        title, text = shown[0]
+        self.assertEqual(title, c.VOTERS_TITLE_KEY)
+        separator = self.text(c.FILE_LABEL_SEPARATOR_KEY)
+        self.assertIn(self.text(c.VOTERS_OPTION_FORMAT_KEY).format(option="Pizza", count=2, names=separator.join(["Ali", "Mona"])), text)
+        self.assertIn(self.text(c.VOTERS_OPTION_FORMAT_KEY).format(option="Soup", count=0, names=self.text(c.VOTERS_NOBODY_KEY)), text)
+
+    def test_an_anonymous_poll_says_who_voted_cannot_be_known(self):
+        self.frame.messages_list.SetSelection(self.frame.message_offset() + 1)
+        self.frame.on_poll_voters_menu(None)
+        self.assertEqual(self.spoken[-1], self.text(c.MSG_POLL_ANONYMOUS_KEY))
+        self.assertEqual(self.calls("GetPollVotesRequest"), [])
+
+    def test_ones_own_poll_can_be_closed_after_a_yes(self):
+        self.frame.messages_list.SetSelection(self.frame.message_offset())
+        self.box_answer = wx.NO
+        self.frame.on_close_poll_menu(None)
+        pump(timeout=0.2)
+        self.assertEqual(self.calls("EditMessageRequest"), [])
+        self.box_answer = wx.YES
+        self.frame.on_close_poll_menu(None)
+        self.assertTrue(pump(lambda: self.frame.messages[0]["poll"]["closed"]))
+        self.assertEqual(self.spoken[-1], self.text(c.MSG_POLL_CLOSED_DONE_KEY))
+        # Closed, it says so rather than asking again.
+        self.frame.on_close_poll_menu(None)
+        self.assertEqual(self.spoken[-1], self.text(c.MSG_POLL_CLOSED_KEY))
 
     def test_a_quiz_reads_as_one_with_its_right_answer_and_explanation_once_answered(self):
         text = self.frame.poll_text({
@@ -156,3 +253,44 @@ class PollSettingsTest(WindowTestCase):
         self.assertTrue(text.startswith(self.text(c.QUIZ_FORMAT_KEY).split("{")[0]))
         self.assertIn(self.text(c.POLL_CORRECT_KEY), text)
         self.assertTrue(text.endswith("Two pairs."))
+
+
+class PollSettingsWindowTest(WindowTestCase):
+    """The window itself: what it offers, what it refuses, and what it gives back."""
+
+    def window(self, in_channel=False, defaults=None):
+        from ui.poll_settings_dialog import PollSettingsDialog
+        dialog = PollSettingsDialog(self.frame, self.i18n, ["3", "4"], defaults or {"anonymous": True}, in_channel)
+        self.addCleanup(dialog.Destroy)
+        return dialog
+
+    def test_anonymous_is_always_there_and_in_a_channel_fixed_on(self):
+        dialog = self.window()
+        self.assertTrue(dialog.boxes["anonymous"].GetValue())
+        self.assertTrue(dialog.boxes["anonymous"].IsEnabled())
+        in_channel = self.window(in_channel=True, defaults={"anonymous": False})
+        self.assertTrue(in_channel.boxes["anonymous"].GetValue())
+        self.assertFalse(in_channel.boxes["anonymous"].IsEnabled())
+        self.assertEqual(in_channel.boxes["anonymous"].GetLabel(), self.text(c.POLL_SETTING_ANONYMOUS_CHANNEL_KEY))
+        # The channel's rule leaves the default for other chats as it was.
+        self.assertNotIn("anonymous", in_channel.remembered())
+
+    def test_the_quiz_parts_show_only_for_a_quiz_and_its_mistakes_are_caught(self):
+        dialog = self.window()
+        self.assertFalse(dialog.answer_choice.IsShown())
+        dialog.boxes["quiz"].SetValue(True)
+        dialog.show_quiz_parts()
+        self.assertTrue(dialog.answer_choice.IsShown())
+        dialog.boxes["multiple"].SetValue(True)
+        self.assertEqual(dialog.problem(), self.text(c.ERR_POLL_QUIZ_MULTIPLE_KEY))
+        dialog.boxes["multiple"].SetValue(False)
+        dialog.explanation_input.SetValue("x" * 250)
+        self.assertEqual(dialog.problem(), self.text(c.ERR_POLL_EXPLANATION_LONG_FORMAT_KEY).format(
+            length=250, limit=c.POLL_EXPLANATION_MAX))
+        dialog.explanation_input.SetValue("Two pairs.")
+        dialog.answer_choice.SetSelection(1)
+        dialog.close_choice.SetSelection(2)
+        self.assertIsNone(dialog.problem())
+        chosen = dialog.settings()
+        self.assertEqual((chosen["quiz_answer"], chosen["explanation"]), (1, "Two pairs."))
+        self.assertEqual(chosen["close_after"], c.POLL_CLOSE_CHOICES[2][0])
