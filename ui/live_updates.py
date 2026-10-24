@@ -42,6 +42,8 @@ class LiveUpdatesMixin:
         dialog = self.find_known_dialog(dialog_id) or chat
 
         is_current = dialog_id == self.current_dialog_id
+        if not is_current:
+            self.forget_remembered(dialog_id)
         # Hidden in the background, the window shows nothing to anyone.
         is_on_screen = self.IsShown() and not self.IsIconized()
         if not message["outgoing"] and not dialog["muted"]:
@@ -99,6 +101,7 @@ class LiveUpdatesMixin:
 
     def on_message_edited(self, dialog_id, message):
         if dialog_id != self.peer(self.current_dialog_id):
+            self.forget_remembered(dialog_id)
             return
         for index, shown in enumerate(self.messages):
             if shown["id"] == message["id"]:
@@ -109,6 +112,7 @@ class LiveUpdatesMixin:
 
     def on_messages_read(self, dialog_id, max_id):
         if dialog_id != self.current_dialog_id:
+            self.forget_remembered(dialog_id)
             return
         newly_read = [m for m in self.messages if m["read"] is False and m["id"] <= max_id]
         for message in newly_read:
@@ -196,11 +200,13 @@ class LiveUpdatesMixin:
 
     def on_messages_deleted(self, dialog_id, message_ids):
         if dialog_id is None:
-            # Telegram does not say which chat. Outside channels message ids are
-            # unique across chats, so matching by id is safe there, but only there.
+            # Telegram does not say which chat, so any chat remembered may have lost it.
+            self.forget_remembered()
+            # Outside channels message ids are unique across chats, so matching by id is safe there, but only there.
             if self.current_dialog_id is None or self.shown_chat()["is_channel"]:
                 return
         elif dialog_id != self.peer(self.current_dialog_id):
+            self.forget_remembered(dialog_id)
             return
         for message_id in message_ids:
             self.remove_message(message_id)

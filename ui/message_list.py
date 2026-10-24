@@ -63,18 +63,31 @@ class MessageListMixin:
             self.thread = None
             self.show_chat_name(self.find_known_dialog(self.current_dialog_id))
         self.marked = set()
-        self.set_status(MSG_LOADING_KEY)
         dialog_id = self.current_dialog_id
         mark_read = self.settings.get(SETTING_MARK_READ_ON_OPEN)
+        remembered = self.chat_memory.get(dialog_id)
+        # Only on coming into the chat, not on coming back to it from a view of it.
+        if remembered is not None and not self.unread_on_open and not self.messages:
+            # As it was left, straight away; what Telegram sends next only brings what changed since.
+            messages, has_older = remembered
+            self.show_messages(list(messages), dialog_id, focus_messages, False, remembered=True)
+            self.has_older = has_older
+            self.render_messages(self.messages_list.GetSelection() - self.message_offset())
+        else:
+            self.set_status(MSG_LOADING_KEY)
         self.telegram_manager.load_messages(
             dialog_id, self.on_ui_thread(self.show_messages, dialog_id, focus_messages, mark_read),
             mark_read=mark_read
         )
 
-    def show_messages(self, messages, dialog_id, focus_messages, marked_read):
+    def show_messages(self, messages, dialog_id, focus_messages, marked_read, remembered=False):
         # The user may have opened another chat while this one was loading.
         if dialog_id != self.current_dialog_id:
             return
+        if self.showing_remembered and not remembered:
+            self.show_fresh_messages(messages, dialog_id, marked_read)
+            return
+        self.showing_remembered = remembered
         self.messages = messages
         # A full page means Telegram most likely has more before it.
         self.has_older = len(messages) == MESSAGES_LIMIT
@@ -99,6 +112,32 @@ class MessageListMixin:
             self.jump_to_message(target)
         elif first_unread is not None:
             self.announce(self.i18n.get_string(MSG_NEW_MESSAGES_FORMAT_KEY).format(count=unread), FEEDBACK_COUNT)
+
+    def show_fresh_messages(self, messages, dialog_id, marked_read):
+        """Telegram's answer for a chat already shown from memory: change only what differs, and keep
+        the user where they are, on the same message."""
+        self.showing_remembered = False
+        if marked_read:
+            self.set_unread(dialog_id, 0)
+        self.set_status(STATUS_READY_KEY)
+        if self.message_view is not None or self.thread is not None:
+            # A view or a topic was opened meanwhile; the chat is loaded again on coming back to it.
+            return
+        if messages == self.messages:
+            return
+        selected = self.selected_message()
+        on_last = self.messages_list.GetSelection() == self.messages_list.GetCount() - 1
+        self.messages = messages
+        self.has_older = len(messages) == MESSAGES_LIMIT
+        ids = [message["id"] for message in messages]
+        if selected is not None and selected["id"] in ids and not on_last:
+            self.render_messages(ids.index(selected["id"]))
+        else:
+            self.render_messages(len(messages) - 1)
+        chat = self.find_known_dialog(dialog_id)
+        if chat is not None and messages:
+            chat["last_message"] = messages[-1]
+            self.refresh_dialog_row(chat)
 
     def jump_to_message(self, message_id):
         """Put the selection on a message of this chat, fetching its part of the conversation if need be."""

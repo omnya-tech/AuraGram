@@ -1,3 +1,4 @@
+import collections
 import wx
 from core import audio, shortcuts, sounds, speech
 from core.speech import speak
@@ -13,6 +14,7 @@ from ui.settings_dialog import SettingsDialog
 from core.chat_views import build_views
 from ui.text_dialog import TextDialog
 from core.constants import (
+    REMEMBERED_CHATS,
     FEEDBACK_CONFIRM, MSG_IN_BACKGROUND_FORMAT_KEY, MSG_IN_BACKGROUND_KEY, BTN_RECORD_KEY, MAIN_WINDOW_SIZE,
     ERR_HOTKEY_TAKEN_FORMAT_KEY, MAIN_WINDOW_MIN_SIZE, PREVIEW_HEIGHT, PREVIEW_LABEL_KEY,
     MAIN_TITLE_CHAT_FORMAT_KEY, MESSAGES_OF_LABEL_FORMAT_KEY, TOOLTIP_SEND_KEY, TOOLTIP_RECORD_KEY,
@@ -110,6 +112,11 @@ class MainFrame(
         self.editing = None
         # chat id -> text typed there but not sent; kept only while the app is open.
         self.drafts = {}
+        # chat id -> (its messages, whether older ones are left), as it was when left; newest last.
+        # In memory only, for this account and this run: never on the disk.
+        self.chat_memory = collections.OrderedDict()
+        # True while the open chat shows what was remembered of it and Telegram has not answered yet.
+        self.showing_remembered = False
         self.find_text = ""
         # Set while the message list shows search results instead of the conversation.
         self.search_query = None
@@ -423,6 +430,7 @@ class MainFrame(
 
     def forget_open_chat(self):
         """Empty the message area: no chat is open any more."""
+        self.remember_open_chat()
         previous = self.current_dialog_id
         self.current_dialog_id = None
         self.drop_preview(previous)
@@ -438,6 +446,25 @@ class MainFrame(
         self.messages_list.Clear()
         self.enable_chat(False)
         self.show_chat_screen(False)
+
+    def remember_open_chat(self):
+        """Keep the open chat's messages in memory, to show them at once when it is opened again."""
+        if self.current_dialog_id is None or self.message_view is not None or self.thread is not None:
+            return
+        if not self.messages or self.showing_remembered:
+            return
+        self.chat_memory[self.current_dialog_id] = (list(self.messages), self.has_older)
+        self.chat_memory.move_to_end(self.current_dialog_id)
+        while len(self.chat_memory) > REMEMBERED_CHATS:
+            self.chat_memory.popitem(last=False)
+
+    def forget_remembered(self, dialog_id=None):
+        """Something changed in a chat that is not open: what is remembered of it is out of date.
+        None: in a chat Telegram did not name, so in any of them."""
+        if dialog_id is None:
+            self.chat_memory.clear()
+        else:
+            self.chat_memory.pop(dialog_id, None)
 
     def close_chat(self):
         """Leave the open chat for the chat list, as Escape does in Telegram's own apps; or, for a chat

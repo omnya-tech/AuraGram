@@ -109,6 +109,7 @@ class FakeTelegramClient:
     drafts = {}       # peer id -> text left unsent from another device
     progress_steps = (100, 101, 200)  # bytes done, out of 200, that a transfer reports on its way
     transfer_gate = None  # an asyncio.Event a test sets to let a held upload finish
+    history_gate = None
     discussion_groups = []
     common_chats = []  # chats GetCommonChatsRequest says are shared with a person
     discussions = {}  # (channel peer id, post id) -> (discussion group, id of the post's twin there)
@@ -166,6 +167,8 @@ class FakeTelegramClient:
         cls.send_as = []
         cls.stats = None
         cls.transfer_gate = None
+        # An asyncio.Event a test sets to let a chat's messages arrive; None for at once.
+        cls.history_gate = None
         # Chats (by peer id) that refuse what is forwarded to them, as one this account may not write in does.
         cls.refused_forwards = set()
         cls.muted_kinds = set()
@@ -246,6 +249,9 @@ class FakeTelegramClient:
                         hits.append(message)
             return hits[:limit]
         peer_id = telegram_client.get_peer_id(entity)
+        if self.history_gate is not None and not (scheduled or reply_to or ids or search or filter):
+            # Held, as a slow connection would hold it, until the test lets it through.
+            await self.history_gate.wait()
         messages = (self.scheduled if scheduled else self.history).get(peer_id, [])
         if reply_to is not None:
             messages = self.threads.get((peer_id, reply_to), [])

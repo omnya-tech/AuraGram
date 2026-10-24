@@ -340,6 +340,7 @@ class ChatListMixin:
             # A contact never written to: from here on it is a chat like the others.
             self.all_dialogs.insert(sum(1 for other in self.all_dialogs if other["pinned"]), dialog)
         self.keep_draft()
+        self.remember_open_chat()
         self.unread_on_open = dialog["unread"]
         previous = self.current_dialog_id
         self.current_dialog_id = dialog_id

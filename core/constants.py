@@ -1520,6 +1520,9 @@ INTERNET_ZONE_MARK = "[ZoneTransfer]\r\nZoneId=3\r\n"
 
 DIALOGS_LIMIT = 100
 MESSAGES_LIMIT = 50
+# Chats whose messages are kept in memory once left, so coming back to one shows it at once.
+# Memory only, for as long as the program runs: nothing of them is written to the disk.
+REMEMBERED_CHATS = 30
 TIME_FORMAT = "%H:%M"
 DATE_TIME_FORMAT = "%Y-%m-%d %H:%M"
 
