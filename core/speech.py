@@ -1,3 +1,5 @@
+import logging
+
 from core.constants import (
     UNAVAILABLE_KEY_STARTS, WAITING_KEYS, RESULT_KEYS, NAVIGATION_KEYS, FEEDBACK_UNAVAILABLE, FEEDBACK_WAITING,
     FEEDBACK_RESULT, FEEDBACK_NAVIGATION, FEEDBACK_CONFIRM,
@@ -9,16 +11,68 @@ except Exception:
     # The library is optional: without it the app simply stays silent.
     _auto = None
 
+logger = logging.getLogger(__name__)
+
+# JAWS's main window, there while JAWS runs.
+JAWS_WINDOW_CLASS = "JFWUI2"
+JAWS_COM_NAME = "FreedomSci.JawsApi"
+
+
+class JawsFallback:
+    """JAWS reached through its own COM interface, for when accessible_output2 finds no screen reader
+    though JAWS runs: it looks for JAWS only once, as the app starts, and the code it generates for
+    COM can fail to load in the built program. This asks Windows each time, and generates nothing."""
+
+    def __init__(self):
+        self.api = None
+        self.failed = False
+
+    def is_running(self):
+        try:
+            import win32gui
+            return win32gui.FindWindow(JAWS_WINDOW_CLASS, None) != 0
+        except Exception:
+            return False
+
+    def _api(self):
+        if self.api is None:
+            import win32com.client
+            self.api = win32com.client.Dispatch(JAWS_COM_NAME)
+        return self.api
+
+    def _call(self, action):
+        try:
+            action(self._api())
+        except Exception:
+            # Asked again next time: JAWS may have been restarting. Said once in the log, not at every remark.
+            self.api = None
+            if not self.failed:
+                self.failed = True
+                logger.warning("JAWS runs but could not be reached through its COM interface", exc_info=True)
+
+    def speak(self, text, interrupt=False):
+        self._call(lambda api: api.SayString(text, interrupt))
+
+    def braille(self, text):
+        # Passed inside a JAWS script call, where a double quote would end the string early and a
+        # backslash is no escape (as accessible_output2 found too): single quotes stand for them.
+        quoted = text.replace('"', "'")
+        self._call(lambda api: api.RunFunction('BrailleString("%s")' % quoted))
+
+
+_jaws = JawsFallback()
+
+
 def is_available():
     """Whether the screen reader library loaded at all (not whether a screen reader is running)."""
     return _auto is not None
 
 def _screen_reader():
-    if _auto is None:
-        return None
-    output = _auto.get_first_available_output()
+    output = _auto.get_first_available_output() if _auto is not None else None
     # Skip the system voice fallback so users without a screen reader hear nothing.
-    return output if output is not None and not output.is_system_output() else None
+    if output is not None and not output.is_system_output():
+        return output
+    return _jaws if _jaws.is_running() else None
 
 def speak(text, interrupt=False):
     """Announce text through the running screen reader, if there is one.
