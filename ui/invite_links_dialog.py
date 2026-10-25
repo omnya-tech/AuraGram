@@ -1,7 +1,7 @@
 import wx
 from ui.layout import prepare_window
 from ui.text_dialog import TextDialog
-from core.speech import speak, say
+from core.speech import say
 from core.constants import (
     FILE_LABEL_SEPARATOR_KEY,
     FEEDBACK_CONFIRM, FEEDBACK_UNAVAILABLE,

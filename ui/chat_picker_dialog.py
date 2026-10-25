@@ -1,5 +1,5 @@
 import wx
-from core.speech import speak, say
+from core.speech import say
 from ui.layout import prepare_window
 from ui.type_ahead import TypeAhead
 from core.constants import (

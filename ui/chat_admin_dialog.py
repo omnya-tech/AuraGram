@@ -1,7 +1,7 @@
 import wx
 from ui.layout import prepare_window
 from ui.text_dialog import TextDialog
-from core.speech import speak, say
+from core.speech import say
 from core.constants import (
     FEEDBACK_CONFIRM, FEEDBACK_RESULT, FEEDBACK_UNAVAILABLE,
     APP_TITLE_KEY, MSG_LOADING_KEY, BTN_SAVE_KEY, BTN_CLOSE_KEY, ADMIN_SETTINGS_TITLE_FORMAT_KEY,

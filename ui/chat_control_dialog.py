@@ -1,7 +1,7 @@
 import wx
 from ui.layout import prepare_window
 from ui.member_row import member_row
-from core.speech import speak, say
+from core.speech import say
 from ui.admin_log_dialog import AdminLogDialog
 from ui.invite_links_dialog import InviteLinksDialog
 from ui.chat_admin_dialog import ChatAdminDialog
@@ -20,7 +20,7 @@ from core.constants import (
     MEMBER_PERMISSION_KEY_PREFIX, BTN_MEMBER_PERMISSIONS_KEY, MSG_CHOOSE_PERMISSIONS_FORMAT_KEY,
     MSG_PERMISSIONS_SAVED_KEY,
     BTN_INVITE_LINKS_KEY, CHAT_KIND_CHANNEL,
-    INFO_TITLE_FORMAT_KEY, INFO_SUMMARY_LABEL_KEY, INFO_KIND_FORMAT_KEY,
+    INFO_SUMMARY_LABEL_KEY, INFO_KIND_FORMAT_KEY,
     INFO_USERNAME_FORMAT_KEY, INFO_MEMBERS_COUNT_FORMAT_KEY, INFO_ROLE_MANAGER_KEY,
     INFO_ROLE_VIEWER_KEY, INFO_NAME_LABEL_KEY, INFO_ABOUT_LABEL_KEY,
     INFO_MEMBER_SEARCH_LABEL_KEY, INFO_MEMBERS_LABEL_KEY,

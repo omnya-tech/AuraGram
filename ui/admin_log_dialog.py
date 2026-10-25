@@ -8,7 +8,7 @@ from core.constants import (
     ADMIN_LOG_EVENTS_LABEL_KEY, BTN_NOT_SPAM_KEY, MSG_CONFIRM_NOT_SPAM_KEY, MSG_NOT_SPAM_REPORTED_KEY,
     ADMIN_LOG_ANTISPAM_FORMAT_KEY, ADMIN_LOG_DELETED_TEXT_FORMAT_KEY
 )
-from core.speech import speak, say
+from core.speech import say
 
 class AdminLogDialog(wx.Dialog):
     """Read-only list of what admins did recently in a channel or large group, narrowed if wished

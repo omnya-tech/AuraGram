@@ -1,6 +1,6 @@
 import wx
 from core import proxy
-from core.speech import speak, say
+from core.speech import say
 from ui.layout import prepare_window
 from core.constants import (
     FEEDBACK_CONFIRM,

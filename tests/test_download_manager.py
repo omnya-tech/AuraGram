@@ -152,7 +152,7 @@ class FilesDialogTest(unittest.TestCase):
         get_app()
         self.dialog = DownloadFilesDialog(None, I18NManager("ar"), "News", ["a", "b", "c"])
         self.addCleanup(self.dialog.Destroy)
-        patch = mock.patch.object(ui.download_files_dialog, "speak", lambda text: None)
+        patch = mock.patch.object(ui.download_files_dialog, "say", lambda text, kind=None: None)
         patch.start()
         self.addCleanup(patch.stop)
 
