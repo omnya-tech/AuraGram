@@ -119,6 +119,8 @@ class TelegramManager(ChatsMixin, MessagesMixin, MediaMixin, AdminMixin, Account
         self.loop.run_forever()
 
     def _create_client(self):
+        # Whether this client has been connected before, and so may have left work running.
+        self.client_was_connected = False
         self.client = TelegramClient(
             self.session_name, self.api_id, self.api_hash,
             # How the account's list of devices names this program; Telethon's own defaults say nothing of it.
@@ -331,7 +333,13 @@ class TelegramManager(ChatsMixin, MessagesMixin, MediaMixin, AdminMixin, Account
     async def _ensure_connected(self):
         async with self.connect_lock:
             if not self.client.is_connected():
+                if self.client_was_connected:
+                    # When Telethon gives up reconnecting it leaves its loop of updates running; connecting
+                    # over it starts a second loop on the same state, and the two break each other
+                    # ("Should not be applying the difference..."). Disconnecting stops the old one first.
+                    await self.client.disconnect()
                 await self.client.connect()
+                self.client_was_connected = True
 
     async def _watch_connection_async(self):
         """Keep asking Telegram for a sign of life, and reconnect when the line has dropped."""

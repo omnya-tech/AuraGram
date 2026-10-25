@@ -14,6 +14,8 @@ class FlakyClient:
 
     reachable = True
     connects = 0
+    # What was done to the line, in order.
+    steps = []
 
     def __init__(self, *args, **kwargs):
         self.connected = False
@@ -28,9 +30,11 @@ class FlakyClient:
         if not FlakyClient.reachable:
             raise ConnectionError("no route")
         FlakyClient.connects += 1
+        FlakyClient.steps.append("connect")
         self.connected = True
 
     async def disconnect(self):
+        FlakyClient.steps.append("disconnect")
         self.connected = False
 
     async def is_user_authorized(self):
@@ -47,6 +51,7 @@ class ConnectionWatchTest(unittest.TestCase):
     def setUp(self):
         FlakyClient.reachable = True
         FlakyClient.connects = 0
+        FlakyClient.steps = []
         self.states = []
         for patch in (
             mock.patch.object(telegram_client, "TelegramClient", FlakyClient),
@@ -71,6 +76,10 @@ class ConnectionWatchTest(unittest.TestCase):
         FlakyClient.reachable = True
         self.assertTrue(pump(lambda: self.states[-1] == c.CONNECTION_ONLINE and len(self.states) == 3))
         self.assertEqual(FlakyClient.connects, 2)
+        # What Telethon left running from the dropped line is stopped before connecting again.
+        self.assertEqual(FlakyClient.steps[0], "connect")
+        second = FlakyClient.steps.index("connect", 1)
+        self.assertIn("disconnect", FlakyClient.steps[1:second])
 
     def test_stopping_does_not_connect_again(self):
         self.assertTrue(pump(lambda: self.states == [c.CONNECTION_ONLINE]))
