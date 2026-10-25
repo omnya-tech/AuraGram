@@ -129,12 +129,16 @@ class HelpMenuMixin:
             return
         if self.confirm(self.i18n.get_string(MSG_UPDATE_READY_FORMAT_KEY).format(version=release["version"])):
             # Windows asks for permission, then the installer itself closes this program when it is ready to.
-            os.startfile(path)
-        else:
-            wx.MessageBox(
-                self.i18n.get_string(MSG_UPDATE_KEPT_FORMAT_KEY).format(path=path), title,
-                wx.OK | wx.ICON_INFORMATION, self
-            )
+            try:
+                os.startfile(path)
+                return
+            except OSError:
+                # Turned down when Windows asked for permission: the file stays, to be run later.
+                pass
+        wx.MessageBox(
+            self.i18n.get_string(MSG_UPDATE_KEPT_FORMAT_KEY).format(path=path), title,
+            wx.OK | wx.ICON_INFORMATION, self
+        )
 
     def on_problem_report_menu(self, event):
         description = self.ask_text(MSG_PROBLEM_REPORT_PROMPT_KEY)
@@ -151,7 +155,11 @@ class HelpMenuMixin:
             self.i18n.get_string(MSG_PROBLEM_REPORT_SAVED_FORMAT_KEY).format(path=path),
             self.i18n.get_string(APP_TITLE_KEY), wx.OK | wx.ICON_INFORMATION, self
         )
-        os.startfile(os.path.dirname(path))
+        try:
+            os.startfile(os.path.dirname(path))
+        except OSError:
+            # The report is saved and its path was just said; only showing its folder failed.
+            pass
 
     def on_user_guide_menu(self, event):
         """Write the guide in the user's language, with the app's own shortcuts, and open it in the browser.

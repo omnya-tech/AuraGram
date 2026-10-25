@@ -11,7 +11,7 @@ from core.constants import (
     MSG_CHOOSE_ACCOUNT_KEY, ACCOUNT_ROW_FORMAT_KEY, ACCOUNT_CURRENT_FORMAT_KEY, ACCOUNT_UNNAMED_KEY,
     ACCOUNT_ADD_KEY, MSG_CHOOSE_SPEECH_LEVEL_KEY, MSG_SPEECH_LEVEL_SET_FORMAT_KEY, MENU_EXPORT_SETTINGS_KEY,
     MENU_IMPORT_SETTINGS_KEY, MSG_EXPORT_SECRETS_KEY, MSG_SETTINGS_EXPORTED_FORMAT_KEY,
-    MSG_CONFIRM_IMPORT_SETTINGS_KEY, MSG_SETTINGS_IMPORTED_KEY, ERR_SETTINGS_FILE_KEY,
+    MSG_CONFIRM_IMPORT_SETTINGS_KEY, MSG_SETTINGS_IMPORTED_KEY, ERR_SETTINGS_FILE_KEY, ERR_OPEN_FOLDER_KEY,
     SETTINGS_FILE_WILDCARD_KEY, SETTINGS_BACKUP_NAME, SPEECH_LEVELS, SPEECH_LEVEL_CUSTOM, FEEDBACK_RESULT,
     APP_TITLE_KEY, MSG_CONFIRM_LOGOUT_KEY, MSG_LANGUAGE_RESTART_KEY,
 )
@@ -21,8 +21,12 @@ class FileMenuMixin:
     def on_open_downloads_menu(self, event):
         # Nothing has been downloaded yet on a fresh install.
         folder = self.downloads_folder()
-        os.makedirs(folder, exist_ok=True)
-        os.startfile(folder)
+        try:
+            os.makedirs(folder, exist_ok=True)
+            os.startfile(folder)
+        except OSError:
+            # A folder chosen on a drive that is gone, or one this account may not write in.
+            self.show_error(ERR_OPEN_FOLDER_KEY)
 
     def on_settings_menu(self, event):
         self.open_settings()

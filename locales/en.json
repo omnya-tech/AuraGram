@@ -108,6 +108,7 @@
     "FOLDER_RULE_exclude_archived": "Exclude archived",
     "MSG_FOLDER_CHATS_PROMPT": "Chats that are always in the folder whatever their kind (optional):",
     "ERR_FOLDER_EMPTY": "A folder needs a name, and at least one kind of chat or one chosen chat.",
+    "ERR_OPEN_FOLDER": "The downloads folder could not be opened. Choose a folder that exists in the settings.",
     "MSG_CONFIRM_DELETE_FOLDER_FORMAT": "Delete the folder “{title}”?\nIts chats stay as they are.",
     "MSG_FOLDERS_SAVED": "Folders updated",
     "MENU_MARK_ALL_READ": "Mark all chats as read",
