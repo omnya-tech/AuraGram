@@ -38,7 +38,7 @@ from core.constants import (
     APP_NAME, DEFAULT_LANG, STEP_DONE, BACKGROUND_FLAG,
     QUIT_WAIT_SECONDS, CONNECT_CHECK_SECONDS, BUNDLED_CONFIG_FILE, LOG_FILE, LOG_MAX_BYTES, APP_VERSION, IS_FROZEN,
     SHORTCUT_SHOW_WINDOW, SOUND_START, MSG_UNEXPECTED_ERROR_KEY, MAIN_FRAME_PRELOAD_MS, STEP_PHONE,
-    MSG_ACCOUNT_SWITCHED_FORMAT_KEY
+    MSG_ACCOUNT_SWITCHED_FORMAT_KEY, LOG_STARTED_FORMAT, LOG_STOPPED
 )
 from core.i18n import I18NManager
 from core import diagnostics, proxy, shortcuts, sounds
@@ -314,6 +314,7 @@ class MainApplication(wx.App):
     def OnExit(self):
         if self.telegram_manager:
             self.telegram_manager.stop()
+        logging.getLogger("core").info(LOG_STOPPED)
         return super().OnExit()
 
 def self_check():
@@ -388,9 +389,7 @@ def start_logging():
     logging.getLogger("telethon.network.mtprotosender").addFilter(
         lambda record: not record.getMessage().startswith(RETRY_LOG_PREFIX)
     )
-    logging.getLogger("core").info(
-        "AuraGram %s started (%s)", APP_VERSION, "installed" if IS_FROZEN else "from source"
-    )
+    logging.getLogger("core").info(LOG_STARTED_FORMAT, APP_VERSION, "installed" if IS_FROZEN else "from source")
 
 if __name__ == '__main__':
     if CHECK_FLAG in sys.argv:

@@ -16,6 +16,7 @@ import core.settings as s
 import ui.help_menu
 import ui.message_actions
 from core import diagnostics, proxy, updates, vision
+from core.i18n import I18NManager
 from tests.harness import FakeChooser, FakeTelegramClient, WindowTestCase, make_message, make_user, pump
 from ui.login_frame import LoginFrame
 from ui.proxy_dialog import ProxyDialog
@@ -405,12 +406,22 @@ class DiagnosticsTest(unittest.TestCase):
         patch.start()
         self.addCleanup(patch.stop)
 
-    def test_report_holds_the_description_the_versions_and_the_end_of_the_log(self):
+    def report(self, log, description="", language="ar"):
         with open(self.log, "w", encoding="utf-8") as log_file:
-            log_file.write("old line\n" + "x" * c.REPORT_LOG_BYTES + "\nthe last error\n")
-        path = diagnostics.write_report(os.path.join(self.folder, "out"), "  it broke  ", ["Language: ar"])
+            log_file.write(log)
+        i18n = I18NManager(language)
+        path = diagnostics.write_report(os.path.join(self.folder, "out"), description, i18n.get_string, ["Language: ar"])
         with open(path, encoding="utf-8") as report_file:
-            report = report_file.read()
+            return report_file.read(), i18n
+
+    def run_log(self, *lines, stopped=True):
+        """One run of the program as the log has it: its opening line, `lines`, and its closing line if `stopped`."""
+        started = "2026-10-25 07:00:00,000 INFO core: " + c.LOG_STARTED_FORMAT % (c.APP_VERSION, "installed")
+        ended = ["2026-10-25 07:10:00,000 INFO core: " + c.LOG_STOPPED] if stopped else []
+        return "\n".join([started, *lines, *ended]) + "\n"
+
+    def test_report_holds_the_description_the_versions_and_the_end_of_the_log(self):
+        report, i18n = self.report("old line\n" + "x" * c.REPORT_LOG_BYTES + "\nthe last error\n", "  it broke  ")
         self.assertIn(c.APP_NAME + " " + c.APP_VERSION, report)
         self.assertIn("Language: ar", report)
         self.assertIn("it broke", report)
@@ -418,8 +429,34 @@ class DiagnosticsTest(unittest.TestCase):
         self.assertNotIn("old line", report)
 
     def test_report_is_written_even_with_no_log_at_all(self):
-        path = diagnostics.write_report(self.folder, "", [])
+        path = diagnostics.write_report(self.folder, "", I18NManager("en").get_string, [])
         self.assertTrue(os.path.getsize(path) > 0)
+
+    def test_report_holds_this_run_only_when_the_one_before_closed_normally(self):
+        report, i18n = self.report(
+            self.run_log("an error days ago") + self.run_log("a warning last week")
+            + self.run_log("today's error", stopped=False)
+        )
+        self.assertIn("today's error", report)
+        self.assertNotIn("an error days ago", report)
+        self.assertNotIn("a warning last week", report)
+        self.assertNotIn(i18n.get_string(c.REPORT_PREVIOUS_LOG_KEY), report)
+
+    def test_a_run_before_that_never_closed_is_kept_since_that_is_where_a_crash_is(self):
+        report, i18n = self.report(
+            self.run_log("an error days ago") + self.run_log("the crash", stopped=False)
+            + self.run_log("after restarting", stopped=False)
+        )
+        self.assertIn(i18n.get_string(c.REPORT_PREVIOUS_LOG_KEY), report)
+        self.assertLess(report.index("the crash"), report.index("after restarting"))
+        self.assertNotIn("an error days ago", report)
+
+    def test_the_report_speaks_the_language_of_the_program(self):
+        for language in ("ar", "en"):
+            report, i18n = self.report(self.run_log(stopped=False), language=language)
+            for key in (c.REPORT_DESCRIPTION_KEY, c.REPORT_LOG_KEY, c.REPORT_NONE_KEY):
+                self.assertIn(i18n.get_string(key), report)
+            self.assertIn(i18n.get_string(c.REPORT_WINDOWS_FORMAT_KEY).split("{")[0], report)
 
     def test_an_error_nobody_caught_is_logged_and_the_user_told_once(self):
         told = []
