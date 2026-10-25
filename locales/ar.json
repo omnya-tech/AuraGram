@@ -825,6 +825,8 @@
     "POLL_OPTION_FORMAT": "{text} ({details})",
     "POLL_CHOSEN": "اختيارك",
     "POLL_VOTERS_FORMAT": "الأصوات: {count}",
+    "POLL_PERCENT_FORMAT": "{percent}٪",
+    "POLL_TOTAL_FORMAT": "{text} عدد المصوتين: {total}",
     "POLL_CLOSED_SUFFIX": " مغلق",
     "CONTEXT_VOTE": "تصويت",
     "BTN_ADMIN_LOG": "سجل أحداث الإدارة",

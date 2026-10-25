@@ -825,6 +825,8 @@
     "POLL_OPTION_FORMAT": "{text} ({details})",
     "POLL_CHOSEN": "your choice",
     "POLL_VOTERS_FORMAT": "{count} votes",
+    "POLL_PERCENT_FORMAT": "{percent}%",
+    "POLL_TOTAL_FORMAT": "{text} Voters: {total}",
     "POLL_CLOSED_SUFFIX": " closed",
     "CONTEXT_VOTE": "Vote",
     "BTN_ADMIN_LOG": "Admin event log",

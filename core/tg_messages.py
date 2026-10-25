@@ -481,6 +481,8 @@ class MessagesMixin:
                 }
                 for answer in poll.answers
             ],
+            # How many people voted, which the shares are of; None while the results are hidden.
+            "total": getattr(results, "total_voters", None),
             "closed": bool(poll.closed),
             "multiple": bool(poll.multiple_choice),
             # Whether who voted for what can be seen; never in an anonymous poll.

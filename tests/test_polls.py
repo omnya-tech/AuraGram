@@ -245,6 +245,26 @@ class PollSettingsTest(WindowTestCase):
         self.frame.on_close_poll_menu(None)
         self.assertEqual(self.spoken[-1], self.text(c.MSG_POLL_CLOSED_KEY))
 
+    def test_each_option_says_its_share_of_the_voters_and_the_poll_how_many_voted(self):
+        poll = {
+            "question": "Lunch?", "closed": False, "multiple": False, "total": 5,
+            "options": [
+                {"text": "Pizza", "voters": 2, "chosen": True},
+                {"text": "Soup", "voters": 3, "chosen": False},
+            ],
+        }
+        text = self.frame.poll_text(poll)
+        self.assertIn(self.text(c.POLL_PERCENT_FORMAT_KEY).format(percent=40), text)
+        self.assertIn(self.text(c.POLL_PERCENT_FORMAT_KEY).format(percent=60), text)
+        self.assertTrue(text.endswith(self.text(c.POLL_TOTAL_FORMAT_KEY).format(text="", total=5)))
+        # Before voting Telegram hides the counts, so there is nothing to share out.
+        for option in poll["options"]:
+            option["voters"] = None
+        poll["total"] = None
+        text = self.frame.poll_text(poll)
+        self.assertNotIn(self.text(c.POLL_PERCENT_FORMAT_KEY).format(percent=40), text)
+        self.assertNotIn(self.text(c.POLL_TOTAL_FORMAT_KEY).format(text="", total=5).strip(), text)
+
     def test_a_quiz_reads_as_one_with_its_right_answer_and_explanation_once_answered(self):
         text = self.frame.poll_text({
             "question": "2 + 2?", "closed": False, "multiple": False, "quiz": True, "explanation": "Two pairs.",

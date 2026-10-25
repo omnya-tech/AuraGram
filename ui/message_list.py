@@ -21,7 +21,7 @@ from core.constants import (
     TIME_STYLE_NONE, TIME_STYLE_WORDS_12, MONTH_KEY_PREFIX, TIME_AM_KEY, TIME_PM_KEY, TIME_12_FORMAT,
     DATE_WORDS_FORMAT_KEY, DATE_WORDS_YEAR_FORMAT_KEY, DATE_TIME_WORDS_FORMAT_KEY, MESSAGE_NO_TIME_FORMAT, CONTEXT_SELECT_KEY, CONTEXT_UNSELECT_KEY,
     MSG_CHOOSE_SAVE_FOLDER_KEY, MSG_SAVED_FORMAT_KEY, CONTEXT_READ_MESSAGE_KEY, READ_MESSAGE_TITLE_KEY, READ_MESSAGE_HEADER_FORMAT_KEY, MARKED_FORMAT_KEY, MESSAGE_VIEW_SEARCH, MESSAGE_VIEW_SCHEDULED, MSG_VIEW_RESULTS_FORMAT_KEY, MSG_VIEW_EMPTY_KEY,
-    POLL_FORMAT_KEY, POLL_OPTION_FORMAT_KEY, POLL_CHOSEN_KEY, POLL_VOTERS_FORMAT_KEY,
+    POLL_FORMAT_KEY, POLL_OPTION_FORMAT_KEY, POLL_CHOSEN_KEY, POLL_VOTERS_FORMAT_KEY, POLL_PERCENT_FORMAT_KEY, POLL_TOTAL_FORMAT_KEY,
     POLL_CLOSED_SUFFIX_KEY, CONTEXT_POLL_VOTERS_KEY, CONTEXT_CLOSE_POLL_KEY, QUIZ_FORMAT_KEY, POLL_CORRECT_KEY, POLL_EXPLANATION_FORMAT_KEY, CONTEXT_VOTE_KEY, CONTEXT_REACT_KEY, REACTIONS_FORMAT_KEY,
     REACTION_COUNT_FORMAT_KEY, CONTEXT_FORWARD_KEY, CONTEXT_PIN_KEY, CONTEXT_UNPIN_KEY,
     PINNED_FORMAT_KEY, CONTEXT_REPLY_KEY, CONTEXT_EDIT_KEY, CONTEXT_DELETE_KEY, CONTEXT_COPY_KEY,
@@ -807,6 +807,9 @@ class MessageListMixin:
         return chat.get("category") == CATEGORY_BROADCASTS and message["sender_id"] is None             and (message["outgoing"] or message["sender"] in (chat.get("title"), ""))
 
     def poll_text(self, poll):
+        total = poll.get("total")
+        if total is None and all(option["voters"] is not None for option in poll["options"]):
+            total = sum(option["voters"] for option in poll["options"])
         options = []
         for option in poll["options"]:
             details = []
@@ -817,6 +820,11 @@ class MessageListMixin:
             # Telegram hides the counts until this account has voted.
             if option["voters"] is not None:
                 details.append(self.i18n.get_string(POLL_VOTERS_FORMAT_KEY).format(count=option["voters"]))
+                # Of everyone who voted, as Telegram shows it; with several answers each, they add up past 100.
+                if total:
+                    details.append(self.i18n.get_string(POLL_PERCENT_FORMAT_KEY).format(
+                        percent=round(option["voters"] * 100 / total)
+                    ))
             if details:
                 options.append(self.i18n.get_string(POLL_OPTION_FORMAT_KEY).format(
                     text=option["text"], details=self.i18n.get_string(FILE_LABEL_SEPARATOR_KEY).join(details)
@@ -827,6 +835,8 @@ class MessageListMixin:
             closed=self.i18n.get_string(POLL_CLOSED_SUFFIX_KEY) if poll["closed"] else "",
             question=poll["question"], options=self.i18n.get_string(FILE_LABEL_SEPARATOR_KEY).join(options)
         )
+        if total:
+            text = self.i18n.get_string(POLL_TOTAL_FORMAT_KEY).format(text=text, total=total)
         if poll.get("explanation"):
             text = self.i18n.get_string(POLL_EXPLANATION_FORMAT_KEY).format(text=text, explanation=poll["explanation"])
         return text
