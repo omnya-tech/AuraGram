@@ -389,7 +389,8 @@ class MessageListMixin:
             entries.append((CONTEXT_BUTTONS_KEY, self.on_buttons_menu))
         if message["poll"] and not message["poll"]["closed"]:
             entries.append((CONTEXT_VOTE_KEY, self.on_vote_menu))
-        if message["poll"] and message["poll"].get("public"):
+        # On an anonymous poll too: there it says why nobody can be named, rather than being missing.
+        if message["poll"]:
             entries.append((CONTEXT_POLL_VOTERS_KEY, self.on_poll_voters_menu))
         if message["poll"] and not message["poll"]["closed"] and message["outgoing"]:
             entries.append((CONTEXT_CLOSE_POLL_KEY, self.on_close_poll_menu))

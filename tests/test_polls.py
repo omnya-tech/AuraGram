@@ -224,6 +224,9 @@ class PollSettingsTest(WindowTestCase):
 
     def test_an_anonymous_poll_says_who_voted_cannot_be_known(self):
         self.frame.messages_list.SetSelection(self.frame.message_offset() + 1)
+        # Offered all the same, so it is never looked for in vain.
+        self.frame.on_message_context_menu(self.context_event(self.frame.messages_list))
+        self.assertIn(self.text(c.CONTEXT_POLL_VOTERS_KEY), self.menu_labels)
         self.frame.on_poll_voters_menu(None)
         self.assertEqual(self.spoken[-1], self.text(c.MSG_POLL_ANONYMOUS_KEY))
         self.assertEqual(self.calls("GetPollVotesRequest"), [])
