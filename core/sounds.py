@@ -97,7 +97,7 @@ def convert(source, target):
     from core import audio
     try:
         if audio.AVAILABLE:
-            samples = audio.decode(source)[:audio.SAMPLE_RATE * CUSTOM_SOUND_MAX_SECONDS]
+            samples = audio.decode(source, seconds=CUSTOM_SOUND_MAX_SECONDS)
             if not len(samples):
                 return False
             with wave.open(target, "wb") as wav:

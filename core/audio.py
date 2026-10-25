@@ -65,12 +65,20 @@ def decode_pieces(source, speed=1.0, halted=None):
             yield out.to_ndarray()[0]
 
 
-def decode(source, speed=1.0):
-    """The whole of a sound as one mono int16 array at SAMPLE_RATE: for short sounds, like the tones."""
-    chunks = list(decode_pieces(source, speed))
+def decode(source, speed=1.0, seconds=None):
+    """A sound as one mono int16 array at SAMPLE_RATE: for short sounds, like the tones. With `seconds`,
+    only its start: reading stops there, so a long song chosen as a tone is not decoded whole."""
+    wanted = None if seconds is None else int(seconds * SAMPLE_RATE)
+    chunks = []
+    got = 0
+    for chunk in decode_pieces(source, speed):
+        chunks.append(chunk)
+        got += len(chunk)
+        if wanted is not None and got >= wanted:
+            break
     if not chunks:
         return numpy.zeros(0, dtype=SAMPLE_FORMAT)
-    return numpy.concatenate(chunks)
+    return numpy.concatenate(chunks)[:wanted]
 
 
 def _at_speed(frames, stream, speed):

@@ -178,3 +178,19 @@ class VoiceSpeedTest(unittest.TestCase):
         self.assertAlmostEqual(len(fast) / audio.SAMPLE_RATE, 1.0, delta=0.1)
         self.assertEqual(pitch(normal), 440)
         self.assertEqual(pitch(fast), 440)
+
+    def test_only_the_start_is_read_when_that_is_all_that_is_wanted(self):
+        path = os.path.join(tempfile.mkdtemp(), "song.oga")
+        audio.encode_voice(numpy.full(audio.SAMPLE_RATE * 6, 4000, dtype="int16"), path)
+        read = []
+        pieces = audio.decode_pieces
+
+        def counted(*args, **kwargs):
+            for piece in pieces(*args, **kwargs):
+                read.append(len(piece))
+                yield piece
+        with mock.patch.object(audio, "decode_pieces", counted):
+            start = audio.decode(path, seconds=1)
+        self.assertEqual(len(start), audio.SAMPLE_RATE)
+        # Stopped about there, not after decoding the whole six seconds.
+        self.assertLess(sum(read), audio.SAMPLE_RATE * 3)
