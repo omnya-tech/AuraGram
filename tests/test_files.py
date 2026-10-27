@@ -54,7 +54,9 @@ class RemindersFileTest(unittest.TestCase):
 
     def test_a_file_that_holds_no_list_gives_no_reminders(self):
         for text in ("7", '"text"', "{}", "null", "{broken"):
-            self.assertEqual(self.load(text), [], text)
+            # Each is logged, as it should be; caught here rather than printed among the test results.
+            with self.assertLogs("core.reminders", level="WARNING"):
+                self.assertEqual(self.load(text), [], text)
 
     def test_a_damaged_reminder_is_left_out_and_the_others_kept(self):
         good = self.reminder("2026-10-27T09:00:00+03:00")

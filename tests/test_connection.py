@@ -152,8 +152,10 @@ class FirstConnectionTest(unittest.TestCase):
         self.assertTrue(pump(lambda: self.answers == [(c.STEP_DONE, None)]))
 
     def test_opened_by_hand_it_says_at_once_that_telegram_cannot_be_reached(self):
-        self.start(wait_for_network=False)
-        self.assertTrue(pump(lambda: self.answers == [(c.STEP_PHONE, c.ERR_CONNECTION_KEY)]))
+        # The failure is logged, as it should be; caught here rather than printed among the test results.
+        with self.assertLogs("core.telegram_client", level="ERROR"):
+            self.start(wait_for_network=False)
+            self.assertTrue(pump(lambda: self.answers == [(c.STEP_PHONE, c.ERR_CONNECTION_KEY)]))
 
     def test_stopping_while_it_waits_ends_the_waiting(self):
         manager = self.start(wait_for_network=True)
@@ -175,7 +177,7 @@ class DamagedSessionTest(unittest.TestCase):
         with open(session + ".session", "wb") as file:
             file.write(b"not a database" * 50)
         answers = []
-        with mock.patch.object(telegram_client, "CONNECTION_WATCH_SECONDS", 0.01):
+        with mock.patch.object(telegram_client, "CONNECTION_WATCH_SECONDS", 0.01),                 self.assertLogs("core.telegram_client", level="ERROR"):
             manager = telegram_client.TelegramManager(lambda step, error_key=None: answers.append(step), session)
             # Nothing is asked of Telegram itself: the new session is never connected.
             with mock.patch.object(telegram_client.TelegramManager, "_connect_async", lambda self: asyncio_sleep()):

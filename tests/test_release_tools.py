@@ -2,6 +2,7 @@
 import hashlib
 import json
 import logging
+import io
 import os
 import sys
 import tempfile
@@ -531,6 +532,14 @@ def answer(text):
 
 class VisionRulesTest(unittest.TestCase):
     def setUp(self):
+        # Gemini's refusals are logged as they should be; kept out of the test results here, while the
+        # tests that look for them with assertLogs still see them.
+        quiet = logging.NullHandler()
+        vision.logger.addHandler(quiet)
+        patch = mock.patch.object(vision.logger, "propagate", False)
+        patch.start()
+        self.addCleanup(patch.stop)
+        self.addCleanup(vision.logger.removeHandler, quiet)
         self.path = os.path.join(tempfile.mkdtemp(), "photo.jpg")
         with open(self.path, "wb") as image_file:
             image_file.write(b"jpeg bytes")
@@ -796,5 +805,7 @@ class PrivatePartTest(unittest.TestCase):
         import core.config as config
         with mock.patch.object(config, "_private_part", lambda: None), \
                 mock.patch.object(build, "pack_credentials", config.pack_credentials), \
-                mock.patch.object(build, "read_credentials", lambda path: (777, "0123456789abcdef0123456789abcdef")):
+                mock.patch.object(build, "read_credentials", lambda path: (777, "0123456789abcdef0123456789abcdef")),                 mock.patch("sys.stdout", new_callable=io.StringIO) as printed:
             self.assertIsNone(build.write_bundled_config())
+        # Said to whoever builds, and kept out of the test results, where it read like this build's own.
+        self.assertIn("cannot pack", printed.getvalue())
