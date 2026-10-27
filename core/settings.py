@@ -23,6 +23,7 @@ SETTING_LARGE_TEXT = "large_text"
 # Not an on/off option: where the main window was left, as [x, y, width, height, maximized].
 WINDOW_PLACEMENT = "window_placement"
 SETTING_START_SOUND = "start_sound"
+SETTING_WINDOWS_START_SOUND = "windows_start_sound"
 SETTING_ANNOUNCE_INTERRUPT = "announce_interrupt"
 SETTING_BRAILLE_MESSAGES = "braille_messages"
 SETTING_SPEAK_FEEDBACK = "speak_feedback"
@@ -104,6 +105,7 @@ DEFAULTS = {
     SETTING_ANNOUNCE_MESSAGES: True,
     SETTING_MARK_READ_ON_OPEN: True,
     SETTING_START_SOUND: True,
+    SETTING_WINDOWS_START_SOUND: True,
     SETTING_ANNOUNCE_INTERRUPT: False,
     SETTING_BRAILLE_MESSAGES: False,
     SETTING_SPEAK_FEEDBACK: True,

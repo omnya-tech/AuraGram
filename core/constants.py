@@ -229,6 +229,8 @@ CONNECTION_STATE_KEYS = {
     CONNECTION_OFFLINE: "CONNECTION_OFFLINE",
 }
 CONNECTION_WATCH_SECONDS = 10
+# Between tries of the first connection at a start with Windows, while the network is not up yet.
+CONNECT_RETRY_SECONDS = 5
 MSG_CONNECTION_LOST_KEY = "MSG_CONNECTION_LOST"
 MSG_CONNECTION_BACK_KEY = "MSG_CONNECTION_BACK"
 MENU_CONNECTION_KEY = "MENU_CONNECTION"
@@ -393,14 +395,18 @@ SOUND_MESSAGE_IN_CHAT = "message_in_chat"
 SOUND_SENT = "sent"
 # The app's own chime, heard when its window opens after starting.
 SOUND_START = "start"
+# Started with Windows, in the background, and signed in.
+SOUND_START_WINDOWS = "start_windows"
 # "Speak now" and "that is it": said by a tone, since words from the screen reader would be recorded too.
 SOUND_RECORD_START = "record_start"
 SOUND_RECORD_STOP = "record_stop"
 SOUND_NAMES = (
-    SOUND_MESSAGE, SOUND_MESSAGE_IN_CHAT, SOUND_SENT, SOUND_START, SOUND_RECORD_START, SOUND_RECORD_STOP
+    SOUND_MESSAGE, SOUND_MESSAGE_IN_CHAT, SOUND_SENT, SOUND_START, SOUND_START_WINDOWS, SOUND_RECORD_START,
+    SOUND_RECORD_STOP
 )
 SETTINGS_RECORD_SOUND_KEY = "SETTINGS_RECORD_SOUND"
 SETTINGS_START_SOUND_KEY = "SETTINGS_START_SOUND"
+SETTINGS_WINDOWS_START_SOUND_KEY = "SETTINGS_WINDOWS_START_SOUND"
 # Tones the user chose to replace the bundled ones, each saved as "<tone name>.wav".
 USER_SOUNDS_DIR = os.path.join(DATA_DIR, "sounds")
 # A whole song picked as a tone is cut to its beginning.

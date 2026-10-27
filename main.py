@@ -37,13 +37,13 @@ from core.config import load_credentials, read_bundled, save_credentials
 from core.constants import (
     APP_NAME, DEFAULT_LANG, STEP_DONE, BACKGROUND_FLAG,
     QUIT_WAIT_SECONDS, CONNECT_CHECK_SECONDS, BUNDLED_CONFIG_FILE, LOG_FILE, LOG_MAX_BYTES, APP_VERSION, IS_FROZEN,
-    SHORTCUT_SHOW_WINDOW, SOUND_START, MSG_UNEXPECTED_ERROR_KEY, MAIN_FRAME_PRELOAD_MS, STEP_PHONE,
-    MSG_ACCOUNT_SWITCHED_FORMAT_KEY, LOG_STARTED_FORMAT, LOG_STOPPED
+    SHORTCUT_SHOW_WINDOW, SOUND_START, SOUND_START_WINDOWS, MSG_UNEXPECTED_ERROR_KEY, MAIN_FRAME_PRELOAD_MS, STEP_PHONE,
+    MSG_ACCOUNT_SWITCHED_FORMAT_KEY, LOG_STARTED_FORMAT, LOG_STOPPED, CONNECTION_ONLINE
 )
 from core.i18n import I18NManager
 from core import diagnostics, proxy, shortcuts, sounds
 from core.settings import (
-    SETTING_ANNOUNCE_CONNECTION, SETTING_START_SOUND, SETTING_THEME, SETTING_LANGUAGE, SETTING_ACCOUNTS,
+    SETTING_ANNOUNCE_CONNECTION, SETTING_START_SOUND, SETTING_WINDOWS_START_SOUND, SETTING_THEME, SETTING_LANGUAGE, SETTING_ACCOUNTS,
     SETTING_CURRENT_ACCOUNT, Settings
 )
 from core import accounts
@@ -103,6 +103,9 @@ class MainApplication(wx.App):
 
         # Started with Windows: stay out of the way unless signing in is needed.
         self.start_hidden = BACKGROUND_FLAG in sys.argv
+        # Nothing said of the connection before it has once been made: at a start with Windows the
+        # network is often not up yet, and "lost" then "back" would break the silence for nothing.
+        self.quiet_until_online = self.start_hidden
         self.background = BackgroundWindow(
             self.i18n, self.show_window, self.quit, shortcuts.current(self.settings)[SHORTCUT_SHOW_WINDOW],
             self.take_shared_files
@@ -129,6 +132,7 @@ class MainApplication(wx.App):
         self.telegram_manager.translate_lang = self.settings.get(SETTING_LANGUAGE)
         self.telegram_manager.proxy = proxy.from_settings(self.settings)
         self.telegram_manager.set_connection_listener(self.on_connection_change)
+        self.telegram_manager.wait_for_network = self.start_hidden
         self.show_login()
         # Started only now: its callback needs the app and the frame to exist.
         self.telegram_manager.start()
@@ -232,6 +236,9 @@ class MainApplication(wx.App):
                 wx.CallAfter(self.main_frame.check_shortcuts_once)
                 # And, the first time, how much the app should say.
                 wx.CallAfter(self.main_frame.ask_speech_level_once)
+            elif self.settings.get(SETTING_WINDOWS_START_SOUND):
+                # Started with Windows and signed in, out of sight: a tone of its own says it is ready.
+                sounds.play(SOUND_START_WINDOWS)
             self.login_frame.Destroy()
             if error_key:
                 self.main_frame.show_error(error_key)
@@ -260,6 +267,9 @@ class MainApplication(wx.App):
         self.background.tray.set_connection_state(state)
         news_key = connection_news_key(self.connection_state, state)
         self.connection_state = state
+        if self.quiet_until_online:
+            self.quiet_until_online = state != CONNECTION_ONLINE
+            return
         if news_key and self.settings.get(SETTING_ANNOUNCE_CONNECTION):
             speak(self.i18n.get_string(news_key))
 
@@ -268,6 +278,9 @@ class MainApplication(wx.App):
         if self.main_frame:
             self.main_frame.bring_forward()
         elif self.login_frame:
+            # Asked for while a start with Windows still waits for the network: the window it opens to is
+            # wanted now, so the hidden start is over.
+            self.start_hidden = False
             self.login_frame.Show()
             self.login_frame.Raise()
 

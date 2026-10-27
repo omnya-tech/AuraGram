@@ -28,7 +28,7 @@ from core.constants import (
     ERR_CHAT_NOT_FOUND_KEY, CODE_DELIVERY_KEYS, NEXT_CODE_DELIVERY_KEYS, CODE_DELIVERY_OTHER_KEY,
     ERR_NO_OTHER_DELIVERY_KEY, ERR_VOICE_FORBIDDEN_KEY, ERR_API_INVALID_KEY, EVENT_NEW_MESSAGE,
     EVENT_MESSAGE_EDITED, EVENT_MESSAGES_DELETED, CONNECTION_ONLINE, CONNECTION_OFFLINE,
-    CONNECTION_WATCH_SECONDS, CONNECTION_PING_TIMEOUT_SECONDS, EVENT_MESSAGES_READ, EVENT_USER_STATUS,
+    CONNECTION_WATCH_SECONDS, CONNECTION_PING_TIMEOUT_SECONDS, EVENT_MESSAGES_READ, EVENT_USER_STATUS, CONNECT_RETRY_SECONDS,
     EVENT_TYPING, TYPING_ACTION_CANCEL, TYPING_ACTION_TYPING, TYPING_ACTION_VOICE, TYPING_ACTION_VIDEO,
     TYPING_ACTION_UPLOAD, ERR_NO_PHONE_KEY, ERR_USERNAME_TAKEN_KEY, ERR_USERNAME_INVALID_KEY,
     ERR_PHOTO_INVALID_KEY, ERR_PREHISTORY_HIDDEN_KEY, ERR_DISCUSSION_LINK_KEY, ERR_NO_INVITE_LINK_KEY,
@@ -108,13 +108,17 @@ class TelegramManager(ChatsMixin, MessagesMixin, MediaMixin, AdminMixin, Account
         # None until the first check has answered.
         self.connection_state = None
         self.watch_task = None
+        self.connect_task = None
         # The watcher and a request may both find the connection down at the same moment.
         self.connect_lock = asyncio.Lock()
+        # Set for a start with Windows, which often comes before the network is up: the first connection
+        # is then tried again and again, out of sight, rather than failing into the sign-in window.
+        self.wait_for_network = False
 
     def run(self):
         asyncio.set_event_loop(self.loop)
         self._create_client()
-        self.loop.create_task(self._connect_async())
+        self.connect_task = self.loop.create_task(self._connect_async())
         self.watch_task = self.loop.create_task(self._watch_connection_async())
         self.loop.run_forever()
 
@@ -367,7 +371,19 @@ class TelegramManager(ChatsMixin, MessagesMixin, MediaMixin, AdminMixin, Account
 
     async def _connect_async(self):
         try:
-            await self._ensure_connected()
+            tries = 0
+            while True:
+                try:
+                    await self._ensure_connected()
+                    break
+                except Exception:
+                    if not self.wait_for_network:
+                        raise
+                    if not tries:
+                        logger.info("Telegram cannot be reached yet; trying again until the network is up")
+                    tries += 1
+                    await asyncio.sleep(CONNECT_RETRY_SECONDS)
+            self.wait_for_network = False
             if await self.client.is_user_authorized():
                 self.ui_callback(STEP_DONE)
             else:
@@ -394,6 +410,9 @@ class TelegramManager(ChatsMixin, MessagesMixin, MediaMixin, AdminMixin, Account
         # Otherwise the watcher would connect again right behind this.
         if self.watch_task is not None:
             self.watch_task.cancel()
+        # And the first connection, if it is still waiting for the network.
+        if self.connect_task is not None:
+            self.connect_task.cancel()
         if self.client is not None:
             await self.client.disconnect()
 

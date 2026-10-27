@@ -14,7 +14,8 @@ from PIL import Image, ImageDraw
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.constants import (
-    BASE_DIR, SOUND_MESSAGE, SOUND_MESSAGE_IN_CHAT, SOUND_SENT, SOUND_START, SOUND_RECORD_START, SOUND_RECORD_STOP
+    BASE_DIR, SOUND_MESSAGE, SOUND_MESSAGE_IN_CHAT, SOUND_SENT, SOUND_START, SOUND_START_WINDOWS, SOUND_RECORD_START,
+    SOUND_RECORD_STOP
 )
 
 SAMPLE_RATE = 44100
@@ -23,6 +24,7 @@ ASSETS = os.path.join(BASE_DIR, "assets")
 # Note frequencies in Hz.
 C5, E5, G5, A5, C6, E6 = 523.25, 659.25, 783.99, 880.00, 1046.50, 1318.51
 D4, D5, D6, F6_SHARP = 293.66, 587.33, 1174.66, 1479.98
+A4, F5_SHARP = 440.00, 739.99
 
 
 def note(frequency, seconds, decay):
@@ -82,6 +84,16 @@ def make_sounds():
         1.9, (0.00, note(D4, 1.8, 2.2) * 0.6), (0.00, note(D5, 1.5, 3.0)), (0.13, note(A5, 1.5, 3.0)),
         (0.26, note(D6, 1.5, 2.8)), (0.39, note(F6_SHARP, 1.45, 2.6) * 0.8)
     ), volume=0.50)
+    make_windows_start_sound()
+
+
+def make_windows_start_sound():
+    # Started with Windows, out of sight, and ready: the opening tone's notes, but fewer, lower and
+    # softer, so it says "AuraGram is here" without sounding like a window opening.
+    save(SOUND_START_WINDOWS, mix(
+        1.3, (0.00, note(D4, 1.2, 3.0) * 0.5), (0.00, note(A4, 1.0, 3.5)), (0.18, note(D5, 1.0, 3.5)),
+        (0.36, note(F5_SHARP, 0.9, 3.8) * 0.8)
+    ), volume=0.35)
 
 
 def make_recording_sounds():

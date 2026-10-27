@@ -117,3 +117,47 @@ class TrayStatusTest(unittest.TestCase):
         first = menu.GetMenuItems()[0]
         self.assertEqual(first.GetItemLabelText(), self.status(c.CONNECTION_OFFLINE))
         self.assertFalse(first.IsEnabled())
+
+
+class FirstConnectionTest(unittest.TestCase):
+    """At a start with Windows the network is often not up yet: a signed-in account then waits for it,
+    out of sight, instead of failing into the sign-in window."""
+
+    def setUp(self):
+        FlakyClient.reachable = False
+        FlakyClient.connects = 0
+        FlakyClient.steps = []
+        self.answers = []
+        for patch in (
+            mock.patch.object(telegram_client, "TelegramClient", FlakyClient),
+            mock.patch.object(telegram_client, "CONNECTION_WATCH_SECONDS", 0.01),
+            mock.patch.object(telegram_client, "CONNECT_RETRY_SECONDS", 0.01),
+        ):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def start(self, wait_for_network):
+        manager = telegram_client.TelegramManager(lambda step, error_key=None: self.answers.append((step, error_key)))
+        manager.wait_for_network = wait_for_network
+        manager.start()
+        self.addCleanup(manager.stop)
+        return manager
+
+    def test_started_with_windows_it_waits_for_the_network_and_then_signs_in(self):
+        self.start(wait_for_network=True)
+        pump(timeout=0.2)
+        self.assertEqual(self.answers, [])
+        FlakyClient.reachable = True
+        self.assertTrue(pump(lambda: self.answers == [(c.STEP_DONE, None)]))
+
+    def test_opened_by_hand_it_says_at_once_that_telegram_cannot_be_reached(self):
+        self.start(wait_for_network=False)
+        self.assertTrue(pump(lambda: self.answers == [(c.STEP_PHONE, c.ERR_CONNECTION_KEY)]))
+
+    def test_stopping_while_it_waits_ends_the_waiting(self):
+        manager = self.start(wait_for_network=True)
+        pump(timeout=0.1)
+        manager.stop()
+        FlakyClient.reachable = True
+        pump(timeout=0.2)
+        self.assertEqual(self.answers, [])
