@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+from core import files
 from core.constants import (
     INSTALL_LANGUAGE_FILE, IS_FROZEN, BASE_DIR,
     FEEDBACK_KINDS, FEEDBACK_PERCENT, FEEDBACK_UNAVAILABLE, FEEDBACK_RESULT, FEEDBACK_CONFIRM,
@@ -316,8 +317,7 @@ class Settings:
             self.values[SHORTCUT_CONFLICTS_TOLD] = told
 
     def save(self):
-        with open(SETTINGS_FILE, "w", encoding=ENCODING_UTF8) as file:
-            json.dump(self.values, file, indent=4)
+        files.write_json(SETTINGS_FILE, self.values, indent=4)
 
     def get(self, key):
         return self.values[key]

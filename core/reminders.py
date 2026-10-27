@@ -7,7 +7,7 @@ written as ISO text with its time zone.
 import datetime
 import json
 import logging
-import os
+from core import files
 from core.constants import REMINDERS_FILE, ENCODING_UTF8, REMIND_MORNING_HOUR
 
 logger = logging.getLogger(__name__)
@@ -24,14 +24,27 @@ def load():
     except (OSError, ValueError):
         logger.warning("The reminders file could not be read", exc_info=True)
         return []
-    reminders = [item for item in stored if isinstance(item, dict) and all(field in item for field in FIELDS)]
+    if not isinstance(stored, list):
+        logger.warning("The reminders file holds no list of reminders")
+        return []
+    # One reminder damaged, by hand or by a crash, must not keep the others, or the window, from opening.
+    reminders = [item for item in stored if is_whole(item)]
     return sorted(reminders, key=due_of)
 
 
+def is_whole(item):
+    if not isinstance(item, dict) or not all(field in item for field in FIELDS):
+        return False
+    try:
+        due = due_of(item)
+    except (TypeError, ValueError):
+        return False
+    # Compared with the others once sorted: a moment with no time zone could not be.
+    return due.tzinfo is not None
+
+
 def save(reminders):
-    os.makedirs(os.path.dirname(REMINDERS_FILE), exist_ok=True)
-    with open(REMINDERS_FILE, "w", encoding=ENCODING_UTF8) as file:
-        json.dump(reminders, file, ensure_ascii=False, indent=4)
+    files.write_json(REMINDERS_FILE, reminders, ensure_ascii=False, indent=4)
 
 
 def due_of(reminder):

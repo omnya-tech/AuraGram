@@ -2,6 +2,7 @@ import json
 import os
 import re
 import unicodedata
+from core import files
 from core.constants import BUNDLED_CONFIG_FILE, CONFIG_FILE, READ_MODE, ENCODING_UTF8, EMPTY_STRING
 
 API_HASH_PATTERN = re.compile(r"^[0-9a-f]{32}$")
@@ -84,5 +85,4 @@ def load_credentials():
     return read_credentials(CONFIG_FILE)
 
 def save_credentials(api_id, api_hash):
-    with open(CONFIG_FILE, "w", encoding=ENCODING_UTF8) as config_file:
-        json.dump({"API_ID": api_id, "API_HASH": api_hash}, config_file, indent=4)
+    files.write_json(CONFIG_FILE, {"API_ID": api_id, "API_HASH": api_hash}, indent=4)
