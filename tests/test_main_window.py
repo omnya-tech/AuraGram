@@ -41,6 +41,24 @@ class FailedHandlerTest(WindowTestCase):
         self.assertFalse(self.frame.is_busy)
 
 
+class OpenedOfflineTest(WindowTestCase):
+    chats = [(ALI, 2, False), (NEWS, 5, False)]
+
+    def test_chats_come_by_themselves_once_the_line_is_up_and_a_failure_shows_no_box(self):
+        boxes = []
+        with mock.patch.object(wx, "MessageBox", lambda *args, **kwargs: boxes.append(args)):
+            # As a window opened offline is: nothing asked for yet, and asking fails while the line is down.
+            self.frame.all_dialogs, self.frame.chats_requested = [], False
+            self.frame.render_dialogs()
+            self.frame.on_quiet_result(self.frame.show_dialogs, None, c.ERR_CONNECTION_KEY)
+            self.assertFalse(self.frame.chats_requested)
+            self.frame.on_connection_state(c.CONNECTION_OFFLINE)
+            self.assertEqual(self.frame.dialogs, [])
+            self.frame.on_connection_state(c.CONNECTION_ONLINE)
+            self.assertTrue(pump(lambda: len(self.frame.dialogs) == 2))
+        self.assertEqual(boxes, [])
+
+
 class ChatListTest(WindowTestCase):
     chats = [(ALI, 2, False), (NEWS, 5, False), (MY_GROUP, 0, False), (OLD, 0, True)]
     history = {1: conversation()}

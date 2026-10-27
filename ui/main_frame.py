@@ -14,6 +14,7 @@ from ui.settings_dialog import SettingsDialog
 from core.chat_views import build_views
 from ui.text_dialog import TextDialog
 from core.constants import (
+    CONNECTION_STATE_KEYS, CONNECTION_ONLINE, CONNECTION_OFFLINE, MSG_LOADING_KEY,
     REMEMBERED_CHATS,
     FEEDBACK_CONFIRM, MSG_IN_BACKGROUND_FORMAT_KEY, MSG_IN_BACKGROUND_KEY, BTN_RECORD_KEY, MAIN_WINDOW_SIZE,
     ERR_HOTKEY_TAKEN_FORMAT_KEY, MAIN_WINDOW_MIN_SIZE, PREVIEW_HEIGHT, PREVIEW_LABEL_KEY,
@@ -165,8 +166,12 @@ class MainFrame(
         self.telegram_manager.set_message_listener(
             lambda *args: wx.CallAfter(self.on_telegram_event, *args)
         )
-        self.load_dialogs()
-        self.telegram_manager.load_folders(self.on_ui_thread(self.show_folders))
+        # Opened offline, for an account signed in here, it stays empty and silent until the line is up.
+        self.chats_requested = False
+        if self.telegram_manager.is_connected():
+            self.load_chats()
+        else:
+            self.SetStatusText(self.i18n.get_string(CONNECTION_STATE_KEYS[CONNECTION_OFFLINE]))
 
     def init_ui(self):
         self.panel = wx.Panel(self)
@@ -657,6 +662,32 @@ class MainFrame(
         def deliver(result, error_key):
             wx.CallAfter(self.handle_result, handler, result, error_key, *args)
         return deliver
+
+    def load_chats(self):
+        """The chat list and the folders, the first time. A failure here, the line going again on the way,
+        is no error to show: they are asked for once more when the line is back."""
+        self.chats_requested = True
+        self.set_status(MSG_LOADING_KEY)
+        self.telegram_manager.load_dialogs(self.quietly(self.show_dialogs), self.dialogs_limit)
+        self.telegram_manager.load_folders(self.quietly(self.show_folders))
+
+    def quietly(self, handler):
+        def deliver(result, error_key):
+            wx.CallAfter(self.on_quiet_result, handler, result, error_key)
+        return deliver
+
+    def on_quiet_result(self, handler, result, error_key):
+        if not self:
+            return
+        if error_key:
+            self.chats_requested = False
+            self.SetStatusText(self.i18n.get_string(CONNECTION_STATE_KEYS[CONNECTION_OFFLINE]))
+            return
+        handler(result)
+
+    def on_connection_state(self, state):
+        if state == CONNECTION_ONLINE and not self.chats_requested:
+            self.load_chats()
 
     def handle_result(self, handler, result, error_key, *args):
         if not self:

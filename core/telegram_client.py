@@ -150,6 +150,9 @@ class TelegramManager(ChatsMixin, MessagesMixin, MediaMixin, AdminMixin, Account
         # Set for a start with Windows, which often comes before the network is up: the first connection
         # is then tried again and again, out of sight, rather than failing into the sign-in window.
         self.wait_for_network = False
+        # Set when this computer has this account signed in already: without the network its window
+        # opens at once all the same, and signing in is asked again only if Telegram says it ended.
+        self.known_signed_in = False
 
     def run(self):
         asyncio.set_event_loop(self.loop)
@@ -412,6 +415,8 @@ class TelegramManager(ChatsMixin, MessagesMixin, MediaMixin, AdminMixin, Account
             return False
 
     async def _connect_async(self):
+        # True once the window was opened on what this computer knew, before Telegram could be asked.
+        opened_offline = False
         try:
             tries = 0
             while True:
@@ -419,20 +424,34 @@ class TelegramManager(ChatsMixin, MessagesMixin, MediaMixin, AdminMixin, Account
                     await self._ensure_connected()
                     break
                 except Exception:
-                    if not self.wait_for_network:
+                    if self.known_signed_in and not opened_offline:
+                        # Signed in here before: the window opens now, and what is in it comes with the network.
+                        opened_offline = True
+                        self.ui_callback(STEP_DONE)
+                    elif not (self.wait_for_network or opened_offline):
                         raise
                     if not tries:
                         logger.info("Telegram cannot be reached yet; trying again until the network is up")
                     tries += 1
                     await asyncio.sleep(CONNECT_RETRY_SECONDS)
             self.wait_for_network = False
-            if await self.client.is_user_authorized():
-                self.ui_callback(STEP_DONE)
-            else:
-                self.ui_callback(STEP_PHONE)
+            authorized = await self.client.is_user_authorized()
+            if opened_offline:
+                if not authorized:
+                    # Signed out from another device meanwhile: only now is signing in asked for again.
+                    self.ui_callback(STEP_PHONE)
+                return
+            self.ui_callback(STEP_DONE if authorized else STEP_PHONE)
         except Exception:
             logger.exception("Telegram request failed")
+            if opened_offline:
+                # The window is open already; the watcher takes the connection up again from here.
+                return
             self.ui_callback(STEP_PHONE, ERR_CONNECTION_KEY)
+
+    def is_connected(self):
+        """Whether Telegram can be asked anything right now, as far as this side knows."""
+        return self.client is not None and self.client.is_connected()
 
     async def _set_proxy_async(self, proxy):
         async with self.connect_lock:

@@ -133,6 +133,9 @@ class MainApplication(wx.App):
         self.telegram_manager.proxy = proxy.from_settings(self.settings)
         self.telegram_manager.set_connection_listener(self.on_connection_change)
         self.telegram_manager.wait_for_network = self.start_hidden
+        self.telegram_manager.known_signed_in = accounts.is_signed_in_here(
+            self.settings.get(SETTING_ACCOUNTS), self.settings.get(SETTING_CURRENT_ACCOUNT)
+        )
         self.show_login()
         # Started only now: its callback needs the app and the frame to exist.
         self.telegram_manager.start()
@@ -208,7 +211,11 @@ class MainApplication(wx.App):
         wx.CallAfter(self._process_telegram_response, step, error_key, generation)
 
     def _process_telegram_response(self, step, error_key, generation=None):
-        if not self.login_frame or (generation is not None and generation != self.account_generation):
+        if generation is not None and generation != self.account_generation:
+            return
+        if not self.login_frame:
+            if step == STEP_PHONE and self.main_frame:
+                self.on_session_ended()
             return
         if step == STEP_PHONE and self.account_after is not None:
             # Signed out of one account of several: on to another of them, already signed in.
@@ -265,6 +272,9 @@ class MainApplication(wx.App):
         if not self.background:
             return
         self.background.tray.set_connection_state(state)
+        if self.main_frame:
+            # A window opened offline fills itself once the line is up.
+            self.main_frame.on_connection_state(state)
         news_key = connection_news_key(self.connection_state, state)
         self.connection_state = state
         if self.quiet_until_online:
@@ -301,6 +311,19 @@ class MainApplication(wx.App):
         if me and main_frame and len(self.settings.get(SETTING_ACCOUNTS)) > 1:
             # With several, which one is in use is worth saying.
             main_frame.announce(self.i18n.get_string(MSG_ACCOUNT_SWITCHED_FORMAT_KEY).format(name=me["name"]))
+
+    def on_session_ended(self):
+        """The window opened offline on a session that, once Telegram could be asked, had been ended from
+        another device: the one case besides signing out where signing in is asked for again."""
+        current = self.settings.get(SETTING_CURRENT_ACCOUNT)
+        self.settings.set(SETTING_ACCOUNTS, accounts.forget(self.settings.get(SETTING_ACCOUNTS), current))
+        self.settings.save()
+        self.telegram_manager.set_message_listener(None)
+        self.show_login()
+        self.main_frame.quit()
+        self.main_frame = None
+        self.login_frame.Show()
+        self.login_frame.set_step(STEP_PHONE)
 
     def log_out(self):
         current = self.settings.get(SETTING_CURRENT_ACCOUNT)

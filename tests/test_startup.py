@@ -106,3 +106,21 @@ class StartWithWindowsTest(unittest.TestCase):
         main.MainApplication.show_window(app)
         self.assertEqual(self.signed_in(app), [c.SOUND_START])
         app.main_frame.Show.assert_called_once()
+
+
+class SessionEndedTest(unittest.TestCase):
+    def test_signed_in_here_means_named_here_with_its_session_file(self):
+        folder = tempfile.mkdtemp()
+        with mock.patch.object(main.accounts, "SESSION_NAME", os.path.join(folder, "session")):
+            named = [{"id": 0, "name": "A", "phone": "1"}]
+            self.assertFalse(main.accounts.is_signed_in_here(named, 0))
+            open(os.path.join(folder, "session.session"), "w").close()
+            self.assertTrue(main.accounts.is_signed_in_here(named, 0))
+            # Signed out: forgotten from the list, so the sign-in window is right again.
+            self.assertFalse(main.accounts.is_signed_in_here([], 0))
+
+    def test_a_session_ended_elsewhere_while_offline_brings_signing_in_back(self):
+        app = mock.MagicMock()
+        app.account_generation, app.login_frame = 1, None
+        main.MainApplication._process_telegram_response(app, c.STEP_PHONE, None, 1)
+        app.on_session_ended.assert_called_once()

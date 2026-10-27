@@ -14,6 +14,7 @@ class FlakyClient:
 
     reachable = True
     connects = 0
+    authorized = True
     # What was done to the line, in order.
     steps = []
 
@@ -38,7 +39,7 @@ class FlakyClient:
         self.connected = False
 
     async def is_user_authorized(self):
-        return True
+        return FlakyClient.authorized
 
     async def __call__(self, request):
         if not FlakyClient.reachable:
@@ -188,3 +189,37 @@ class DamagedSessionTest(unittest.TestCase):
 async def asyncio_sleep():
     import asyncio
     await asyncio.sleep(0)
+
+
+class SignedInOfflineTest(unittest.TestCase):
+    """An account signed in on this computer opens without the network, and is asked to sign in again
+    only if Telegram, once reached, says the session was ended elsewhere."""
+
+    def setUp(self):
+        FlakyClient.reachable = False
+        FlakyClient.authorized = True
+        self.answers = []
+        for patch in (
+            mock.patch.object(telegram_client, "TelegramClient", FlakyClient),
+            mock.patch.object(telegram_client, "CONNECTION_WATCH_SECONDS", 0.01),
+            mock.patch.object(telegram_client, "CONNECT_RETRY_SECONDS", 0.01),
+        ):
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.addCleanup(setattr, FlakyClient, "authorized", True)
+        manager = telegram_client.TelegramManager(lambda step, error_key=None: self.answers.append((step, error_key)))
+        manager.known_signed_in = True
+        manager.start()
+        self.addCleanup(manager.stop)
+
+    def test_it_opens_at_once_and_says_nothing_more_once_connected(self):
+        self.assertTrue(pump(lambda: self.answers == [(c.STEP_DONE, None)]))
+        FlakyClient.reachable = True
+        pump(timeout=0.2)
+        self.assertEqual(self.answers, [(c.STEP_DONE, None)])
+
+    def test_a_session_ended_elsewhere_asks_to_sign_in_once_reached(self):
+        FlakyClient.authorized = False
+        self.assertTrue(pump(lambda: self.answers == [(c.STEP_DONE, None)]))
+        FlakyClient.reachable = True
+        self.assertTrue(pump(lambda: self.answers == [(c.STEP_DONE, None), (c.STEP_PHONE, None)]))

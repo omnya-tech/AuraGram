@@ -687,6 +687,7 @@ class WindowTestCase(unittest.TestCase):
         self.manager = telegram_client.TelegramManager(lambda step, error_key=None: None)
         self.manager.start()
         self.addCleanup(self.manager.stop)
+        pump(lambda: self.manager.is_connected())
         self.frame = main_frame_module.MainFrame(self.i18n, self.manager, Settings(), lambda: None)
         self.addCleanup(self.destroy_frame)
         # Context menus would block waiting for a click; record what they offer instead.
