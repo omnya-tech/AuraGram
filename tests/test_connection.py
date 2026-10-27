@@ -161,3 +161,30 @@ class FirstConnectionTest(unittest.TestCase):
         FlakyClient.reachable = True
         pump(timeout=0.2)
         self.assertEqual(self.answers, [])
+
+
+class DamagedSessionTest(unittest.TestCase):
+    """A session file that cannot be opened is set aside, and signing in starts over, rather than the
+    program waiting for ever on a Telegram thread that has died."""
+
+    def test_a_damaged_session_is_set_aside_and_signing_in_asked_for(self):
+        import os
+        import tempfile
+        session = os.path.join(tempfile.mkdtemp(), "account")
+        with open(session + ".session", "wb") as file:
+            file.write(b"not a database" * 50)
+        answers = []
+        with mock.patch.object(telegram_client, "CONNECTION_WATCH_SECONDS", 0.01):
+            manager = telegram_client.TelegramManager(lambda step, error_key=None: answers.append(step), session)
+            # Nothing is asked of Telegram itself: the new session is never connected.
+            with mock.patch.object(telegram_client.TelegramManager, "_connect_async", lambda self: asyncio_sleep()):
+                manager.start()
+                self.addCleanup(manager.stop)
+                self.assertTrue(pump(lambda: manager.client is not None, timeout=5))
+        names = os.listdir(os.path.dirname(session))
+        self.assertTrue(any(name.startswith("account.session.broken-") for name in names), names)
+
+
+async def asyncio_sleep():
+    import asyncio
+    await asyncio.sleep(0)

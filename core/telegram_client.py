@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import os
+import sqlite3
+import time
 import platform
 import threading
 from telethon import TelegramClient, events
@@ -47,6 +49,40 @@ from core.tg_shared import (
 
 STOP_TIMEOUT_SECONDS = 5
 logger = logging.getLogger(__name__)
+SESSION_SUFFIX = ".session"
+BROKEN_SESSION_FORMAT = "{path}.broken-{stamp}"
+
+
+def session_file(session_name):
+    return session_name if session_name.endswith(SESSION_SUFFIX) else session_name + SESSION_SUFFIX
+
+
+def session_is_readable(session_name):
+    """Whether the session file opens as the database it should be; True when there is none yet.
+    Checked, and let go of, before Telethon opens it: a file Telethon fails on stays held open."""
+    path = session_file(session_name)
+    if not os.path.exists(path):
+        return True
+    try:
+        database = sqlite3.connect(path)
+    except sqlite3.Error:
+        return False
+    try:
+        database.execute("select name from sqlite_master").fetchall()
+        return True
+    except sqlite3.Error:
+        return False
+    finally:
+        database.close()
+
+
+def set_session_aside(session_name):
+    """Move a session file that cannot be opened out of the way, under a name that says so."""
+    path = session_file(session_name)
+    try:
+        os.replace(path, BROKEN_SESSION_FORMAT.format(path=path, stamp=time.strftime("%Y%m%d-%H%M%S")))
+    except OSError:
+        logger.exception("The damaged session file could not be moved")
 
 
 class TelegramManager(ChatsMixin, MessagesMixin, MediaMixin, AdminMixin, AccountMixin, BotsMixin, threading.Thread):
@@ -117,6 +153,12 @@ class TelegramManager(ChatsMixin, MessagesMixin, MediaMixin, AdminMixin, Account
 
     def run(self):
         asyncio.set_event_loop(self.loop)
+        # A session file that cannot be read (half written when the computer lost power, say) would end
+        # this thread and leave the sign-in window waiting for ever. It is set aside, kept for a look,
+        # and a new one asks to sign in again, as after a first install.
+        if not session_is_readable(self.session_name):
+            logger.error("The session file could not be opened; it is set aside")
+            set_session_aside(self.session_name)
         self._create_client()
         self.connect_task = self.loop.create_task(self._connect_async())
         self.watch_task = self.loop.create_task(self._watch_connection_async())
