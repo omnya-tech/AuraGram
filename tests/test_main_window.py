@@ -30,6 +30,17 @@ def conversation():
     ]
 
 
+class FailedHandlerTest(WindowTestCase):
+    def test_a_result_that_fails_to_show_does_not_leave_the_window_busy(self):
+        self.frame.is_busy = True
+
+        def broken(result):
+            raise ValueError("unforeseen")
+        with self.assertRaises(ValueError):
+            self.frame.handle_result(broken, {}, None)
+        self.assertFalse(self.frame.is_busy)
+
+
 class ChatListTest(WindowTestCase):
     chats = [(ALI, 2, False), (NEWS, 5, False), (MY_GROUP, 0, False), (OLD, 0, True)]
     history = {1: conversation()}

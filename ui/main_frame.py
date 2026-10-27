@@ -663,8 +663,15 @@ class MainFrame(
             return
         if error_key:
             self.show_error(error_key)
-        else:
+            return
+        try:
             handler(result, *args)
+        except Exception:
+            # A handler that fails must not leave the window busy for good, ignoring every command after it.
+            # The error itself still goes on to be logged and told.
+            self.is_busy = False
+            self.set_status(STATUS_READY_KEY)
+            raise
 
     def on_char_hook(self, event):
         is_enter = event.GetKeyCode() in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER)
