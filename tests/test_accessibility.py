@@ -11,6 +11,7 @@ import wx
 import core.constants as c
 import core.settings as s
 import core.telegram_client as telegram_client
+import ui.chat_list
 import ui.live_updates
 from tests.harness import FakeChooser, Record, WindowTestCase, make_message, make_user, pump
 from ui.background import connection_news_key
@@ -192,6 +193,19 @@ class AccessibilityTest(WindowTestCase):
         self.frame.cycle_view(-1)
         self.frame.cycle_view(-1)
         self.assertEqual(self.frame.view_index, len(self.frame.views) - 1)
+
+    def test_the_tab_gone_to_is_named_at_every_level_of_speech_cutting_off_the_one_before(self):
+        heard = []
+        self.frame.settings.set(s.FEEDBACK_SETTINGS[c.FEEDBACK_COUNT], False)
+        with mock.patch.object(ui.chat_list, "speak", lambda text, interrupt=False: heard.append((text, interrupt))):
+            self.frame.cycle_view(1)
+        self.assertEqual(heard, [(self.text("VIEW_UNREAD"), True)])
+        # With counts wanted, how many chats it holds comes after its name.
+        self.frame.settings.set(s.FEEDBACK_SETTINGS[c.FEEDBACK_COUNT], True)
+        self.frame.cycle_view(-1)
+        self.assertEqual(self.spoken[-1], self.text(c.MSG_VIEW_COUNT_FORMAT_KEY).format(
+            view=self.text("VIEW_ALL"), count=len(self.frame.dialogs)
+        ))
 
     def test_chat_entries_of_the_menu_bar_act_on_the_selected_chat(self):
         self.frame.dialogs_list.SetSelection(1)

@@ -132,14 +132,21 @@ class ChatListMixin:
         # A different view is a different list: start it from the top.
         self.dialogs_list.SetSelection(wx.NOT_FOUND)
         self.render_dialogs()
+        view = self.views[self.view_index].label
         if self.showing_contacts():
             # Who is online changes by the minute: ask again on every visit, and speak once it is known.
+            self.say_view(view)
             self.set_status(MSG_LOADING_KEY)
             self.telegram_manager.load_contacts(self.on_ui_thread(self.show_contacts))
             return
-        self.announce(self.i18n.get_string(MSG_VIEW_COUNT_FORMAT_KEY).format(
-            view=self.views[self.view_index].label, count=len(self.dialogs)
-        ), FEEDBACK_COUNT)
+        self.say_view(self.i18n.get_string(MSG_VIEW_COUNT_FORMAT_KEY).format(view=view, count=len(self.dialogs))
+                      if self.feedback_wanted(FEEDBACK_COUNT) else view)
+
+    def say_view(self, text):
+        """The tab just gone to, said at every level of speech: it is what the key pressed did, as a screen
+        reader names a tab. It cuts off the one before, so arrows pressed quickly never leave old names queued."""
+        self.SetStatusText(text)
+        speak(text, interrupt=True)
 
     def show_contacts(self, contacts):
         self.contacts = contacts

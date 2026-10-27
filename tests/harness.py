@@ -678,7 +678,7 @@ class WindowTestCase(unittest.TestCase):
         ]
         # Every UI module imports speak() by name, so each copy has to be silenced.
         for module in self.speaking_modules():
-            patches.append(mock.patch.object(module, "speak", self.spoken.append))
+            patches.append(mock.patch.object(module, "speak", lambda text, interrupt=False: self.spoken.append(text)))
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
