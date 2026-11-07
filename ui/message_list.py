@@ -24,7 +24,7 @@ from core.constants import (
     POLL_CLOSED_SUFFIX_KEY, CONTEXT_POLL_VOTERS_KEY, CONTEXT_CLOSE_POLL_KEY, QUIZ_FORMAT_KEY, POLL_CORRECT_KEY, POLL_EXPLANATION_FORMAT_KEY, CONTEXT_VOTE_KEY, CONTEXT_REACT_KEY, REACTIONS_FORMAT_KEY,
     REACTION_COUNT_FORMAT_KEY, CONTEXT_FORWARD_KEY, CONTEXT_PIN_KEY, CONTEXT_UNPIN_KEY,
     PINNED_FORMAT_KEY, CONTEXT_REPLY_KEY, CONTEXT_EDIT_KEY, CONTEXT_DELETE_KEY, CONTEXT_COPY_KEY,
-    CONTEXT_OPEN_MEDIA_KEY, MSG_SEARCH_MESSAGES_PROMPT_KEY, MSG_SEARCH_RESULTS_FORMAT_KEY,
+    MSG_SEARCH_MESSAGES_PROMPT_KEY, MSG_SEARCH_RESULTS_FORMAT_KEY,
     MSG_SEARCH_NO_RESULTS_KEY, MSG_SEARCH_CLOSED_KEY, MESSAGES_LIMIT,
     MSG_LOAD_OLDER_KEY, MSG_DOWNLOADING_KEY, DOWNLOADABLE_MEDIA, RUNNABLE_EXTENSIONS, INTERNET_ZONE_MARK,
     CONTEXT_SHOW_IN_FOLDER_KEY, MSG_RUN_PROGRAM_FORMAT_KEY,
@@ -46,8 +46,22 @@ from core.constants import (
     MSG_NEW_MESSAGES_FORMAT_KEY, MSG_JUMPED_KEY, MSG_MESSAGE_NOT_FOUND_KEY, CONTEXT_GO_TO_REPLY_KEY,
     MSG_NOT_A_REPLY_KEY, MSG_DATE_PROMPT_KEY, ERR_BAD_DATE_KEY, MSG_NOTHING_ON_DATE_KEY, DATE_INPUT_FORMATS,
     MSG_SEARCH_ALL_PROMPT_KEY, MSG_SEARCH_ALL_RESULTS_FORMAT_KEY, SEARCH_ALL_ROW_FORMAT_KEY,
-    FILE_LABEL_SEPARATOR_KEY, MEDIA_FILE
+    FILE_LABEL_SEPARATOR_KEY, MEDIA_FILE, MEDIA_AUDIO, PLAYED_MEDIA, ATTACHMENT_DOWNLOAD, ATTACHMENT_PLAY,
+    ATTACHMENT_OPEN, BTN_DOWNLOAD_KEY, BTN_PLAY_FILE_KEY, BTN_OPEN_KEY, CONTEXT_DOWNLOAD_MEDIA_KEY,
+    CONTEXT_PLAY_MEDIA_KEY, CONTEXT_OPEN_FILE_KEY, MENU_OPEN_MEDIA_KEY, MSG_DOWNLOADED_PLAY_FORMAT_KEY,
+    MSG_DOWNLOADED_OPEN_FORMAT_KEY, FEEDBACK_RESULT,
 )
+from ui import icons
+
+# For each thing pressing on an attachment can do: the words of its button, of its entry in the
+# message's menu, and the button's picture.
+ATTACHMENT_WORDS = {
+    ATTACHMENT_DOWNLOAD: (BTN_DOWNLOAD_KEY, CONTEXT_DOWNLOAD_MEDIA_KEY, "download"),
+    ATTACHMENT_PLAY: (BTN_PLAY_FILE_KEY, CONTEXT_PLAY_MEDIA_KEY, "play"),
+    ATTACHMENT_OPEN: (BTN_OPEN_KEY, CONTEXT_OPEN_FILE_KEY, "open"),
+}
+# With no attachment selected, the button keeps its general name.
+NO_ATTACHMENT_WORDS = (BTN_OPEN_KEY, None, "open")
 
 class MessageListMixin:
     """The message area: the conversation, its other views, and how messages read.
@@ -260,6 +274,8 @@ class MessageListMixin:
     def update_preview(self):
         """Show the selected message in full below the list."""
         message = self.selected_message()
+        # What the attachment's button says follows the message selected.
+        self.update_attachment_words()
         if message is None:
             # Nothing selected, or the "load older messages" row.
             self.preview_text.ChangeValue("")
@@ -362,7 +378,11 @@ class MessageListMixin:
         if message["poll"]:
             self.on_vote_menu(event)
         elif message["media"] in DOWNLOADABLE_MEDIA:
-            self.download_media(message)
+            if self.attachment_path(message) is None:
+                # Fetched only, as Telegram does: a second press plays or opens it, once the button says so.
+                self.download_media(message, then=self.on_attachment_downloaded)
+            else:
+                self.download_media(message)
         elif message["buttons"]:
             self.on_buttons_menu(event)
         elif message["comments"] is not None:
@@ -418,7 +438,8 @@ class MessageListMixin:
         if self.message_stats(message):
             entries.append((CONTEXT_MESSAGE_STATS_KEY, self.on_message_stats_menu))
         if has_media:
-            entries.append((CONTEXT_OPEN_MEDIA_KEY, self.on_activate_message))
+            # Named for what it does now: download, play or open.
+            entries.append((ATTACHMENT_WORDS[self.attachment_action(message)][1], self.on_activate_message))
             entries.append((CONTEXT_SHOW_IN_FOLDER_KEY, self.on_show_in_folder_menu))
             entries.append((CONTEXT_SAVE_AS_KEY, self.on_save_as_menu))
         if message["media"] in DESCRIBABLE_MEDIA:
@@ -484,9 +505,60 @@ class MessageListMixin:
             folder=self.downloads_folder(), on_progress=self.progress_reporter(MSG_DOWNLOAD_PROGRESS_FORMAT_KEY)
         )
 
+    def attachment_path(self, message):
+        """Where a message's attachment is on this computer; None if it has not been downloaded.
+
+        Downloaded in this run, or before: then it is in the downloads folder under its own name, as
+        big as Telegram says it is."""
+        key = (self.peer(self.current_dialog_id), message["id"])
+        cached = self.downloaded.get(key)
+        if cached and os.path.isfile(cached):
+            return cached
+        attached = message.get("file") or {}
+        name = attached.get("name")
+        if not name:
+            return None
+        path = os.path.join(self.downloads_folder(), name)
+        try:
+            if os.path.isfile(path) and (not attached.get("size") or os.path.getsize(path) == attached["size"]):
+                self.downloaded[key] = path
+                return path
+        except OSError:
+            pass
+        return None
+
+    def attachment_action(self, message):
+        """What pressing on a message's attachment does now (one of ATTACHMENT_*); None if it has none."""
+        if message is None or message["media"] not in DOWNLOADABLE_MEDIA:
+            return None
+        if self.attachment_path(message) is None:
+            return ATTACHMENT_DOWNLOAD
+        return ATTACHMENT_PLAY if message["media"] in PLAYED_MEDIA else ATTACHMENT_OPEN
+
+    def update_attachment_words(self):
+        """Name the attachment's button for what pressing it does to the selected message: "Download"
+        while the file is not here, then "Play" or "Open". The message's menu is named the same way
+        each time it is opened."""
+        action = self.attachment_action(self.selected_message()) if self.current_dialog_id is not None else None
+        button_key, menu_key, icon = ATTACHMENT_WORDS.get(action, NO_ATTACHMENT_WORDS)
+        button = next((button for button in self.mouse_buttons if button.command == MENU_OPEN_MEDIA_KEY), None)
+        label = self.i18n.get_string(button_key)
+        if button is not None and button.GetLabel() != label:
+            button.SetLabel(label)
+            icons.put_on(button, icon)
+            self.panel.Layout()
+
+    def on_attachment_downloaded(self, path, cache_key, media):
+        """A file asked for by its "Download" button has come: it is kept, and the button now plays or opens it."""
+        self.keep_download(path, cache_key)
+        format_key = MSG_DOWNLOADED_PLAY_FORMAT_KEY if media in PLAYED_MEDIA else MSG_DOWNLOADED_OPEN_FORMAT_KEY
+        self.announce(self.i18n.get_string(format_key).format(name=os.path.basename(path)), FEEDBACK_RESULT)
+        self.update_attachment_words()
+
     def listen(self):
         """Space on a voice message or a song: play it from Telegram as it arrives, as Telegram's own
-        apps do, or stop it if it is playing. False if the selected message has no sound to play."""
+        apps do, or stop it if it is playing; one already downloaded plays from the copy here, with no
+        need to fetch it again. False if the selected message has no sound to play."""
         message = self.selected_message()
         if message is None or message["media"] not in PLAYABLE_MEDIA or not audio.AVAILABLE:
             return False
@@ -495,6 +567,10 @@ class MessageListMixin:
         key = (self.peer(self.current_dialog_id), message["id"])
         # Telegram tells a sound's length with it, before any of it arrives.
         self.player.duration = (message.get("file") or {}).get("duration") or 0
+        downloaded = self.attachment_path(message)
+        if downloaded is not None:
+            self.play_voice(downloaded)
+            return True
         buffer = audio.StreamBuffer()
         # Whatever happens to the request reaches the player through the buffer.
         self.stream_request = self.telegram_manager.stream_media(key[0], key[1], buffer, lambda result, error_key: None)
@@ -866,7 +942,13 @@ class MessageListMixin:
             # "File" says nothing; its name usually says what it really is.
             kind = file_kind(self.i18n, attached["name"]) or kind
         parts = [kind]
-        if attached["name"]:
+        title, performer = attached.get("title"), attached.get("performer")
+        if message["media"] == MEDIA_AUDIO and title:
+            # A song is known by its name and who sings it, as Telegram shows it, rather than by its file.
+            parts.append(title)
+            if performer:
+                parts.append(performer)
+        elif attached["name"]:
             parts.append(attached["name"])
         if attached["duration"]:
             parts.append(duration_text(attached["duration"]))

@@ -48,7 +48,9 @@ class ChatToolsTest(WindowTestCase):
             self.frame.on_open_dialog(None)
             self.assertTrue(pump(lambda: self.frame.current_dialog_id == 2))
             self.manager.loop.call_soon_threadsafe(gate.set)
-            self.assertTrue(pump(lambda: launch.called))
+            # Fetched and said so, wherever the user is by now; opening it is the next press's to ask.
+            self.assertTrue(pump(lambda: not self.frame.transfers))
+            self.assertFalse(launch.called)
         self.assertFalse(self.frame.progress_gauge.IsShown())
         self.assertEqual(self.frame.transfers, 0)
 

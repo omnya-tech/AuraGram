@@ -279,7 +279,7 @@ li { margin: .3rem 0; }
 <li><b>Go to the message replied to</b> ({{MENU_GO_TO_REPLY}}). A reply names only whom it answers, without quoting what they said; to hear that, go to it with this command.</li>
 <li><b>Open a link</b> in it ({{MENU_OPEN_LINK}}): with several, choose one. t.me links open inside the app.</li>
 <li>A post's <b>comments</b> ({{MENU_COMMENTS}}) and <b>statistics</b> ({{MENU_MESSAGE_STATS}}).</li>
-<li><b>Open the file</b> or picture ({{MENU_OPEN_MEDIA}}, or Enter on the message): it is downloaded, then the file itself opens in the program Windows has for it, so a song opens in your player and a document in its editor. A program asks you first before it runs, and Windows checks it as well, since it is marked as coming from the internet.</li>
+<li><b>Download the file</b> or picture, then <b>open it</b> ({{MENU_OPEN_MEDIA}}, or Enter on the message), as in Telegram: the first press downloads it and the app says when it is done; the second plays or opens it in the program Windows has for it, so a song opens in your player and a document in its editor. The button and the message's menu name the command for what it will do: Download while the file is not on your computer, then Play for sound and video, or Open for the rest. A file you downloaded before, in the downloads folder, is recognised by itself and not downloaded again. A program asks you first before it runs, and Windows checks it as well, since it is marked as coming from the internet.</li>
 <li><b>Open the attachment's folder</b> ({{MENU_SHOW_IN_FOLDER}}, or Shift+Enter on the message): downloaded if it is not yet, then File Explorer opens on its folder with the file selected.</li>
 <li><b>Save it to a folder you choose</b> ({{MENU_SAVE_AS}}).</li>
 <li><b>Describe the picture</b> with AI ({{MENU_DESCRIBE_IMAGE}}): a description of the picture and the text in it. It needs your own Gemini key in the settings, and no picture goes to Google unless you ask for it to be described.</li>
@@ -306,7 +306,8 @@ li { margin: .3rem 0; }
 <h2 id="voice">Voice messages and files</h2>
 <h3>Listening</h3>
 <ul>
-<li><b>Space</b> on a voice message or song plays it from Telegram as it arrives, as Telegram's phone app does: the sound starts with its first piece, without waiting for the rest, and nothing of it is kept on your computer. Space again stops it, and what is left stops coming.</li>
+<li><b>Space</b> on a voice message or audio file plays it from Telegram as it arrives, as Telegram's phone app does: the sound starts with its first piece, without waiting for the rest, and nothing of it is kept on your computer. Space again stops it, and what is left stops coming. One you have downloaded already plays from your copy, without asking Telegram for it again.</li>
+<li>An audio file is known as one even when it was sent as a plain file, by its type or its name (mp3, wav, m4a and the like). Where it carries the song's title and singer, those show in place of the file's name, as in Telegram.</li>
 <li><b>Enter</b> on a voice message or song downloads it and opens it in your audio player, for when you want to skip back and forth in it.</li>
 <li>While it plays, on the message list: Shift with the forward arrow goes 5 seconds on, and Shift with the back arrow 5 seconds back (in English right is forward; in Arabic, left), and the app says how far into the message you are. Going back reaches two minutes behind where you are, since what you heard is kept in memory only, not on the computer. In the writing field, Shift with the arrows still selects text.</li>
 <li>Playback position ({{MENU_PLAYBACK_POSITION}}): says how far it has played out of the whole length, like "1:05 of 3:20", from anywhere in the window.</li>

@@ -773,6 +773,7 @@ MSG_MIC_TEST_PLAYING_KEY = "MSG_MIC_TEST_PLAYING"
 MSG_MIC_TEST_SILENT_KEY = "MSG_MIC_TEST_SILENT"
 
 # What a file is, told from the end of its name. Each group's text names the kind for the user.
+AUDIO_EXTENSIONS = (".mp3", ".wav", ".ogg", ".oga", ".opus", ".m4a", ".flac", ".aac", ".wma")
 FILE_KINDS = (
     ("FILE_KIND_PDF", (".pdf",)),
     ("FILE_KIND_DOCUMENT", (".doc", ".docx", ".odt", ".rtf")),
@@ -782,7 +783,7 @@ FILE_KINDS = (
     ("FILE_KIND_ARCHIVE", (".zip", ".rar", ".7z", ".tar", ".gz")),
     ("FILE_KIND_BOOK", (".epub", ".mobi", ".azw3")),
     ("FILE_KIND_IMAGE", (".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif", ".tif", ".tiff", ".svg")),
-    ("FILE_KIND_AUDIO", (".mp3", ".wav", ".ogg", ".oga", ".opus", ".m4a", ".flac", ".aac", ".wma")),
+    ("FILE_KIND_AUDIO", AUDIO_EXTENSIONS),
     ("FILE_KIND_VIDEO", (".mp4", ".mov", ".mkv", ".webm", ".avi", ".wmv")),
     ("FILE_KIND_ANDROID", (".apk",)),
     ("FILE_KIND_PROGRAM", (".exe", ".msi", ".bat", ".cmd", ".ps1", ".scr", ".com", ".vbs")),
@@ -1550,6 +1551,22 @@ PLAYABLE_MEDIA = (MEDIA_VOICE, "MEDIA_AUDIO")
 STREAM_REQUEST_BYTES = 32 * 1024
 MSG_FETCHING_SOUND_KEY = "MSG_FETCHING_SOUND"
 MEDIA_FILE = "MEDIA_FILE"
+MEDIA_AUDIO = "MEDIA_AUDIO"
+# A file sent as a plain document is still a song if its type says so, or its name (AUDIO_EXTENSIONS).
+AUDIO_MIME_PREFIX = "audio/"
+# What pressing on a message's attachment does: fetch it, or, once it is here, play or open it.
+ATTACHMENT_DOWNLOAD = "download"
+ATTACHMENT_PLAY = "play"
+ATTACHMENT_OPEN = "open"
+# Attachments that are played rather than opened, once they are on this computer.
+PLAYED_MEDIA = (MEDIA_VOICE, MEDIA_AUDIO, "MEDIA_VIDEO", "MEDIA_VIDEO_NOTE", "MEDIA_GIF")
+BTN_DOWNLOAD_KEY = "BTN_DOWNLOAD"
+BTN_PLAY_FILE_KEY = "BTN_PLAY_FILE"
+CONTEXT_DOWNLOAD_MEDIA_KEY = "CONTEXT_DOWNLOAD_MEDIA"
+CONTEXT_PLAY_MEDIA_KEY = "CONTEXT_PLAY_MEDIA"
+CONTEXT_OPEN_FILE_KEY = "CONTEXT_OPEN_FILE"
+MSG_DOWNLOADED_PLAY_FORMAT_KEY = "MSG_DOWNLOADED_PLAY_FORMAT"
+MSG_DOWNLOADED_OPEN_FORMAT_KEY = "MSG_DOWNLOADED_OPEN_FORMAT"
 
 MENU_RECORD_KEY = "MENU_RECORD"
 MENU_SEARCH_MESSAGES_KEY = "MENU_SEARCH_MESSAGES"

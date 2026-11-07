@@ -531,7 +531,8 @@ class MessageMenuAndRecordingTest(WindowTestCase):
     def test_media_message_offers_open_and_save_but_no_copy(self):
         self.open_chat(0)
         labels = self.menu(2)
-        self.assertIn(self.text(c.CONTEXT_OPEN_MEDIA_KEY), labels)
+        # Not downloaded yet, so the entry says so.
+        self.assertIn(self.text(c.CONTEXT_DOWNLOAD_MEDIA_KEY), labels)
         self.assertIn(self.text(c.CONTEXT_SAVE_AS_KEY), labels)
         self.assertNotIn(self.text(c.CONTEXT_COPY_KEY), labels)
         self.assertNotIn(self.text(c.CONTEXT_COPY_LINK_KEY), labels)

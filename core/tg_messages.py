@@ -1,6 +1,7 @@
 """Messages: loading them, writing, editing, deleting, forwarding, reacting, polls, searching, and putting each one into words.
 
 Part of TelegramManager (core.telegram_client): its methods run as that thread's, on its event loop."""
+import os
 from telethon.errors import FloodWaitError, MessageNotModifiedError, RPCError
 from telethon.tl import functions, types
 from telethon.utils import get_display_name, get_input_peer, get_peer_id
@@ -9,7 +10,8 @@ from core.constants import (
     SERVICE_LEFT_KEY, SERVICE_REMOVED_FORMAT_KEY, SERVICE_CALL_STARTED_KEY, SERVICE_CALL_ENDED_KEY,
     MEDIA_SERVICE_KEY, EMPTY_STRING, MESSAGES_LIMIT, MEDIA_KINDS, CHAT_EXPORT_LIMIT, CHAT_EXPORT_PAGE,
     MESSAGE_VIEW_SCHEDULED, GLOBAL_SEARCH_LIMIT, MAP_LINK_FORMAT, TOPICS_LIMIT, AUDIENCE_LIMIT,
-    MESSAGE_VIEW_COMMENTS, MESSAGE_VIEW_MENTIONS, VOTERS_PAGE, VOTERS_LIMIT,
+    MESSAGE_VIEW_COMMENTS, MESSAGE_VIEW_MENTIONS, VOTERS_PAGE, VOTERS_LIMIT, MEDIA_FILE, MEDIA_AUDIO,
+    AUDIO_EXTENSIONS, AUDIO_MIME_PREFIX,
 )
 from core.tg_shared import MESSAGE_VIEW_FILTERS
 
@@ -288,6 +290,9 @@ class MessagesMixin:
             "size": getattr(attached, "size", None) or 0,
             # Seconds, for sound and video.
             "duration": getattr(attached, "duration", None) or 0,
+            # A song's name and who sings it, where the file says: what Telegram shows in place of the file's name.
+            "title": getattr(attached, "title", None) or EMPTY_STRING,
+            "performer": getattr(attached, "performer", None) or EMPTY_STRING,
         }
 
     def _describe_service(self, message, sender):
@@ -361,8 +366,20 @@ class MessagesMixin:
         # Specific kinds first: a sticker, voice note or video is also a document.
         for attribute, key in MEDIA_KINDS:
             if getattr(message, attribute, None):
+                if key == MEDIA_FILE and self._is_sound_file(message):
+                    # Sent as a plain document, without a song's details, it is still a song to listen to.
+                    return MEDIA_AUDIO
                 return key
         return None
+
+    @staticmethod
+    def _is_sound_file(message):
+        attached = getattr(message, "file", None)
+        if attached is None:
+            return False
+        mime_type = (getattr(attached, "mime_type", None) or EMPTY_STRING).lower()
+        extension = os.path.splitext(getattr(attached, "name", None) or EMPTY_STRING)[1].lower()
+        return mime_type.startswith(AUDIO_MIME_PREFIX) or extension in AUDIO_EXTENSIONS
 
     async def _send_message_async(self, dialog_id, text, reply_to, schedule, silent):
         """The result is the id of the message sent, for what is sent as a reply to it."""

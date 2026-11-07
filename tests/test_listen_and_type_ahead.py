@@ -120,18 +120,44 @@ class ListenTest(WindowTestCase):
         self.assertTrue(self.space())
         self.assertEqual((self.calls("download"), self.streams), ([], []))
 
-    def test_enter_saves_it_to_the_downloads_and_opens_the_file_itself(self):
+    def test_enter_downloads_it_first_then_opens_the_file_itself(self):
         folder = tempfile.mkdtemp()
         self.frame.settings.set(s.SETTING_DOWNLOAD_FOLDER, folder)
         self.frame.messages_list.SetSelection(0)
+        self.frame.update_preview()
+        self.assertEqual(self.open_button().GetLabel(), self.text(c.BTN_DOWNLOAD_KEY))
         with mock.patch.object(wx, "LaunchDefaultApplication", return_value=True) as launch:
             self.frame.on_activate_message(None)
             self.assertTrue(pump(lambda: self.calls("download") and not self.frame.transfers))
+            pump(timeout=0.1)
+            # Only fetched, as Telegram does, and said so; the button now plays it.
+            self.assertFalse(launch.called)
+            self.assertEqual(self.spoken[-1], self.text(c.MSG_DOWNLOADED_PLAY_FORMAT_KEY).format(name="saved.bin"))
+            # The fake Telegram names the file without writing it; a real download leaves it there.
+            open(os.path.join(folder, "saved.bin"), "wb").close()
+            self.frame.update_preview()
+            self.assertEqual(self.open_button().GetLabel(), self.text(c.BTN_PLAY_FILE_KEY))
+            self.frame.on_activate_message(None)
             self.assertTrue(pump(lambda: launch.called))
         self.assertEqual(self.calls("download")[0][2], folder + os.sep)
+        self.assertEqual(len(self.calls("download")), 1)
         # The file, in its own player: not its folder, and not played here.
         self.assertEqual(launch.call_args[0][0], folder + os.sep + "saved.bin")
         self.assertEqual(self.heard, [])
+
+    def open_button(self):
+        return next(button for button in self.frame.mouse_buttons if button.command == c.MENU_OPEN_MEDIA_KEY)
+
+    def test_space_plays_a_downloaded_sound_from_the_copy_here(self):
+        folder = tempfile.mkdtemp()
+        self.frame.settings.set(s.SETTING_DOWNLOAD_FOLDER, folder)
+        path = os.path.join(folder, "saved.bin")
+        open(path, "wb").close()
+        self.frame.downloaded[(self.frame.current_dialog_id, 1)] = path
+        self.frame.messages_list.SetSelection(0)
+        self.space()
+        self.assertEqual(self.heard, [path])
+        self.assertEqual((self.calls("stream"), self.streams), ([], []))
 
     def test_shift_enter_shows_the_file_selected_in_its_folder(self):
         folder = tempfile.mkdtemp()
