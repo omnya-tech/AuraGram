@@ -6,8 +6,9 @@ import webbrowser
 import wx
 from core.settings import SETTING_GEMINI_KEY
 from core.vision import VisionError, describe_image, image_mime_type
+from ui import clipboard
 from core.constants import (
-    MSG_NOT_A_POLL_KEY, MSG_POLL_ANONYMOUS_KEY, VOTERS_OPTION_FORMAT_KEY, VOTERS_NOBODY_KEY, VOTERS_TITLE_KEY,
+    MSG_CLIPBOARD_BUSY_KEY, FEEDBACK_UNAVAILABLE, MSG_NOT_A_POLL_KEY, MSG_POLL_ANONYMOUS_KEY, VOTERS_OPTION_FORMAT_KEY, VOTERS_NOBODY_KEY, VOTERS_TITLE_KEY,
     MSG_CONFIRM_CLOSE_POLL_KEY, MSG_POLL_CLOSED_DONE_KEY, FILE_LABEL_SEPARATOR_KEY,
     FEEDBACK_RESULT,
     BUTTON_NEEDS_PHONE, BUTTON_NEEDS_LOCATION, MSG_CONFIRM_SHARE_PHONE_KEY, MSG_SHARE_LOCATION_PROMPT_KEY,
@@ -205,11 +206,9 @@ class MessageActionsMixin:
         texts = [marked["text"] for marked in self.marked_messages() if marked["text"]]
         if not texts and message is not None and message["text"]:
             texts = [message["text"]]
-        if not texts or not wx.TheClipboard.Open():
+        if not texts:
             return
-        wx.TheClipboard.SetData(wx.TextDataObject("\n".join(texts)))
-        wx.TheClipboard.Close()
-        self.notify(MSG_COPIED_KEY)
+        self.copy_text("\n".join(texts), MSG_COPIED_KEY)
 
     def on_copy_link_menu(self, event):
         message = self.actionable_message()
@@ -220,10 +219,14 @@ class MessageActionsMixin:
         )
 
     def copy_link(self, link):
-        if wx.TheClipboard.Open():
-            wx.TheClipboard.SetData(wx.TextDataObject(link))
-            wx.TheClipboard.Close()
-            self.notify(MSG_LINK_COPIED_KEY)
+        self.copy_text(link, MSG_LINK_COPIED_KEY)
+
+    def copy_text(self, text, done_key):
+        """Put text on the clipboard and say `done_key`; or, if another program keeps the clipboard, say that."""
+        if clipboard.put_text(text):
+            self.notify(done_key)
+        else:
+            self.notify(MSG_CLIPBOARD_BUSY_KEY, FEEDBACK_UNAVAILABLE)
 
     def on_forward_menu(self, event):
         message = self.actionable_message()

@@ -9,6 +9,7 @@ import core.telegram_client as telegram_client
 from tests.harness import (
     NOW, FakeChooser, FakeTelegramClient, WindowTestCase, make_channel, make_member, make_user, pump
 )
+from ui import clipboard
 from ui.chat_control_dialog import ChatControlDialog
 from ui.invite_links_dialog import InviteLinksDialog
 
@@ -177,11 +178,7 @@ class InviteLinksTest(WindowTestCase):
     def test_copy_puts_the_selected_link_on_the_clipboard(self):
         self.dialog.links_list.SetSelection(1)
         self.dialog.on_copy(None)
-        data = wx.TextDataObject()
-        wx.TheClipboard.Open()
-        wx.TheClipboard.GetData(data)
-        wx.TheClipboard.Close()
-        self.assertEqual(data.GetText(), "https://t.me/+friends")
+        self.assertEqual(clipboard.get_text(), "https://t.me/+friends")
 
     def test_new_link_can_require_approval(self):
         FakeChooser.values = ["Work"]

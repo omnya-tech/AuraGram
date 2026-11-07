@@ -12,6 +12,7 @@ import core.telegram_client as telegram_client
 from tests.harness import (
     FakeChooser, FakeTelegramClient, Record, WindowTestCase, make_channel, make_message, make_user, pump
 )
+from ui import clipboard
 from ui.menu_bar import EVERY_CHAT
 
 ALI = make_user(1, "Ali")
@@ -544,11 +545,7 @@ class MessageMenuAndRecordingTest(WindowTestCase):
         self.assertNotIn(self.text(c.CONTEXT_REPLY_KEY), labels)
         self.frame.on_copy_link_menu(None)
         self.assertTrue(pump(lambda: self.spoken and self.spoken[-1] == self.text(c.MSG_LINK_COPIED_KEY)))
-        data = wx.TextDataObject()
-        wx.TheClipboard.Open()
-        wx.TheClipboard.GetData(data)
-        wx.TheClipboard.Close()
-        self.assertEqual(data.GetText(), "https://t.me/c/3/5")
+        self.assertEqual(clipboard.get_text(), "https://t.me/c/3/5")
 
     def test_select_entry_flips_once_the_message_is_marked(self):
         self.open_chat(0)
@@ -699,11 +696,7 @@ class MarkingTest(WindowTestCase):
     def test_copy_joins_marked_texts(self):
         self.mark(0, 2)
         self.frame.on_copy_message(None)
-        data = wx.TextDataObject()
-        wx.TheClipboard.Open()
-        wx.TheClipboard.GetData(data)
-        wx.TheClipboard.Close()
-        self.assertEqual(data.GetText().splitlines(), ["theirs", "mine two"])
+        self.assertEqual(clipboard.get_text().splitlines(), ["theirs", "mine two"])
 
     def test_marks_do_not_survive_switching_chats(self):
         self.mark(1)

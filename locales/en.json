@@ -620,7 +620,7 @@
     "MSG_FILE_DOWNLOADED_FORMAT": "Done: {name}",
     "MSG_DOWNLOADED_PLAY_FORMAT": "Downloaded {name}. Press Enter again to play it",
     "MSG_DOWNLOADED_OPEN_FORMAT": "Downloaded {name}. Press Enter again to open it",
-    "BTN_DOWNLOAD": "Download",
+    "MSG_CLIPBOARD_BUSY": "Another program is using the clipboard, so nothing was copied. Try again",
     "BTN_PLAY_FILE": "Play",
     "CONTEXT_DOWNLOAD_MEDIA": "Download the attachment",
     "CONTEXT_PLAY_MEDIA": "Play the attachment",

@@ -436,6 +436,14 @@ class LocaleTest(unittest.TestCase):
         expected += [constants.MEMBER_PERMISSION_KEY_PREFIX + name for name in constants.MEMBER_PERMISSIONS]
         self.assertEqual([key for key in expected if key not in strings], [])
 
+    def test_no_key_is_written_twice_in_a_locale_file(self):
+        """JSON keeps the last of two entries of the same key without a word: the first is lost unseen."""
+        for language in ("ar", "en"):
+            with open(os.path.join(LOCALES_DIR, language + ".json"), encoding="utf-8") as file:
+                pairs = json.load(file, object_pairs_hook=lambda pairs: pairs)
+            keys = [key for key, value in pairs]
+            self.assertEqual(sorted({key for key in keys if keys.count(key) > 1}), [], language)
+
     def test_secrets_are_ignored_by_git(self):
         with open(os.path.join(BASE_DIR, ".gitignore"), encoding="utf-8") as file:
             ignored = file.read()

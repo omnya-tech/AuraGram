@@ -7,6 +7,7 @@ from core import sounds
 from core.speech import speak
 from core.settings import SETTING_POLL_DEFAULTS, SETTING_SENT_SOUND
 from core.schedule import parse_send_time
+from ui import clipboard
 from ui.layout import file_kind, file_size
 from ui.poll_settings_dialog import PollSettingsDialog, telegram_length
 from core.constants import (
@@ -466,24 +467,26 @@ class ComposerMixin:
 
     def paste_files(self):
         """Send what the clipboard holds if it is files or a picture; False if it is anything else (text is pasted as usual)."""
-        if not self.can_send_now() or not wx.TheClipboard.Open():
+        if not self.can_send_now():
             return False
-        try:
-            paths = []
-            if wx.TheClipboard.IsSupported(wx.DataFormat(wx.DF_FILENAME)):
+
+        def read(clipboard):
+            # None where the data could not be had just now, so it is asked for again.
+            if clipboard.IsSupported(wx.DataFormat(wx.DF_FILENAME)):
                 files = wx.FileDataObject()
-                if wx.TheClipboard.GetData(files):
-                    paths = list(files.GetFilenames())
+                return list(files.GetFilenames()) if clipboard.GetData(files) else None
             # A picture copied from a document often comes with its text too: then the text is what is wanted.
-            elif wx.TheClipboard.IsSupported(wx.DataFormat(wx.DF_BITMAP)) and \
-                    not wx.TheClipboard.IsSupported(wx.DataFormat(wx.DF_UNICODETEXT)):
+            if clipboard.IsSupported(wx.DataFormat(wx.DF_BITMAP)) and \
+                    not clipboard.IsSupported(wx.DataFormat(wx.DF_UNICODETEXT)):
                 picture = wx.BitmapDataObject()
-                if wx.TheClipboard.GetData(picture):
-                    path = os.path.join(tempfile.mkdtemp(), PASTED_IMAGE_NAME)
-                    if picture.GetBitmap().SaveFile(path, wx.BITMAP_TYPE_PNG):
-                        paths = [path]
-        finally:
-            wx.TheClipboard.Close()
+                if not clipboard.GetData(picture):
+                    return None
+                path = os.path.join(tempfile.mkdtemp(), PASTED_IMAGE_NAME)
+                return [path] if picture.GetBitmap().SaveFile(path, wx.BITMAP_TYPE_PNG) else []
+            return []
+
+        # Taken by another program all along: whatever Windows itself pastes into the field, it does.
+        paths = clipboard.use(read)
         if not paths:
             return False
         self.send_paths(paths)

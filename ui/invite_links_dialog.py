@@ -1,10 +1,11 @@
 import wx
+from ui import clipboard
 from ui.layout import prepare_window
 from ui.text_dialog import TextDialog
 from core.speech import say
 from core.constants import (
     FILE_LABEL_SEPARATOR_KEY,
-    FEEDBACK_CONFIRM, FEEDBACK_UNAVAILABLE,
+    FEEDBACK_CONFIRM, FEEDBACK_UNAVAILABLE, MSG_CLIPBOARD_BUSY_KEY,
     APP_TITLE_KEY, MSG_LOADING_KEY, BTN_CLOSE_KEY, MSG_INVITE_COPIED_KEY,
     INVITE_LINKS_TITLE_FORMAT_KEY, INVITE_LINKS_LABEL_KEY, INVITE_LINK_FORMAT_KEY,
     INVITE_LINK_MAIN_KEY, INVITE_LINK_UNNAMED_KEY, INVITE_LINK_APPROVAL_SUFFIX_KEY,
@@ -104,11 +105,12 @@ class InviteLinksDialog(wx.Dialog):
 
     def on_copy(self, event):
         link = self.selected_link()
-        if link is None or not wx.TheClipboard.Open():
+        if link is None:
             return
-        wx.TheClipboard.SetData(wx.TextDataObject(link["link"]))
-        wx.TheClipboard.Close()
-        say(self.i18n.get_string(MSG_INVITE_COPIED_KEY), FEEDBACK_CONFIRM)
+        if clipboard.put_text(link["link"]):
+            say(self.i18n.get_string(MSG_INVITE_COPIED_KEY), FEEDBACK_CONFIRM)
+        else:
+            say(self.i18n.get_string(MSG_CLIPBOARD_BUSY_KEY), FEEDBACK_UNAVAILABLE)
 
     def on_joiners(self, event):
         link = self.selected_link()

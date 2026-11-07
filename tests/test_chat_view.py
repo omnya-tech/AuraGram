@@ -8,6 +8,7 @@ from telethon.tl import types
 import core.constants as c
 import ui.chat_list
 from tests.harness import NOW, FakeTelegramClient, WindowTestCase, make_channel, make_member, make_user, pump
+from ui import clipboard
 from ui.chat_info_dialog import ChatInfoDialog
 
 MY_GROUP = make_channel(4, "MyGroup", group=True, creator=True)
@@ -70,9 +71,7 @@ class ReadOnlyInfoTest(WindowTestCase):
         self.assertEqual(dialog.invite_field.GetValue(), dialog.invite_link)
         self.assertTrue(dialog.copy_invite_btn.IsShown())
         dialog.on_copy_invite(None)
-        data = wx.TextDataObject()
-        wx.TheClipboard.Open(); wx.TheClipboard.GetData(data); wx.TheClipboard.Close()
-        self.assertEqual(data.GetText(), dialog.invite_link)
+        self.assertEqual(clipboard.get_text(), dialog.invite_link)
         self.assertEqual(self.spoken[-1], self.text(c.MSG_INVITE_COPIED_KEY))
 
     def test_info_has_no_way_into_management(self):

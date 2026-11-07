@@ -1,10 +1,11 @@
 import wx
+from ui import clipboard
 from ui.layout import prepare_window
 from ui.member_row import member_row
 from core.speech import say
 from core.constants import (
-    FILE_LABEL_SEPARATOR_KEY,
-    FEEDBACK_CONFIRM, FEEDBACK_COUNT,
+    FILE_LABEL_SEPARATOR_KEY, MSG_CLIPBOARD_BUSY_KEY,
+    FEEDBACK_CONFIRM, FEEDBACK_COUNT, FEEDBACK_UNAVAILABLE,
     MSG_LOADING_KEY, CHAT_KIND_USER, INFO_TITLE_FORMAT_KEY, INFO_SUMMARY_LABEL_KEY, INFO_KIND_FORMAT_KEY,
     INFO_USERNAME_FORMAT_KEY, INFO_MEMBERS_COUNT_FORMAT_KEY, INFO_ROLE_MANAGER_KEY, INFO_ROLE_VIEWER_KEY,
     INFO_PHONE_FORMAT_KEY, INFO_COMMON_CHATS_FORMAT_KEY, INFO_MEMBERS_LABEL_KEY, INFO_MEMBER_SEARCH_LABEL_KEY,
@@ -133,10 +134,12 @@ class ChatInfoDialog(wx.Dialog):
         self.Layout()
 
     def on_copy_invite(self, event):
-        if self.invite_link and wx.TheClipboard.Open():
-            wx.TheClipboard.SetData(wx.TextDataObject(self.invite_link))
-            wx.TheClipboard.Close()
+        if not self.invite_link:
+            return
+        if clipboard.put_text(self.invite_link):
             say(self.i18n.get_string(MSG_INVITE_COPIED_KEY), FEEDBACK_CONFIRM)
+        else:
+            say(self.i18n.get_string(MSG_CLIPBOARD_BUSY_KEY), FEEDBACK_UNAVAILABLE)
 
     def load_members(self):
         self.members_list.Set([self.i18n.get_string(MSG_LOADING_KEY)])

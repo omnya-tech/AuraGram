@@ -937,10 +937,7 @@ class ChatListMixin:
 
     def on_invite_link(self, link):
         self.set_status(STATUS_READY_KEY)
-        if wx.TheClipboard.Open():
-            wx.TheClipboard.SetData(wx.TextDataObject(link))
-            wx.TheClipboard.Close()
-            self.announce(self.i18n.get_string(MSG_INVITE_COPIED_KEY))
+        self.copy_text(link, MSG_INVITE_COPIED_KEY)
 
     def is_private_chat(self, dialog):
         return dialog["category"] not in (CATEGORY_GROUPS, CATEGORY_BROADCASTS)

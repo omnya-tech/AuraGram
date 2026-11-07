@@ -620,7 +620,7 @@
     "MSG_FILE_DOWNLOADED_FORMAT": "اكتمل تحميل {name}",
     "MSG_DOWNLOADED_PLAY_FORMAT": "اكتمل تحميل {name}. اضغط Enter مرة أخرى لتشغيله",
     "MSG_DOWNLOADED_OPEN_FORMAT": "اكتمل تحميل {name}. اضغط Enter مرة أخرى لفتحه",
-    "BTN_DOWNLOAD": "تحميل",
+    "MSG_CLIPBOARD_BUSY": "الحافظة مشغولة الآن ببرنامج آخر، فلم يُنسخ شيء. جرّب مرة أخرى",
     "BTN_PLAY_FILE": "تشغيل",
     "CONTEXT_DOWNLOAD_MEDIA": "تحميل المرفق",
     "CONTEXT_PLAY_MEDIA": "تشغيل المرفق",
