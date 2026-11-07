@@ -1,7 +1,7 @@
 import json
 import os
 import sys
-from core import files
+from core import files, keystore
 from core.constants import (
     INSTALL_LANGUAGE_FILE, IS_FROZEN, BASE_DIR,
     FEEDBACK_KINDS, FEEDBACK_PERCENT, FEEDBACK_UNAVAILABLE, FEEDBACK_RESULT, FEEDBACK_CONFIRM,
@@ -159,9 +159,10 @@ TEXTS = {
     SETTING_PROXY_PASSWORD: "", SETTING_PROXY_SECRET: "", SETTING_GEMINI_KEY: "", SETTING_DOWNLOAD_FOLDER: "",
 }
 
-# What a copy of the settings in a file is known by, and what it leaves out unless asked.
+# Kept locked to this Windows account in the settings file (core/keystore.py), and left out of a copy unless asked.
+SECRETS = (SETTING_GEMINI_KEY, SETTING_PROXY_PASSWORD, SETTING_PROXY_SECRET)
+# What a copy of the settings in a file is known by.
 BACKUP_MARK = "AuraGram settings"
-BACKUP_SECRETS = (SETTING_GEMINI_KEY, SETTING_PROXY_PASSWORD, SETTING_PROXY_SECRET)
 # Of this computer only, or kept for the program's own use: no copy carries them.
 BACKUP_LEFT_OUT = (
     WINDOW_PLACEMENT, SHORTCUT_CONFLICTS_TOLD, SETTING_COUNTRIES, SPEECH_LEVEL_ASKED, SETTING_ACCOUNTS,
@@ -183,8 +184,18 @@ def installed_language():
     return lines[0], (lines[1] if len(lines) > 1 else None)
 
 
+def unsealed(stored):
+    """A copy of settings read from a file, with each locked secret opened."""
+    values = dict(stored)
+    for key in SECRETS:
+        if isinstance(values.get(key), str):
+            values[key] = keystore.unseal(values[key])
+    return values
+
+
 class Settings:
-    """The app's own preferences, kept in a JSON file on this computer only."""
+    """The app's own preferences, kept in a JSON file on this computer only. The secrets in it are
+    locked to the Windows account (see SECRETS); in memory they are plain text."""
 
     def __init__(self):
         self.values = dict(DEFAULTS)
@@ -217,11 +228,20 @@ class Settings:
             return
         if not isinstance(stored, dict):
             return
-        self.take(stored)
+        # Saved before secrets were locked: locked now, rather than at whatever save comes next.
+        left_open = keystore.AVAILABLE and any(
+            isinstance(stored.get(key), str) and stored[key] and not keystore.is_sealed(stored[key]) for key in SECRETS
+        )
+        self.take(unsealed(stored))
         if stored.get(SPEECH_LEVEL_ASKED) is True:
             self.values[SPEECH_LEVEL_ASKED] = True
         if isinstance(stored.get(INSTALL_STAMP), str):
             self.values[INSTALL_STAMP] = stored[INSTALL_STAMP]
+        if left_open:
+            try:
+                self.save()
+            except OSError:
+                pass
 
     def follow_installer(self):
         """Installed again, or updated, in a language: the program now speaks it, whatever was chosen
@@ -245,8 +265,10 @@ class Settings:
     def export_to(self, path, with_secrets):
         """Write a copy of the settings to a file, without what belongs to this computer alone."""
         values = {key: value for key, value in self.values.items() if key not in BACKUP_LEFT_OUT}
+        # A copy is for another computer, where this account's lock would not open: secrets go in as
+        # they are, and only when asked.
         if not with_secrets:
-            for key in BACKUP_SECRETS:
+            for key in SECRETS:
                 values[key] = ""
         with open(path, "w", encoding=ENCODING_UTF8) as file:
             json.dump({"app": BACKUP_MARK, "settings": values}, file, ensure_ascii=False, indent=4)
@@ -261,8 +283,8 @@ class Settings:
             return False
         if not isinstance(stored, dict) or stored.get("app") != BACKUP_MARK or not isinstance(stored.get("settings"), dict):
             return False
-        values = dict(stored["settings"])
-        for key in BACKUP_SECRETS:
+        values = unsealed(stored["settings"])
+        for key in SECRETS:
             if not values.get(key):
                 values.pop(key, None)
         for key in BACKUP_LEFT_OUT:
@@ -319,7 +341,10 @@ class Settings:
             self.values[SHORTCUT_CONFLICTS_TOLD] = told
 
     def save(self):
-        files.write_json(SETTINGS_FILE, self.values, indent=4)
+        stored = dict(self.values)
+        for key in SECRETS:
+            stored[key] = keystore.seal(stored[key])
+        files.write_json(SETTINGS_FILE, stored, indent=4)
 
     def get(self, key):
         return self.values[key]
