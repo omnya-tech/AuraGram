@@ -37,7 +37,7 @@ from core.config import load_credentials, read_bundled, save_credentials
 from core.constants import (
     APP_NAME, DEFAULT_LANG, STEP_DONE, BACKGROUND_FLAG,
     QUIT_WAIT_SECONDS, CONNECT_CHECK_SECONDS, BUNDLED_CONFIG_FILE, LOG_FILE, LOG_MAX_BYTES, APP_VERSION, IS_FROZEN,
-    SHORTCUT_SHOW_WINDOW, SOUND_START, SOUND_START_WINDOWS, MSG_UNEXPECTED_ERROR_KEY, MAIN_FRAME_PRELOAD_MS, STEP_PHONE,
+    SHORTCUT_SHOW_WINDOW, SOUND_START, SOUND_START_WINDOWS, MAIN_FRAME_PRELOAD_MS, STEP_PHONE,
     MSG_ACCOUNT_SWITCHED_FORMAT_KEY, LOG_STARTED_FORMAT, LOG_STOPPED, CONNECTION_ONLINE
 )
 from core.i18n import I18NManager
@@ -110,7 +110,7 @@ class MainApplication(wx.App):
             self.i18n, self.show_window, self.quit, shortcuts.current(self.settings)[SHORTCUT_SHOW_WINDOW],
             self.take_shared_files
         )
-        diagnostics.on_unexpected_error = lambda: wx.CallAfter(self.tell_unexpected_error)
+        diagnostics.on_unexpected_error = lambda error: wx.CallAfter(self.tell_unexpected_error, error)
         self.start_account()
         # While Telegram answers: the audio libraries on a thread of their own (they have nothing
         # to do with wx), the main window's code once the first window has been drawn. A second
@@ -259,10 +259,10 @@ class MainApplication(wx.App):
         # Only the very first window honours the background start.
         self.start_hidden = False
 
-    def tell_unexpected_error(self):
-        """A command failed in a way nothing foresaw: say so, instead of leaving the user to wonder."""
+    def tell_unexpected_error(self, error):
+        """A command failed in a way nothing foresaw: say what and why, instead of leaving the user to wonder."""
         if self.main_frame:
-            self.main_frame.notify(MSG_UNEXPECTED_ERROR_KEY)
+            self.main_frame.show_unexpected_error(error)
 
     def on_connection_change(self, state):
         wx.CallAfter(self._show_connection_state, state)

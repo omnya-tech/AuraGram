@@ -23,7 +23,7 @@ from core.constants import (
     LICENSE_NOTICE_KEY, LICENSE_SOURCE_FORMAT_KEY, SOURCE_CODE_URL, GUIDE_HTML_FILES_KEY,
     GUIDE_TEXT_FILES_KEY, GUIDE_EXTENSIONS, MSG_EXPORT_GUIDE_PROMPT_KEY, GUIDE_FILE_NAME_KEY,
     GUIDE_SHORTCUT_COLUMN_KEY, GUIDE_COMMAND_COLUMN_KEY, MSG_GUIDE_EXPORTED_FORMAT_KEY, ERR_GUIDE_EXPORT_KEY,
-    TEXT_DIRECTION_KEY, ENCODING_UTF8,
+    TEXT_DIRECTION_KEY, ENCODING_UTF8, MSG_UNEXPECTED_ERROR_FORMAT_KEY, MSG_UNEXPECTED_ERROR_SHORT_FORMAT_KEY,
 )
 
 from ui.menu_bar import EVERY_CHAT
@@ -139,6 +139,31 @@ class HelpMenuMixin:
             self.i18n.get_string(MSG_UPDATE_KEPT_FORMAT_KEY).format(path=path), title,
             wx.OK | wx.ICON_INFORMATION, self
         )
+
+    def show_unexpected_error(self, error):
+        """Say what went wrong, why it most likely did, and where; and offer to put it in a report there and then.
+        With the window hidden, in the background, it is only spoken: a window popping up over another
+        program for an error in this one would be worse than the error."""
+        text = self.i18n.get_string
+        cause = text(error["cause"])
+        if not self.IsShown():
+            self.announce(text(MSG_UNEXPECTED_ERROR_SHORT_FORMAT_KEY).format(cause=cause), FEEDBACK_RESULT)
+            return
+        # Another error while this one is on screen is in the report already; one window is enough.
+        if getattr(self, "showing_error", False):
+            return
+        self.showing_error = True
+        try:
+            answer = wx.MessageBox(
+                text(MSG_UNEXPECTED_ERROR_FORMAT_KEY).format(
+                    cause=cause, details=error["details"], place=error["place"]
+                ),
+                text(APP_TITLE_KEY), wx.YES_NO | wx.YES_DEFAULT | wx.ICON_ERROR, self
+            )
+        finally:
+            self.showing_error = False
+        if answer == wx.YES:
+            self.on_problem_report_menu(None)
 
     def on_problem_report_menu(self, event):
         description = self.ask_text(MSG_PROBLEM_REPORT_PROMPT_KEY)

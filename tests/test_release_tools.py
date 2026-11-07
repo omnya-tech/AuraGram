@@ -482,7 +482,7 @@ class DiagnosticsTest(unittest.TestCase):
         import threading
         self.addCleanup(setattr, threading, "excepthook", threading.excepthook)
         diagnostics.catch_unexpected_errors()
-        diagnostics.on_unexpected_error = lambda: told.append(True)
+        diagnostics.on_unexpected_error = told.append
         diagnostics._last_notice = 0.0
         with self.assertLogs(diagnostics.logger, logging.ERROR) as logged:
             for _ in range(3):
@@ -492,7 +492,74 @@ class DiagnosticsTest(unittest.TestCase):
                     sys.excepthook(*sys.exc_info())
         self.assertIn("the menu fell over", logged.output[0])
         self.assertEqual(len(logged.output), 3)
-        self.assertEqual(told, [True])
+        self.assertEqual(len(told), 1)
+        self.assertEqual(told[0]["details"], "RuntimeError: the menu fell over")
+        self.assertEqual(told[0]["cause"], c.ERROR_CAUSE_BUG_KEY)
+        # Each is kept for the report, not only the one the user was told of.
+        self.assertEqual(len(diagnostics.recent_errors), 3)
+
+    def test_the_cause_is_told_in_words_the_user_can_act_on(self):
+        disk_full = OSError(28, "No space left on device")
+        cases = [
+            (PermissionError(13, "Permission denied"), c.ERROR_CAUSE_PERMISSION_KEY),
+            (FileNotFoundError(2, "No such file"), c.ERROR_CAUSE_MISSING_FILE_KEY),
+            (disk_full, c.ERROR_CAUSE_DISK_FULL_KEY),
+            (ConnectionResetError(), c.ERROR_CAUSE_NETWORK_KEY),
+            (TimeoutError(), c.ERROR_CAUSE_NETWORK_KEY),
+            (MemoryError(), c.ERROR_CAUSE_MEMORY_KEY),
+            (OSError(22, "Invalid argument"), c.ERROR_CAUSE_FILE_KEY),
+            (KeyError("photo"), c.ERROR_CAUSE_BUG_KEY),
+        ]
+        from telethon import errors
+        cases.append((errors.RPCError(None, "CHAT_WRITE_FORBIDDEN"), c.ERROR_CAUSE_TELEGRAM_KEY))
+        for exception, key in cases:
+            self.assertEqual(diagnostics.cause_of(exception), key, repr(exception))
+        for language in ("ar", "en"):
+            i18n = I18NManager(language)
+            for _, key in cases:
+                self.assertNotEqual(i18n.get_string(key), key)
+
+    def test_the_place_is_the_programs_own_code_not_the_library_it_called(self):
+        def own_code():
+            os.listdir(os.path.join(self.folder, "missing"))
+        try:
+            own_code()
+        except OSError:
+            error = diagnostics.describe(*sys.exc_info())
+        # The test's own file stands for the program's code here: a library frame is never named.
+        self.assertTrue(error["place"].endswith("(own_code)") or "test_release_tools.py" in error["place"])
+        self.assertIn("FileNotFoundError", error["details"])
+        self.assertIn("Traceback", error["trace"])
+        self.assertTrue(diagnostics.is_own_code(os.path.join("D:\\", "AuraGram", "ui", "message_list.py")))
+        self.assertTrue(diagnostics.is_own_code("main.py"))
+        self.assertFalse(diagnostics.is_own_code(os.path.join("C:\\", "Python", "Lib", "site-packages", "wx", "core.py")))
+        self.assertFalse(diagnostics.is_own_code(os.path.join("C:\\", "Python", "Lib", "json", "decoder.py")))
+
+    def test_a_long_error_text_is_cut_for_the_window_but_kept_whole_in_the_report(self):
+        try:
+            raise ValueError("x" * 1000)
+        except ValueError:
+            error = diagnostics.describe(*sys.exc_info())
+        self.assertLessEqual(len(error["details"]), c.ERROR_DETAILS_CHARS + 3)
+        self.assertIn("x" * 1000, error["trace"])
+
+    def test_the_report_holds_this_runs_errors_in_full_before_the_log(self):
+        diagnostics.recent_errors.clear()
+        self.addCleanup(diagnostics.recent_errors.clear)
+        try:
+            raise RuntimeError("the attachment fell over")
+        except RuntimeError:
+            diagnostics.recent_errors.append(diagnostics.describe(*sys.exc_info()))
+        # A log too long to keep whole: the error would have been cut out of it.
+        report, i18n = self.report(self.run_log("x" * (c.REPORT_LOG_BYTES * 2), stopped=False))
+        self.assertIn(i18n.get_string(c.REPORT_ERRORS_KEY), report)
+        self.assertIn("RuntimeError: the attachment fell over", report)
+        self.assertLess(report.index(i18n.get_string(c.REPORT_ERRORS_KEY)), report.index(i18n.get_string(c.REPORT_LOG_KEY)))
+
+    def test_without_errors_the_report_has_no_errors_part(self):
+        diagnostics.recent_errors.clear()
+        report, i18n = self.report(self.run_log(stopped=False))
+        self.assertNotIn(i18n.get_string(c.REPORT_ERRORS_KEY), report)
 
 
 class ProblemReportTest(WindowTestCase):
@@ -516,6 +583,41 @@ class ProblemReportTest(WindowTestCase):
         FakeChooser.confirmed = False
         with mock.patch.object(diagnostics, "write_report", side_effect=AssertionError("written")):
             self.frame.on_problem_report_menu(None)
+
+    def unexpected_error(self):
+        try:
+            raise PermissionError(13, "Permission denied", "C:\\Downloads\\song.mp3")
+        except PermissionError:
+            return diagnostics.describe(*sys.exc_info())
+
+    def test_an_unexpected_error_says_its_cause_text_and_place_and_offers_a_report(self):
+        error = self.unexpected_error()
+        reports = []
+        self.box_answer = wx.YES
+        with mock.patch.object(self.frame, "IsShown", lambda: True), \
+                mock.patch.object(self.frame, "on_problem_report_menu", reports.append):
+            self.frame.show_unexpected_error(error)
+        shown = self.boxes[-1]
+        self.assertIn(self.text(c.ERROR_CAUSE_PERMISSION_KEY), shown)
+        self.assertIn("PermissionError", shown)
+        self.assertIn("song.mp3", shown)
+        self.assertIn(error["place"], shown)
+        self.assertEqual(reports, [None])
+
+    def test_saying_no_to_the_report_leaves_it_for_later(self):
+        reports = []
+        self.box_answer = wx.NO
+        with mock.patch.object(self.frame, "IsShown", lambda: True), \
+                mock.patch.object(self.frame, "on_problem_report_menu", reports.append):
+            self.frame.show_unexpected_error(self.unexpected_error())
+        self.assertEqual(reports, [])
+
+    def test_in_the_background_the_error_is_only_spoken(self):
+        boxes = len(self.boxes)
+        with mock.patch.object(self.frame, "IsShown", lambda: False):
+            self.frame.show_unexpected_error(self.unexpected_error())
+        self.assertEqual(len(self.boxes), boxes)
+        self.assertIn(self.text(c.ERROR_CAUSE_PERMISSION_KEY), self.spoken[-1])
 
 
 class Response:

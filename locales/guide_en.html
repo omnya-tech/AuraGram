@@ -151,7 +151,7 @@ li { margin: .3rem 0; }
 <li><b>Contacts:</b> all your contacts, written to before or not, those online now first, each one's status on their row.</li>
 <li>Then a tab for each of your Telegram <b>folders</b>.</li>
 </ul>
-<p>To move between them: left and right in the chat list, or {{MENU_NEXT_VIEW}} and {{MENU_PREVIOUS_VIEW}} from anywhere. The app says the tab's name and how many it holds.</p>
+<p>To move between them: the left and right arrows in the chat list, or {{MENU_NEXT_VIEW}} and {{MENU_PREVIOUS_VIEW}} from anywhere. The app says the tab's name and how many it holds.</p>
 <h3>A chat's menu</h3>
 <p>The Applications key on any chat opens its menu. In order:</p>
 <ul>
@@ -215,7 +215,7 @@ li { margin: .3rem 0; }
 <p>Each shows one part of the chat on its own; Escape goes back to the whole chat:</p>
 <ul>
 <li>Pinned messages {{MESSAGE_VIEW_PINNED}}, scheduled ones {{MESSAGE_VIEW_SCHEDULED}}.</li>
-<li>Photos and videos {{MESSAGE_VIEW_PHOTOS}}, files {{MESSAGE_VIEW_FILES}}, voice messages {{MESSAGE_VIEW_VOICE}}, music {{MESSAGE_VIEW_MUSIC}}, links {{MESSAGE_VIEW_LINKS}}.</li>
+<li>Photos and videos {{MESSAGE_VIEW_PHOTOS}}, files {{MESSAGE_VIEW_FILES}}, voice messages {{MESSAGE_VIEW_VOICE}}, audio files {{MESSAGE_VIEW_MUSIC}}, links {{MESSAGE_VIEW_LINKS}}.</li>
 <li>Messages that mention you {{MESSAGE_VIEW_MENTIONS}}.</li>
 </ul>
 <h3>New messages</h3>
@@ -235,8 +235,8 @@ li { margin: .3rem 0; }
 </ul>
 <h3>Replying and editing</h3>
 <ul>
-<li>To reply: stand on the message and press {{MENU_REPLY}}; the focus goes to the writing field and it says "replying to...". Type and send. Escape cancels the reply.</li>
-<li>To edit: stand on your message and press {{MENU_EDIT}}; its text comes into the writing field. Change it and send.</li>
+<li>To reply: select the message and press {{MENU_REPLY}}; the focus goes to the writing field and it says "replying to...". Type and send. Escape cancels the reply.</li>
+<li>To edit: select your message and press {{MENU_EDIT}}; its text comes into the writing field. Change it and send.</li>
 </ul>
 <h3>The send menu</h3>
 <p>The Applications key (or a right click) in the writing field opens every way of sending with its shortcut, then Cut, Copy, Paste and Select all. The Attach button beside the field offers just what is attached to a message. Mentioning someone and sending as a channel appear in groups only, and the bot commands in a bot's chat or a group.</p>
@@ -315,7 +315,7 @@ li { margin: .3rem 0; }
 </ul>
 <h3>Files and pictures</h3>
 <ul>
-<li>Enter on a file, picture or video downloads it and opens it with the usual program on your computer, with a progress bar while it comes.</li>
+<li>Enter on a file, picture or video downloads it, with a progress bar while it comes, and a second press opens it with the usual program on your computer.</li>
 <li>Open the file's folder with the file selected: Shift+Enter on the message, or {{MENU_SHOW_IN_FOLDER}}.</li>
 <li>Save to a folder you choose: {{MENU_SAVE_AS}}. Open the downloads folder: {{MENU_OPEN_DOWNLOADS}}.</li>
 </ul>
@@ -326,14 +326,14 @@ li { margin: .3rem 0; }
 <h2 id="downloads">The download manager</h2>
 <p>To download many files of a chat or channel at once:</p>
 <ol>
-<li>Open the chat, or stand on it in the list, then {{MENU_DOWNLOAD_FILES}}.</li>
+<li>Open the chat, or select it in the list, then {{MENU_DOWNLOAD_FILES}}.</li>
 <li>A list of every file in the chat comes up, each with its name, kind and size. Tick what you want with Space, or the Select all button; the app says how many are ticked.</li>
 <li>OK, and they come down one after another into a folder named after the chat inside the downloads folder, while you carry on.</li>
 </ol>
 <ul>
 <li>Where it has got to: {{MENU_DOWNLOAD_STATUS}} says which file of how many, its name, and how much of it is down.</li>
 <li>Stop what is left: {{MENU_CANCEL_DOWNLOADS}}.</li>
-<li>When done, a tone and a word saying how many came and how many could not.</li>
+<li>When done, a tone and a short message saying how many came and how many could not.</li>
 </ul>
 <p>The Download manager tab of the settings: the downloads folder, a folder per chat or not, skipping files downloaded before, saying each file's name as it is done, the tone when all are done, ticking every file by itself when the list opens, and which kinds of files are listed.</p>
 
@@ -381,7 +381,7 @@ li { margin: .3rem 0; }
 </ul>
 <h3>Bot buttons</h3>
 <ul>
-<li>One message's buttons: stand on it and press Enter or {{MENU_BUTTONS}}, then choose the button. If the bot answers with a short notice, it is said to you.</li>
+<li>One message's buttons: select it and press Enter or {{MENU_BUTTONS}}, then choose the button. If the bot answers with a short notice, it is said to you.</li>
 <li>The latest buttons the bot sent, from anywhere in the chat without looking for their message: {{MENU_BOT_KEYBOARD}}.</li>
 <li>A button that opens a link shows the link first, and opens it only if you agree.</li>
 <li>A "share my number" button asks before sending your number to the bot; a "share my location" button asks you to type the coordinates.</li>
@@ -421,7 +421,7 @@ li { margin: .3rem 0; }
 <h2 id="tools">Handy tools</h2>
 <h3>Reminders</h3>
 <ol>
-<li>Stand on a message and press {{MENU_REMIND}}.</li>
+<li>Select a message and press {{MENU_REMIND}}.</li>
 <li>Choose: in a quarter of an hour, an hour, three hours, tomorrow morning, or a time you type.</li>
 <li>When it comes, the app says the message and offers to open it. One due while the app was closed comes when it opens.</li>
 </ol>
@@ -476,12 +476,12 @@ li { margin: .3rem 0; }
 <p>See <a href="#downloads">The download manager</a> and <a href="#voice">Voice messages</a>.</p>
 <h3>The Connection and picture descriptions tab</h3>
 <ul>
-<li><b>The Gemini key</b> for describing pictures: a free key from Google AI Studio, pasted here; "Try the key" checks it without sending any picture.</li>
+<li><b>The Gemini key</b> for describing pictures: a free key from Google AI Studio, pasted here; "Try the key" checks it without sending any picture. The key is kept encrypted on this computer, and so are the proxy's password and secret.</li>
 <li><b>Proxy:</b> none, SOCKS5, or Telegram's MTProto, with its details filled in from the proxy's link.</li>
 </ul>
 <h3>A copy of the settings</h3>
 <ul>
-<li>{{MENU_EXPORT_SETTINGS}} saves all your settings to a file: shortcuts, favourites, how much is said, tones, proxy and every option. It asks whether the passwords (the Gemini key and the proxy password) go too; do not say yes if the file will be given to anyone.</li>
+<li>{{MENU_EXPORT_SETTINGS}} saves all your settings to a file: shortcuts, favourites, how much is said, tones, proxy and every option. It asks whether the passwords (the Gemini key, and the proxy's password and secret) go too; they are written into the file unencrypted, so that it opens on any computer, so do not say yes if the file will be given to anyone.</li>
 <li>{{MENU_IMPORT_SETTINGS}} brings them back from the file after asking, and the changes show at once. Handy on a new computer or after reinstalling Windows.</li>
 </ul>
 
@@ -499,7 +499,7 @@ li { margin: .3rem 0; }
 <ol>
 <li><b>What is not there, or cannot be done here:</b> "no unread messages", "this message cannot be deleted".</li>
 <li><b>The end of what you asked for:</b> "file saved to...", "files sent", "downloads done", the bot's answer.</li>
-<li><b>A yes to what a key did:</b> "copied", "pinned", "deleted", "added to favourites".</li>
+<li><b>Confirmation of what a key did:</b> "copied", "pinned", "deleted", "added to favourites".</li>
 <li><b>How many:</b> "Groups: 12", "5 members found".</li>
 <li><b>Where you went:</b> "left the chat", "topic opened", "moved to the message".</li>
 <li><b>Hints:</b> how to join a channel you are looking at, what the next key does.</li>
@@ -512,7 +512,7 @@ li { margin: .3rem 0; }
 <p>Above the boxes, the "Your level of experience" list ticks them all at once:</p>
 <ul>
 <li><b>Beginner:</b> nine of the ten, all but how far it has come.</li>
-<li><b>Intermediate:</b> four: what cannot be done, the end of what you asked for, yeses, and the connection.</li>
+<li><b>Intermediate:</b> four: what cannot be done, the end of what you asked for, confirmations, and the connection.</li>
 <li><b>Advanced:</b> three, only what you must hear: what cannot be done, the end of what you asked for, and the connection.</li>
 <li><b>Custom:</b> chosen by itself when you tick or untick a box by hand. If your choice matches one of the levels, the list names it again.</li>
 </ul>
@@ -549,7 +549,7 @@ li { margin: .3rem 0; }
 <li><b>This guide:</b> {{MENU_USER_GUIDE}}. It opens in your browser, in the language you chose for the app.</li>
 <li><b>The shortcuts guide:</b> {{MENU_SHORTCUTS}}, with your shortcuts as they are now after any change, menu by menu. Saving it to a web page or a text file: {{MENU_EXPORT_SHORTCUTS}}.</li>
 <li><b>Look for an update:</b> {{MENU_CHECK_UPDATES}}. The app also looks by itself when it opens. If there is a new version it offers the small update file, the full installer, or the release's page, and checks the file before asking whether to install it.</li>
-<li><b>A problem report for the developer:</b> {{MENU_PROBLEM_REPORT}}. Write what happened, and the app saves a file in its own language with your words, details of the computer and the log of this run only, not of days before. If the run before it ended in a crash rather than closing normally, its log is there too, since that is where the crash is written. Then it opens the folder for you to send it.</li>
+<li><b>A problem report for the developer:</b> {{MENU_PROBLEM_REPORT}}. Write what happened, and the app saves a file in its own language with your words, details of the computer, every unexpected error of this run in full, and the log of this run only, not of days before. If the run before it ended in a crash rather than closing normally, its log is there too, since that is where the crash is written. Then it opens the folder for you to send it.</li>
 <li><b>About the app</b> {{MENU_ABOUT}}, and the <b>licence and list of components</b> {{MENU_LICENSE}}.</li>
 </ul>
 
@@ -560,7 +560,7 @@ li { margin: .3rem 0; }
 <li><b>Picture descriptions do not work:</b> check the Gemini key with "Try the key". If the app says the service is busy, try again in a while.</li>
 <li><b>The app talks too much, or too little:</b> change "Your level of experience" on the Accessibility tab.</li>
 <li><b>A shortcut does not work:</b> another program may hold it. "Look in Windows for conflicts with other programs" on the Shortcuts tab tells you.</li>
-<li><b>An unexpected error:</b> the app tells you so and logs it. Send us a problem report ({{MENU_PROBLEM_REPORT}}), saying what you were doing.</li>
+<li><b>An unexpected error:</b> the app tells you its likely cause in plain words (a file open in another program, a full disk, a dropped connection, or a fault in the app itself), then the error's text and where in the app it happened, and logs it in full. It then asks whether to prepare a problem report with it now; say what you were doing in it, and send it to us. With the app in the background it only says the cause, and you can prepare the report whenever you like from {{MENU_PROBLEM_REPORT}}.</li>
 </ul>
 </body>
 </html>
