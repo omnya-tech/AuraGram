@@ -164,6 +164,12 @@ class UpdateRulesTest(unittest.TestCase):
         self.assertFalse(updates.is_newer("1.9.3", "1.9.3"))
         self.assertFalse(updates.is_newer("1.0", "1.0.1"))
         self.assertFalse(updates.is_newer("soon", "1.0.0"))
+        # Written short or long, it is the same version.
+        self.assertTrue(updates.is_newer("1.1", "1.0.0"))
+        self.assertFalse(updates.is_newer("1.1.0", "1.1"))
+        self.assertFalse(updates.is_newer("1.1", "1.1.0"))
+        self.assertTrue(updates.is_newer("1.1.1", "1.1"))
+        self.assertEqual(updates.version_numbers("0"), (0,))
 
     def test_a_release_file_is_read_with_notes_in_the_users_language(self):
         release = updates.read_release(release_file(), "en")

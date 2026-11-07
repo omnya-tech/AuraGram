@@ -133,6 +133,16 @@ class ReleaseNotesTest(unittest.TestCase):
             self.assertEqual(updates.read_release(data, "ar")["notes"], build.release_notes()["ar"])
 
 
+class VersionInfoTest(unittest.TestCase):
+    def test_windows_is_given_four_numbers_however_short_the_version(self):
+        path = os.path.join(tempfile.mkdtemp(), "version_info.txt")
+        for version, numbers in (("1.1", "(1, 1, 0, 0)"), ("1.2.3", "(1, 2, 3, 0)")):
+            with mock.patch.object(build, "APP_VERSION", version), mock.patch.object(build, "VERSION_INFO_FILE", path):
+                build.write_version_info()
+            with open(path, encoding="utf-8") as version_file:
+                self.assertIn("filevers=%s" % numbers, version_file.read())
+
+
 class VersionPinsTest(unittest.TestCase):
     def test_pins_are_read_from_the_requirements(self):
         path = os.path.join(tempfile.mkdtemp(), "requirements.txt")

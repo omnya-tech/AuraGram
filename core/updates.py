@@ -54,11 +54,15 @@ class DownloadError(Exception):
 
 
 def version_numbers(version):
-    """A version as numbers that compare the way versions do; () for text that is not one."""
+    """A version as numbers that compare the way versions do; () for text that is not one.
+    Zeros at the end say nothing, so 1.1 and 1.1.0 are the same version."""
     try:
-        return tuple(int(part) for part in str(version).strip().lstrip("v").split("."))
+        numbers = [int(part) for part in str(version).strip().lstrip("v").split(".")]
     except ValueError:
         return ()
+    while len(numbers) > 1 and numbers[-1] == 0:
+        numbers.pop()
+    return tuple(numbers)
 
 
 def is_newer(version, than=APP_VERSION):

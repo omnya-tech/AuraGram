@@ -81,10 +81,10 @@ class FolderRulesTest(unittest.TestCase):
 
 
 class VersionTest(unittest.TestCase):
-    def test_version_is_three_numbers(self):
+    def test_version_is_two_or_three_numbers(self):
         import re
         from core.constants import APP_VERSION
-        self.assertRegex(APP_VERSION, re.compile(r"^\d+\.\d+\.\d+$"))
+        self.assertRegex(APP_VERSION, re.compile(r"^\d+\.\d+(\.\d+)?$"))
 
     def test_current_version_is_recorded_in_the_changelog(self):
         from core.constants import APP_VERSION

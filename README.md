@@ -102,8 +102,8 @@ python build.py
 5. احفظ التغييرات وضع وسماً:
 
 ```bash
-git commit -am "Release 1.1.0"
-git tag -a v1.1.0 -m "AuraGram 1.1.0"
+git commit -am "Release 1.1"
+git tag -a v1.1 -m "AuraGram 1.1"
 ```
 
 ## التحديثات

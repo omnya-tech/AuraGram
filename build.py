@@ -255,7 +255,8 @@ def run_tests():
 
 def write_version_info():
     """Describe the program to Windows, so its Properties window shows the name and version."""
-    numbers = tuple(int(part) for part in APP_VERSION.split(".")) + (0,)
+    # Windows wants four numbers: 1.1 is 1.1.0.0.
+    numbers = (tuple(int(part) for part in APP_VERSION.split(".")) + (0, 0, 0, 0))[:4]
     os.makedirs(WORK_DIR, exist_ok=True)
     with open(VERSION_INFO_FILE, "w", encoding="utf-8") as version_file:
         version_file.write(VERSION_INFO_TEMPLATE.format(
