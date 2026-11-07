@@ -3,7 +3,7 @@
     python build.py               tests, program, self-check, installer
     python build.py --skip-tests  the same without running the tests first
 
-    python build.py --sign-update  sign dist/update.json again, after writing its notes by hand
+    python build.py --sign-update  sign dist/update.json again, after changing it by hand
     python build.py --make-signing-key  make the release key, once (see core/signing.py)
 
 Results:
@@ -42,6 +42,9 @@ PACKAGES = {
 }
 INSTALLER = PACKAGES[PACKAGE_FULL]
 UPDATE_INFO_FILE = os.path.join(DIST_DIR, UPDATE_INFO_FILE_NAME)
+# What each release brings, in every language, keyed by version: the build puts them into
+# update.json, and installed copies show them when they offer the release.
+RELEASE_NOTES_FILE = os.path.join(BASE_DIR, "release_notes.json")
 # Stands where an address goes until RELEASES_URL in core/constants.py is set.
 ADDRESS_TO_FILL_IN = "https://REPLACE-WITH-THE-RELEASES-ADDRESS"
 # Read-only files the program loads at run time.
@@ -352,19 +355,29 @@ def build_installer():
     return True
 
 
+def release_notes(version=APP_VERSION, path=RELEASE_NOTES_FILE):
+    """{language: what this version brings}, from RELEASE_NOTES_FILE; empty where nothing is written."""
+    try:
+        with open(path, encoding="utf-8") as notes_file:
+            written = json.load(notes_file).get(version) or {}
+    except (OSError, ValueError):
+        written = {}
+    return {language: written.get(language, "").strip() for language in LANGUAGES}
+
+
 def write_update_info():
     """Describe this release for the copies already installed: what to fetch and how to know it came whole.
 
-    Upload the two installers to the release, write its notes into the file, and put
-    the file where UPDATE_INFO_URL points.
+    Upload the two installers to the release, and put the file where UPDATE_INFO_URL points.
     """
     step("Writing " + UPDATE_INFO_FILE_NAME)
     releases = RELEASES_URL.rstrip("/") or ADDRESS_TO_FILL_IN
     tag = "v" + APP_VERSION
+    notes = release_notes()
     info = {
         "version": APP_VERSION,
         "url": "%s/tag/%s" % (releases, tag),
-        "notes": {language: "" for language in LANGUAGES},
+        "notes": notes,
     }
     for kind, path in PACKAGES.items():
         info[kind] = updates.describe_file(path, "%s/download/%s/%s" % (releases, tag, os.path.basename(path)))
@@ -372,8 +385,11 @@ def write_update_info():
     with open(UPDATE_INFO_FILE, "w", encoding="utf-8") as info_file:
         json.dump(info, info_file, ensure_ascii=False, indent=4)
         info_file.write("\n")
-    if sign_release_file(UPDATE_INFO_FILE):
-        print("After writing the notes into it, sign it again: python build.py --sign-update")
+    sign_release_file(UPDATE_INFO_FILE)
+    missing = [language for language, text in notes.items() if not text]
+    if missing:
+        print("NOTE: %s has no notes for %s in %s." % (APP_VERSION, ", ".join(missing), RELEASE_NOTES_FILE))
+        print("      Write them there and build again, or into the file and: python build.py --sign-update")
     if not RELEASES_URL:
         print("NOTE: RELEASES_URL is not set in core/constants.py, so the addresses in the file")
         print("      are placeholders. Set it, or write the real addresses in by hand.")

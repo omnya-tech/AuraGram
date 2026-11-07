@@ -99,6 +99,40 @@ class BuildSigningTest(unittest.TestCase):
         self.assertFalse(build.sign_release_file(self.path, PRIVATE, ()))
 
 
+class ReleaseNotesTest(unittest.TestCase):
+    def test_the_notes_of_the_version_are_read_and_missing_ones_are_empty(self):
+        path = os.path.join(tempfile.mkdtemp(), "release_notes.json")
+        with open(path, "w", encoding="utf-8") as notes_file:
+            json.dump({"99.0.0": {"ar": " جديد \n", "en": "new"}, "98.0.0": {"ar": "قديم"}}, notes_file)
+        self.assertEqual(build.release_notes("99.0.0", path), {"ar": "جديد", "en": "new"})
+        self.assertEqual(build.release_notes("98.0.0", path), {"ar": "قديم", "en": ""})
+        self.assertEqual(build.release_notes("97.0.0", path), {"ar": "", "en": ""})
+        self.assertEqual(build.release_notes("99.0.0", path + ".missing"), {"ar": "", "en": ""})
+
+    def test_this_version_has_its_notes_in_every_language(self):
+        # So no release is offered to the users without saying what it brings.
+        for language, text in build.release_notes().items():
+            self.assertTrue(text, "release_notes.json has no %s notes for this version" % language)
+
+    def test_the_built_release_file_carries_the_notes_and_its_signature_holds(self):
+        folder = tempfile.mkdtemp()
+        packages = {}
+        for kind in build.PACKAGES:
+            packages[kind] = os.path.join(folder, kind + ".exe")
+            with open(packages[kind], "wb") as package:
+                package.write(b"installer")
+        path = os.path.join(folder, "update.json")
+        with mock.patch.object(build, "PACKAGES", packages), mock.patch.object(build, "UPDATE_INFO_FILE", path), \
+                mock.patch.object(build, "load_signing_key", lambda: PRIVATE), \
+                mock.patch.object(signing, "load_public_keys", lambda *args: (PUBLIC,)), \
+                mock.patch("builtins.print"):
+            build.write_update_info()
+        with open(path, encoding="utf-8") as info_file:
+            data = info_file.read()
+        with mock.patch.object(updates, "trusted_keys", lambda: (PUBLIC,)):
+            self.assertEqual(updates.read_release(data, "ar")["notes"], build.release_notes()["ar"])
+
+
 class VersionPinsTest(unittest.TestCase):
     def test_pins_are_read_from_the_requirements(self):
         path = os.path.join(tempfile.mkdtemp(), "requirements.txt")
