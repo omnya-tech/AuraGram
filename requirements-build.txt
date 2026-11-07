@@ -1,0 +1,3 @@
+# What building the program needs beside requirements.txt, at the version it was last built with.
+-r requirements.txt
+pyinstaller==6.22.3

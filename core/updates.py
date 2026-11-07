@@ -18,12 +18,19 @@ from `from` upwards, the oldest one that has the same libraries. `notes`, `full`
 
 A package is fetched over https only, and is kept only if its size and SHA-256
 are the ones the file announced. Nothing is run without the user saying so.
+
+Where the program ships a public key (core/signing.py), the file itself must be signed by the release
+key, or it is taken for no release at all: whoever could change it where it is published could
+otherwise point to an installer of their own, with its own size and SHA-256.
 """
 import hashlib
 import json
+import logging
 import os
 import re
 import urllib.request
+
+from core import signing
 
 from core.constants import (
     APP_NAME, APP_VERSION, UPDATE_INFO_URL, UPDATE_TIMEOUT_SECONDS, EMPTY_STRING, PACKAGE_FULL, PACKAGE_UPDATE,
@@ -31,6 +38,7 @@ from core.constants import (
     ERR_UPDATE_VERIFY_KEY
 )
 
+logger = logging.getLogger(__name__)
 SAFE_SCHEME = "https://"
 MAX_INFO_BYTES = 64 * 1024
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
@@ -75,6 +83,11 @@ def read_package(info):
     return {"url": info["url"], "sha256": checksum.lower(), "size": size}
 
 
+def trusted_keys():
+    """The public keys a release file must be signed by; () where the program ships none."""
+    return signing.load_public_keys()
+
+
 def read_release(data, language, installed=APP_VERSION):
     """The release a downloaded file announces; None if it is not usable.
 
@@ -86,6 +99,10 @@ def read_release(data, language, installed=APP_VERSION):
     except ValueError:
         return None
     if not isinstance(info, dict) or not version_numbers(info.get("version")):
+        return None
+    keys = trusted_keys()
+    if keys and not signing.is_signed_by(info, keys):
+        logger.warning("The release file is not signed by the release key; it is ignored")
         return None
     if not is_safe_url(info.get("url")):
         return None

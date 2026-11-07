@@ -1,10 +1,16 @@
-wxPython>=4.2
-Telethon>=1.45,<2
+# Exact versions: the ones the program is built and tested with. build.py stops if those installed
+# differ, since the small update installer carries only the program's own files and relies on the
+# libraries being the same as in the last full install. Raise a version on purpose, run the tests,
+# and set UPDATE_BASE_VERSION in core/constants.py to the release that brings it.
+wxPython==4.2.5
+Telethon==1.45.0
+# Checking that update.json is signed by the release key (core/signing.py); Telethon needs it too.
+rsa==4.9.1
 # Connecting through a SOCKS5 proxy.
-python-socks[asyncio]
+python-socks[asyncio]==3.2.1
 # Optional: announces new messages through the running screen reader.
-accessible_output2
+accessible_output2==0.17
 # Optional: playing and recording voice messages inside the app.
-av
-numpy
-sounddevice
+av==19.0.2
+numpy==2.5.4
+sounddevice==0.5.6

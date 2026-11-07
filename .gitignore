@@ -6,6 +6,9 @@ core/_sealing.py
 tests/test_private_sealing.py
 protect.py
 tests/test_integrity.py
+# The release key that signs update.json. Its public half (assets/update_keys.pem) is published.
+release_signing_key.pem
+*.pfx
 *.session
 *.session-journal
 

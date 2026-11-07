@@ -447,7 +447,7 @@ class LocaleTest(unittest.TestCase):
     def test_secrets_are_ignored_by_git(self):
         with open(os.path.join(BASE_DIR, ".gitignore"), encoding="utf-8") as file:
             ignored = file.read()
-        for pattern in ("config.json", "*.session", "settings.json", "downloads/"):
+        for pattern in ("config.json", "*.session", "settings.json", "downloads/", "release_signing_key.pem", "*.pfx"):
             self.assertIn(pattern, ignored)
 
 

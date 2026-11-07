@@ -3,11 +3,17 @@
     python build.py               tests, program, self-check, installer
     python build.py --skip-tests  the same without running the tests first
 
+    python build.py --sign-update  sign dist/update.json again, after writing its notes by hand
+    python build.py --make-signing-key  make the release key, once (see core/signing.py)
+
 Results:
     dist/AuraGram/AuraGram.exe          the program with everything it needs beside it
     dist/AuraGram-Setup-<version>.exe   the installer
     dist/AuraGram-Update-<version>.exe  the small installer for those who already have AuraGram
-    dist/update.json                    what installed copies read to learn of this release
+    dist/update.json                    what installed copies read to learn of this release, signed
+
+Where a certificate is set up (SIGN_CERTIFICATE_ENV), the program and both installers are also signed
+with it (Authenticode), so Windows names the publisher instead of warning of an unknown one.
 
 Needs PyInstaller (pip install pyinstaller). The installer step needs Inno Setup 6 or 7
 (https://jrsoftware.org/isinfo.php) and is skipped with a notice if it is not found.
@@ -18,7 +24,7 @@ import shutil
 import subprocess
 import sys
 
-from core import updates
+from core import signing, updates
 from core.config import pack_credentials, read_credentials
 from core.constants import (
     APP_COPYRIGHT, APP_NAME, APP_PUBLISHER, APP_VERSION, BASE_DIR, BUNDLED_CONFIG_NAME, CHECK_FLAG,
@@ -81,8 +87,143 @@ SELF_CHECK_PROBLEMS = (
 BUNDLED_CONFIG_BUILD_FILE = os.path.join(WORK_DIR, BUNDLED_CONFIG_NAME)
 
 
+REQUIREMENTS_FILES = (os.path.join(BASE_DIR, "requirements.txt"), os.path.join(BASE_DIR, "requirements-build.txt"))
+# The release key: private, kept out of git (.gitignore) and never shipped. Back it up: without it no
+# later release can be signed, and the copies installed would not take one.
+SIGNING_KEY_FILE = os.path.join(BASE_DIR, "release_signing_key.pem")
+
+
+# Authenticode, for Windows to name the publisher: a code signing certificate, given as the path of its
+# .pfx file (with its password in SIGN_PASSWORD_ENV) or as the SHA-1 thumbprint of one in the Windows
+# certificate store, or on a hardware token. Without it the build signs nothing and says so.
+SIGN_CERTIFICATE_ENV = "AURAGRAM_SIGN_CERT"
+SIGN_PASSWORD_ENV = "AURAGRAM_SIGN_PASSWORD"
+# A signature stamped with the time stays valid after the certificate expires.
+TIMESTAMP_URL = "http://timestamp.digicert.com"
+WINDOWS_KITS = os.path.join(os.environ.get("ProgramFiles(x86)", ""), "Windows Kits", "10", "bin")
+
+
+def find_signtool():
+    """signtool.exe from the newest Windows SDK installed, or from the PATH; None if there is none."""
+    import glob
+    found = sorted(glob.glob(os.path.join(WINDOWS_KITS, "*", "x64", "signtool.exe")))
+    return found[-1] if found else shutil.which("signtool")
+
+
+def signtool_command(tool, certificate, password, paths):
+    command = [tool, "sign", "/fd", "SHA256", "/tr", TIMESTAMP_URL, "/td", "SHA256"]
+    if os.path.isfile(certificate):
+        command += ["/f", certificate] + (["/p", password] if password else [])
+    else:
+        command += ["/sha1", certificate.replace(" ", "")]
+    return command + list(paths)
+
+
+def authenticode(paths):
+    """Sign programs with the code signing certificate, where one is set up; False if none is."""
+    certificate = os.environ.get(SIGN_CERTIFICATE_ENV)
+    if not certificate:
+        print("NOTE: no code signing certificate (%s), so Windows will call the publisher unknown." % SIGN_CERTIFICATE_ENV)
+        return False
+    tool = find_signtool()
+    if tool is None:
+        sys.exit("Build stopped: signing needs signtool.exe, from the Windows SDK.")
+    run(signtool_command(tool, certificate, os.environ.get(SIGN_PASSWORD_ENV), paths))
+    return True
+
+
+def load_signing_key(path=SIGNING_KEY_FILE):
+    """The private release key; None if this computer has none."""
+    try:
+        with open(path, "rb") as key_file:
+            return signing.rsa.PrivateKey.load_pkcs1(key_file.read())
+    except OSError:
+        return None
+
+
+def sign_release_file(path, private_key=None, public_keys=None):
+    """Sign update.json where it is, after checking that the copies installed will take the signature.
+    Stops the build if they would not: a release they refuse is no release for them."""
+    private_key = private_key or load_signing_key()
+    public_keys = signing.load_public_keys() if public_keys is None else public_keys
+    if not public_keys:
+        print("NOTE: the program trusts no release key (%s), so the release file is not signed." % signing.TRUSTED_KEYS_FILE)
+        return False
+    if private_key is None:
+        sys.exit("Build stopped: the program takes only signed releases, and %s is missing." % SIGNING_KEY_FILE)
+    with open(path, encoding="utf-8") as info_file:
+        info = json.load(info_file)
+    signed = signing.sign(info, private_key)
+    if not signing.is_signed_by(signed, public_keys):
+        sys.exit("Build stopped: %s is not the key the program trusts." % SIGNING_KEY_FILE)
+    with open(path, "w", encoding="utf-8") as info_file:
+        json.dump(signed, info_file, ensure_ascii=False, indent=4)
+        info_file.write("\n")
+    print("Signed %s with the release key." % path)
+    return True
+
+
+def make_signing_key():
+    """Make the release key once: the private half beside the project, the public half shipped with the program."""
+    if os.path.exists(SIGNING_KEY_FILE):
+        sys.exit("There is a release key already (%s); a new one would leave the copies installed behind." % SIGNING_KEY_FILE)
+    print("Making a %d-bit release key; this takes a minute or so..." % signing.KEY_BITS, flush=True)
+    public_key, private_key = signing.make_keys()
+    with open(SIGNING_KEY_FILE, "wb") as key_file:
+        key_file.write(private_key.save_pkcs1())
+    # Added to those trusted, not in their place: a copy installed before still takes what an old key signed.
+    with open(signing.TRUSTED_KEYS_FILE, "ab") as keys_file:
+        keys_file.write(public_key.save_pkcs1())
+    print("Private key: %s  (keep a copy somewhere safe, and never share it)" % SIGNING_KEY_FILE)
+    print("Public key added to: %s" % signing.TRUSTED_KEYS_FILE)
+
+
 def step(title):
     print("\n=== %s ===" % title, flush=True)
+
+
+def pinned_versions(paths=REQUIREMENTS_FILES):
+    """{package name in lower case: version} for every "name==version" line of the requirements files."""
+    pins = {}
+    for path in paths:
+        with open(path, encoding="utf-8") as requirements:
+            for line in requirements:
+                line = line.split("#", 1)[0].strip()
+                if "==" not in line:
+                    continue
+                name, version = line.split("==", 1)
+                # "python-socks[asyncio]": the package is python-socks.
+                pins[name.split("[", 1)[0].strip().lower().replace("_", "-")] = version.strip()
+    return pins
+
+
+def version_mismatches(pins, installed):
+    """[(package, pinned, installed or None)] for each pinned package installed at another version, or not at all.
+    `installed(name)` gives a package's version, raising if it is not installed (importlib.metadata raises
+    PackageNotFoundError, an ImportError)."""
+    found = []
+    for name, version in sorted(pins.items()):
+        try:
+            have = installed(name)
+        except (LookupError, ImportError):
+            have = None
+        if have != version:
+            found.append((name, version, have))
+    return found
+
+
+def check_versions():
+    """Stop unless the libraries installed are the ones requirements.txt names: a build made with others
+    would ship an update that does not fit the copies already installed."""
+    import importlib.metadata
+    step("Checking the libraries' versions")
+    mismatches = version_mismatches(pinned_versions(), importlib.metadata.version)
+    if not mismatches:
+        print("Every library is at the version the program is tested with.")
+        return
+    for name, version, have in mismatches:
+        print("  %s: needs %s, has %s" % (name, version, have or "nothing"))
+    sys.exit("Build stopped: install the pinned versions (pip install -r requirements-build.txt), or raise the pins on purpose.")
 
 
 def run(command):
@@ -231,6 +372,8 @@ def write_update_info():
     with open(UPDATE_INFO_FILE, "w", encoding="utf-8") as info_file:
         json.dump(info, info_file, ensure_ascii=False, indent=4)
         info_file.write("\n")
+    if sign_release_file(UPDATE_INFO_FILE):
+        print("After writing the notes into it, sign it again: python build.py --sign-update")
     if not RELEASES_URL:
         print("NOTE: RELEASES_URL is not set in core/constants.py, so the addresses in the file")
         print("      are placeholders. Set it, or write the real addresses in by hand.")
@@ -244,12 +387,25 @@ def folder_size_mb(path):
 
 
 def main():
+    if "--make-signing-key" in sys.argv:
+        make_signing_key()
+        return
+    if "--sign-update" in sys.argv:
+        sign_release_file(UPDATE_INFO_FILE)
+        return
+    check_versions()
     if "--skip-tests" not in sys.argv:
         run_tests()
     build_program()
     check_program()
+    # Before the installers take it in, so the program they install is signed too.
+    step("Signing the program")
+    authenticode([PROGRAM])
     has_installer = build_installer()
     if has_installer:
+        step("Signing the installers")
+        authenticode(list(PACKAGES.values()))
+        # After the signing: their SHA-256 is that of the signed files.
         write_update_info()
 
     step("Done")

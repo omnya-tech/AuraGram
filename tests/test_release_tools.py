@@ -150,6 +150,14 @@ def release_file(**changes):
 
 
 class UpdateRulesTest(unittest.TestCase):
+    """How a release file is read. Its signature is tested on its own (test_release_signing.py): here
+    the program trusts no key, as a copy built from the published code does."""
+
+    def setUp(self):
+        patch = mock.patch.object(updates, "trusted_keys", lambda: ())
+        patch.start()
+        self.addCleanup(patch.stop)
+
     def test_versions_compare_as_numbers(self):
         self.assertTrue(updates.is_newer("1.10.0", "1.9.3"))
         self.assertTrue(updates.is_newer("v2.0", "1.9.3"))
