@@ -197,6 +197,8 @@ CHAT_PHOTOS_DIR = os.path.join(DATA_DIR, "avatars")
 CHAT_PHOTO_NAME_FORMAT = "{chat_id}_{photo_id}.jpg"
 # How big a chat's picture is in the list, before the screen's scaling.
 CHAT_PHOTO_SIZE = 32
+# A photo no list has shown for this long belongs to a chat left long ago: it is deleted at the next start.
+CHAT_PHOTOS_KEEP_DAYS = 60
 # How long after the list changes its missing photos are asked for: a burst of changes asks once.
 CHAT_PHOTOS_DELAY_MS = 300
 # Telegram's seven plain colours, numbered 0 to 6: red, orange, violet, green, cyan, blue, pink.

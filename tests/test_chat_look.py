@@ -1,6 +1,7 @@
 """What the eyes get: pictures on the buttons and tabs, chat rows coloured by kind, and chat photos."""
 import os
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -137,6 +138,20 @@ class AvatarTest(unittest.TestCase):
         self.assertEqual(pictures.index_for({"id": 5, "photo": None, "title": "Mona", "color": 4}), index)
         self.assertEqual(pictures.indexes[5][1], avatars.PLACEHOLDER_COLOURS[4])
         self.assertEqual(pictures.image_list.GetImageCount(), 1)
+
+    def test_photos_no_list_has_shown_for_long_are_deleted_and_those_shown_are_kept(self):
+        folder = tempfile.mkdtemp()
+        long_ago = time.time() - (c.CHAT_PHOTOS_KEEP_DAYS + 1) * avatars.DAY_SECONDS
+        paths = {name: os.path.join(folder, name) for name in ("old_1.jpg", "shown_2.jpg", "new_3.jpg", "half.jpg.part")}
+        for name, path in paths.items():
+            wx.Image(20, 20).SaveFile(path, wx.BITMAP_TYPE_JPEG)
+            if name != "new_3.jpg":
+                os.utime(path, (long_ago, long_ago))
+        # Shown in a list just now, however old the file.
+        self.assertIsNotNone(avatars.round_photo(paths["shown_2.jpg"], 32))
+        self.assertEqual(avatars.forget_old_photos(folder), 2)
+        self.assertEqual(sorted(os.listdir(folder)), ["new_3.jpg", "shown_2.jpg"])
+        self.assertEqual(avatars.forget_old_photos(os.path.join(folder, "none here")), 0)
 
     def test_a_chat_without_its_photo_here_shows_initials_until_it_comes(self):
         folder = tempfile.mkdtemp()

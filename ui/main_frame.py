@@ -8,7 +8,8 @@ from core.settings import (
     SETTING_SOUND_VOLUME, SETTING_CHAT_PHOTOS,
 )
 from ui import icons
-from ui.avatars import ChatPictures
+import threading
+from ui.avatars import ChatPictures, forget_old_photos
 from ui.chat_rows import ChatRows
 from ui.themes import apply_theme, set_theme
 from ui.layout import OptionalButton, ReadOnlyText, ViewTabs, is_on_a_screen, prepare_window, reading_font
@@ -165,6 +166,8 @@ class MainFrame(
         self.typing_row_timers = {}
         self.init_ui()
         self.init_reminders()
+        # Photos of chats long gone from every list: on a thread of their own, the disk is no reason to wait.
+        threading.Thread(target=forget_old_photos, args=(CHAT_PHOTOS_DIR,), daemon=True).start()
         self.Bind(wx.EVT_CLOSE, self.on_close)
         self.telegram_manager.set_message_listener(
             lambda *args: wx.CallAfter(self.on_telegram_event, *args)

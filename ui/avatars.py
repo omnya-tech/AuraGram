@@ -4,11 +4,17 @@ A chat with a photo on Telegram shows it, once it has come down; until then, and
 its initials on a colour of its own, as Telegram's own apps do, so every row has something to tell it
 by at a glance. Photos are kept in a folder on this computer and fetched only once per photo.
 """
+import glob
+import logging
 import os
+import time
 
 import wx
 
-from core.constants import CHAT_PHOTO_NAME_FORMAT
+from core.constants import CHAT_PHOTO_NAME_FORMAT, CHAT_PHOTOS_KEEP_DAYS
+
+logger = logging.getLogger(__name__)
+DAY_SECONDS = 24 * 60 * 60
 
 # The circle Telegram draws behind the initials of a chat without a photo, by the chat's colour number:
 # red, orange, violet, green, cyan, blue, pink, as its own apps draw them.
@@ -68,11 +74,35 @@ def placeholder(title, colour, size, mirrored=False):
     return wx.Bitmap(image.Mirror() if mirrored else image)
 
 
+def forget_old_photos(folder, keep_days=CHAT_PHOTOS_KEEP_DAYS, now=None):
+    """Delete the photos no list has shown for `keep_days` (of chats left, or of an account signed out
+    of), and any left half fetched. Each photo shown is marked as used (round_photo), whichever account
+    shows it, so one still in some list is never taken. Returns how many were deleted."""
+    oldest = (now or time.time()) - keep_days * DAY_SECONDS
+    deleted = 0
+    for path in glob.glob(os.path.join(glob.escape(folder), "*")):
+        try:
+            if os.path.isfile(path) and os.path.getmtime(path) < oldest:
+                os.remove(path)
+                deleted += 1
+        except OSError:
+            # In use, or gone meanwhile: next time.
+            continue
+    if deleted:
+        logger.info("Deleted %d chat photos no list had shown for %d days", deleted, keep_days)
+    return deleted
+
+
 def round_photo(path, size, mirrored=False):
-    """A photo file cut to a circle `size` pixels across; None if the file cannot be read."""
+    """A photo file cut to a circle `size` pixels across; None if the file cannot be read.
+    The file is marked as used now, so forget_old_photos leaves it be."""
     image = wx.Image()
     if not os.path.exists(path) or not image.LoadFile(path, wx.BITMAP_TYPE_ANY) or not image.IsOk():
         return None
+    try:
+        os.utime(path)
+    except OSError:
+        pass
     # The middle of the photo, square, then made small.
     side = min(image.GetWidth(), image.GetHeight())
     image = image.GetSubImage(wx.Rect((image.GetWidth() - side) // 2, (image.GetHeight() - side) // 2, side, side))
