@@ -6,7 +6,7 @@ APP_NAME = "AuraGram"
 # The one place the version lives: the About box, the built program's file
 # properties and the installer's name all read it from here. Three numbers,
 # major.minor.patch; record each release in CHANGELOG.md and tag it v<version>.
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 # Who makes the program, as Windows and the installer show it (file properties,
 # "Publisher" in the installed apps list). The About box uses the DEVELOPER_NAME
 # text from the locale file instead, so it can be written in the user's language.
@@ -1671,7 +1671,8 @@ PACKAGE_FILE_FORMATS = {
 }
 # The oldest version the small package can be installed over: the last one in which a library
 # was added or upgraded. Set it to the new version whenever a release changes its libraries.
-UPDATE_BASE_VERSION = "1.0.0"
+# 1.1.0 brings newer av, numpy and python-socks than 1.0.0 was built with.
+UPDATE_BASE_VERSION = "1.1.0"
 UPDATE_MAX_BYTES = 400 * 1024 * 1024
 UPDATE_CHUNK_BYTES = 256 * 1024
 UPDATE_DOWNLOAD_TIMEOUT_SECONDS = 30

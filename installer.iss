@@ -1,6 +1,6 @@
 ; Inno Setup script for AuraGram. Built by build.py, which passes the version and
 ; the publisher from core/constants.py:
-;   ISCC /DAppVersion=1.0.0 "/DAppPublisher=Omnya Technology" installer.iss
+;   ISCC /DAppVersion=1.1.0 "/DAppPublisher=Omnya Technology" installer.iss
 ; and once more with /DUpdateOnly=1, which makes the small AuraGram-Update-<version>.exe:
 ; only the files that change from one version to the next, for a computer that already
 ; has AuraGram installed.
@@ -19,7 +19,7 @@
 ; Inno Setup; build.py passes the same ones. Keep the version equal to APP_VERSION
 ; in core/constants.py (a test fails if they drift apart).
 #ifndef AppVersion
-  #define AppVersion "1.0.0"
+  #define AppVersion "1.1.0"
 #endif
 #ifndef AppPublisher
   #define AppPublisher "Omnya Technology"

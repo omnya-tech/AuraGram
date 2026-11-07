@@ -436,6 +436,18 @@ class LocaleTest(unittest.TestCase):
         expected += [constants.MEMBER_PERMISSION_KEY_PREFIX + name for name in constants.MEMBER_PERMISSIONS]
         self.assertEqual([key for key in expected if key not in strings], [])
 
+    def test_no_constant_is_set_twice(self):
+        """A second line setting the same name wins without a word, and the first is read by no one: a
+        value changed there changes nothing. It happened once with BTN_DOWNLOAD_KEY."""
+        import ast
+        with open(os.path.join(BASE_DIR, "core", "constants.py"), encoding="utf-8") as file:
+            tree = ast.parse(file.read())
+        names = [
+            target.id for node in tree.body if isinstance(node, ast.Assign)
+            for target in node.targets if isinstance(target, ast.Name)
+        ]
+        self.assertEqual(sorted({name for name in names if names.count(name) > 1}), [])
+
     def test_no_key_is_written_twice_in_a_locale_file(self):
         """JSON keeps the last of two entries of the same key without a word: the first is lost unseen."""
         for language in ("ar", "en"):
