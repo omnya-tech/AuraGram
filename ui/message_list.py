@@ -53,7 +53,7 @@ from core.constants import (
     FILE_LABEL_SEPARATOR_KEY, MEDIA_FILE, MEDIA_AUDIO, PLAYED_MEDIA, ATTACHMENT_DOWNLOAD, ATTACHMENT_PLAY,
     ATTACHMENT_OPEN, BTN_DOWNLOAD_KEY, BTN_PLAY_FILE_KEY, BTN_OPEN_KEY, CONTEXT_DOWNLOAD_MEDIA_KEY,
     CONTEXT_PLAY_MEDIA_KEY, CONTEXT_OPEN_FILE_KEY, MENU_OPEN_MEDIA_KEY, MSG_DOWNLOADED_PLAY_FORMAT_KEY,
-    MSG_DOWNLOADED_OPEN_FORMAT_KEY, FEEDBACK_RESULT,
+    MSG_DOWNLOADED_OPEN_FORMAT_KEY, FEEDBACK_RESULT, WHOLE_FETCH_MAX_BYTES, MSG_TOO_BIG_TO_STREAM_KEY,
 )
 from ui import icons
 
@@ -576,9 +576,9 @@ class MessageListMixin:
         self.update_attachment_words()
 
     def listen(self):
-        """Space on a voice message or a song: play it from Telegram as it arrives, as Telegram's own
-        apps do, or stop it if it is playing; one already downloaded plays from the copy here, with no
-        need to fetch it again. False if the selected message has no sound to play."""
+        """Space on a voice message, a song or a video: play its sound from Telegram as it arrives, as
+        Telegram's own apps do, or stop it if it is playing; one already downloaded plays from the copy
+        here, with no need to fetch it again. False if the selected message has no sound to play."""
         message = self.selected_message()
         if message is None or message["media"] not in PLAYABLE_MEDIA or not audio.AVAILABLE:
             return False
@@ -595,17 +595,23 @@ class MessageListMixin:
         # Whatever happens to the request reaches the player through the buffer.
         self.stream_request = self.telegram_manager.stream_media(key[0], key[1], buffer, lambda result, error_key: None)
         self.set_status(MSG_PLAYING_KEY)
+        size = (message.get("file") or {}).get("size") or 0
         self.player.play_stream(
-            buffer, lambda completed, error, started: wx.CallAfter(self.on_stream_finished, key, completed, error, started),
+            buffer,
+            lambda completed, error, started: wx.CallAfter(self.on_stream_finished, key, completed, error, started, size),
             speed=VOICE_SPEEDS[self.settings.get(SETTING_VOICE_SPEED)]
         )
         return True
 
-    def on_stream_finished(self, key, completed, error, started):
+    def on_stream_finished(self, key, completed, error, started, size=0):
         if not self:
             return
         self.stream_request = None
-        if error is not None and not started:
+        if error is not None and not started and not isinstance(error, audio.NoSoundError):
+            if size > WHOLE_FETCH_MAX_BYTES:
+                # A long video laid out to be read from its end: too big to hold in memory to play.
+                self.notify(MSG_TOO_BIG_TO_STREAM_KEY, FEEDBACK_UNAVAILABLE)
+                return
             # A song whose file must be read from its end first cannot play as it arrives: fetched
             # whole, into memory only, it plays all the same.
             self.set_status(MSG_FETCHING_SOUND_KEY)

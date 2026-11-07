@@ -1545,7 +1545,13 @@ MSG_PREVIEW_REMOVED_FORMAT_KEY = "MSG_PREVIEW_REMOVED_FORMAT"
 # How long a pause in typing ends the word being looked for in a list.
 TYPE_AHEAD_PAUSE_SECONDS = 1.0
 # What Space plays straight from Telegram, held in memory only; Enter saves it instead.
-PLAYABLE_MEDIA = (MEDIA_VOICE, "MEDIA_AUDIO")
+# What Space plays here as it arrives: the sound of voice messages, songs, and videos, round ones too.
+PLAYABLE_MEDIA = (MEDIA_VOICE, "MEDIA_AUDIO", "MEDIA_VIDEO", "MEDIA_VIDEO_NOTE")
+# A sound that cannot play as it arrives is fetched whole into memory, up to this size; a bigger one
+# (a long video) is left to be downloaded, rather than fill the memory with it.
+WHOLE_FETCH_MAX_BYTES = 50 * 1024 * 1024
+MSG_NO_SOUND_KEY = "MSG_NO_SOUND"
+MSG_TOO_BIG_TO_STREAM_KEY = "MSG_TOO_BIG_TO_STREAM"
 # How many of those stay in memory during a run, so hearing one again needs no second fetch.
 # How much of a sound is asked for at a time while it plays: small, so the first of it comes at once.
 STREAM_REQUEST_BYTES = 32 * 1024

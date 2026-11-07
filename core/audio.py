@@ -15,6 +15,17 @@ try:
 except Exception:
     AVAILABLE = False
 
+
+class NoSoundError(Exception):
+    """The file has no sound in it to play: a silent video, say."""
+
+
+def audio_stream(container):
+    """The first sound of a file opened with av, picture and all; NoSoundError if it has none."""
+    if not container.streams.audio:
+        raise NoSoundError()
+    return container.streams.audio[0]
+
 # What Telegram voice notes use: Opus, mono, 48 kHz.
 logger = logging.getLogger(__name__)
 
@@ -51,7 +62,8 @@ def decode_pieces(source, speed=1.0, halted=None):
     stretches it without changing how high the voice sounds; `halted()` true stops the reading."""
     resampler = av.AudioResampler(format="s16", layout="mono", rate=SAMPLE_RATE)
     with av.open(io.BytesIO(source) if isinstance(source, bytes) else source) as container:
-        stream = container.streams.audio[0]
+        # Only the sound is decoded: of a video, its picture is passed over.
+        stream = audio_stream(container)
         if speed == 1.0:
             frames = container.decode(stream)
         else:
@@ -390,7 +402,7 @@ class Player:
             resampler = av.AudioResampler(format="s16", layout="mono", rate=SAMPLE_RATE)
             # Started as soon as the kind of sound is known, not after reading far into it to be sure.
             with av.open(buffer, mode="r", options=STREAM_PROBE_OPTIONS) as container:
-                stream = container.streams.audio[0]
+                stream = audio_stream(container)
                 frames = container.decode(stream)
                 if speed != 1.0:
                     frames = _at_speed(frames, stream, speed)

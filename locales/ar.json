@@ -620,6 +620,8 @@
     "MSG_FILE_DOWNLOADED_FORMAT": "اكتمل تحميل {name}",
     "MSG_DOWNLOADED_PLAY_FORMAT": "اكتمل تحميل {name}. اضغط Enter مرة أخرى لتشغيله",
     "MSG_DOWNLOADED_OPEN_FORMAT": "اكتمل تحميل {name}. اضغط Enter مرة أخرى لفتحه",
+    "MSG_NO_SOUND": "هذا الملف ليس فيه صوت يُشغَّل",
+    "MSG_TOO_BIG_TO_STREAM": "هذا الملف كبير ولا يمكن تشغيله وهو يصل. حمّله بزر Enter ثم شغّله",
     "MSG_CLIPBOARD_BUSY": "الحافظة مشغولة الآن ببرنامج آخر، فلم يُنسخ شيء. جرّب مرة أخرى",
     "BTN_PLAY_FILE": "تشغيل",
     "CONTEXT_DOWNLOAD_MEDIA": "تحميل المرفق",

@@ -620,6 +620,8 @@
     "MSG_FILE_DOWNLOADED_FORMAT": "Done: {name}",
     "MSG_DOWNLOADED_PLAY_FORMAT": "Downloaded {name}. Press Enter again to play it",
     "MSG_DOWNLOADED_OPEN_FORMAT": "Downloaded {name}. Press Enter again to open it",
+    "MSG_NO_SOUND": "This file has no sound to play",
+    "MSG_TOO_BIG_TO_STREAM": "This file is too big to play as it arrives. Download it with Enter, then play it",
     "MSG_CLIPBOARD_BUSY": "Another program is using the clipboard, so nothing was copied. Try again",
     "BTN_PLAY_FILE": "Play",
     "CONTEXT_DOWNLOAD_MEDIA": "Download the attachment",

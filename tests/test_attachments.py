@@ -8,7 +8,7 @@ import wx
 
 import core.constants as c
 import core.settings as s
-from tests.harness import Record, WindowTestCase, make_message, make_user, pump
+from tests.harness import FakeTelegramClient, Record, WindowTestCase, make_message, make_user, pump
 
 ALI = make_user(1, "Ali")
 
@@ -115,6 +115,41 @@ class AttachmentTest(WindowTestCase):
         self.assertEqual(self.button().GetLabel(), self.text(c.BTN_OPEN_KEY))
         # Nothing to download or open: the message's menu offers no entry for it at all.
         self.assertIsNone(self.menu_entry())
+
+    def space(self):
+        event = wx.KeyEvent(wx.wxEVT_CHAR_HOOK)
+        event.SetKeyCode(wx.WXK_SPACE)
+        with mock.patch.object(wx.Window, "FindFocus", return_value=self.frame.messages_list):
+            self.frame.on_char_hook(event)
+
+    def test_space_plays_a_videos_sound_as_it_arrives(self):
+        FakeTelegramClient.history[1].append(make_message(
+            9, sender=ALI, video=True, document=True,
+            file=Record(name="talk.mp4", size=900000, duration=60, mime_type="video/mp4")
+        ))
+        self.frame.load_messages()
+        self.assertTrue(pump(lambda: len(self.frame.messages) == 5))
+        self.select(4)
+        self.space()
+        self.assertEqual(len(self.streams), 1)
+        self.assertEqual(self.calls("download"), [])
+
+    def test_a_video_too_big_to_hold_is_not_fetched_whole_when_it_cannot_stream(self):
+        with mock.patch.object(self.frame, "notify") as notify:
+            self.frame.on_stream_finished((1, 1), False, ValueError("moov at the end"), False, c.WHOLE_FETCH_MAX_BYTES + 1)
+        notify.assert_called_once_with(c.MSG_TOO_BIG_TO_STREAM_KEY, c.FEEDBACK_UNAVAILABLE)
+        self.assertEqual(self.calls("download"), [])
+        # A small one is fetched whole into memory, as before.
+        self.frame.on_stream_finished((1, 1), False, ValueError("moov at the end"), False, 1000)
+        self.assertTrue(pump(lambda: self.calls("download")))
+
+    def test_a_file_without_sound_says_so_and_fetches_nothing_more(self):
+        from core import audio
+        self.frame.on_stream_finished((1, 9), False, audio.NoSoundError(), False, 1000)
+        pump(timeout=0.1)
+        self.assertEqual(self.calls("download"), [])
+        self.assertEqual(self.spoken[-1], self.text(c.MSG_NO_SOUND_KEY))
+        self.assertEqual(self.boxes, [])
 
     def test_the_shortcut_downloads_first_too(self):
         self.select(2)

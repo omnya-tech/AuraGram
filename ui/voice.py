@@ -11,7 +11,7 @@ from core.constants import (
     BTN_RECORD_KEY, BTN_STOP_AND_SEND_KEY, VOICE_NOTE_FILE, MIN_VOICE_SECONDS, MSG_RECORDING_KEY, MSG_RECORDING_FORMAT_KEY, MENU_RECORD_KEY, MSG_RECORDING_CANCELLED_KEY,
     MSG_RECORDING_TOO_SHORT_KEY, MSG_SENDING_VOICE_KEY, MSG_VOICE_SENT_KEY, MSG_PLAYING_KEY,
     MSG_PLAYBACK_STOPPED_KEY, MSG_PLAYBACK_POSITION_FORMAT_KEY, MSG_NOTHING_PLAYING_KEY, SEEK_SECONDS, ERR_AUDIO_KEY, ERR_NO_AUDIO_SUPPORT_KEY, STATUS_READY_KEY,
-    SOUND_RECORD_START, SOUND_RECORD_STOP
+    SOUND_RECORD_START, SOUND_RECORD_STOP, MSG_NO_SOUND_KEY, FEEDBACK_UNAVAILABLE,
 )
 
 class VoiceMixin:
@@ -147,7 +147,11 @@ class VoiceMixin:
     def on_playback_finished(self, completed, error):
         if not self:
             return
-        if error is not None:
+        if isinstance(error, audio.NoSoundError):
+            # Not the speakers' fault: a video without sound, say.
+            self.set_status(STATUS_READY_KEY)
+            self.notify(MSG_NO_SOUND_KEY, FEEDBACK_UNAVAILABLE)
+        elif error is not None:
             self.show_error(ERR_AUDIO_KEY)
         elif completed:
             self.set_status(STATUS_READY_KEY)
