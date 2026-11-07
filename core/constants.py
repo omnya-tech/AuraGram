@@ -245,6 +245,14 @@ CONNECTION_STATE_KEYS = {
     CONNECTION_OFFLINE: "CONNECTION_OFFLINE",
 }
 CONNECTION_WATCH_SECONDS = 10
+# How soon a dropped line is tried again; each try waits for the network for a few seconds itself.
+CONNECTION_RETRY_WATCH_SECONDS = 3
+# Checks in a row without an answer before the line counts as down: a slow line answers late, not never.
+CONNECTION_PINGS_MISSED_OFFLINE = 2
+# A ping unanswered this long is left for a new one (not cancelled: see _is_reachable_async).
+CONNECTION_PING_GIVE_UP_SECONDS = 60
+# Telethon's own tries at connecting each time, before the watcher takes over.
+CLIENT_CONNECTION_RETRIES = 2
 # Between tries of the first connection at a start with Windows, while the network is not up yet.
 CONNECT_RETRY_SECONDS = 5
 MSG_CONNECTION_LOST_KEY = "MSG_CONNECTION_LOST"

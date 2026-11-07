@@ -1,4 +1,5 @@
 """Knowing whether Telegram is reachable, and saying so on the tray icon."""
+import asyncio
 import unittest
 from unittest import mock
 
@@ -15,11 +16,16 @@ class FlakyClient:
     reachable = True
     connects = 0
     authorized = True
+    # How long Telegram takes to answer; None when it never does, as on a line that died silently.
+    delay = 0
+    # Whether a ping was answered after the watcher had stopped waiting for it.
+    late_answers = 0
     # What was done to the line, in order.
     steps = []
 
     def __init__(self, *args, **kwargs):
         self.connected = False
+        FlakyClient.made_with = kwargs
 
     def add_event_handler(self, handler, event):
         pass
@@ -46,6 +52,12 @@ class FlakyClient:
             # What Telethon ends up doing once its own retries run out.
             self.connected = False
             raise ConnectionError("connection lost")
+        if FlakyClient.delay is None:
+            await asyncio.Event().wait()
+        started = asyncio.get_running_loop().time()
+        await asyncio.sleep(FlakyClient.delay)
+        if asyncio.get_running_loop().time() - started > telegram_client.CONNECTION_PING_TIMEOUT_SECONDS:
+            FlakyClient.late_answers += 1
 
 
 class ConnectionWatchTest(unittest.TestCase):
@@ -53,10 +65,14 @@ class ConnectionWatchTest(unittest.TestCase):
         FlakyClient.reachable = True
         FlakyClient.connects = 0
         FlakyClient.steps = []
+        FlakyClient.delay = 0
+        FlakyClient.late_answers = 0
         self.states = []
         for patch in (
             mock.patch.object(telegram_client, "TelegramClient", FlakyClient),
             mock.patch.object(telegram_client, "CONNECTION_WATCH_SECONDS", 0.01),
+            mock.patch.object(telegram_client, "CONNECTION_RETRY_WATCH_SECONDS", 0.01),
+            mock.patch.object(telegram_client, "CONNECTION_PING_TIMEOUT_SECONDS", 0.05),
         ):
             patch.start()
             self.addCleanup(patch.stop)
@@ -81,6 +97,27 @@ class ConnectionWatchTest(unittest.TestCase):
         self.assertEqual(FlakyClient.steps[0], "connect")
         second = FlakyClient.steps.index("connect", 1)
         self.assertIn("disconnect", FlakyClient.steps[1:second])
+
+    def test_a_slow_line_that_answers_late_is_not_called_down(self):
+        self.assertTrue(pump(lambda: self.states == [c.CONNECTION_ONLINE]))
+        # Each answer comes after the watcher stopped waiting, but before the next check gives up on it.
+        FlakyClient.delay = 0.07
+        self.assertTrue(pump(lambda: FlakyClient.late_answers >= 3, timeout=3))
+        # The late answers reached pings still waiting for them, none cancelled under Telethon (which
+        # made it fail, "invalid state", and lose what came in with the answer).
+        self.assertEqual(self.states, [c.CONNECTION_ONLINE])
+
+    def test_a_line_that_stops_answering_is_called_down_after_two_checks_and_back_when_it_answers(self):
+        self.assertTrue(pump(lambda: self.states == [c.CONNECTION_ONLINE]))
+        FlakyClient.delay = None
+        self.assertTrue(pump(lambda: self.states == [c.CONNECTION_ONLINE, c.CONNECTION_OFFLINE], timeout=3))
+        # Answering again: the ping still out is not cancelled but given up on, and a new one gets through.
+        with mock.patch.object(telegram_client, "CONNECTION_PING_GIVE_UP_SECONDS", 0):
+            FlakyClient.delay = 0
+            self.assertTrue(pump(lambda: self.states[-1] == c.CONNECTION_ONLINE, timeout=3))
+
+    def test_the_client_tries_connecting_only_a_little_before_the_watcher_takes_over(self):
+        self.assertEqual(FlakyClient.made_with["connection_retries"], c.CLIENT_CONNECTION_RETRIES)
 
     def test_stopping_does_not_connect_again(self):
         self.assertTrue(pump(lambda: self.states == [c.CONNECTION_ONLINE]))

@@ -108,6 +108,13 @@ Source: "dist\{#AppName}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsu
 #endif
 
 #ifndef UpdateOnly
+[InstallDelete]
+; The whole installer brings every library: the ones an older version left must go first. Files
+; are only ever written over, never taken away, so a library an older build had and this one has
+; not would stay behind and be loaded as if it belonged (1.0.0's cryptg, built for Python 3.11,
+; broke 1.1's encryption that way and with it every connection to Telegram).
+Type: filesandordirs; Name: "{app}\_internal"
+
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
 Name: "{group}\{cm:UninstallShortcut}"; Filename: "{uninstallexe}"

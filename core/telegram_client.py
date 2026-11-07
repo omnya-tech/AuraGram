@@ -21,6 +21,7 @@ from telethon.errors import (
 )
 from telethon.tl import functions, types
 from telethon.utils import get_display_name, get_peer_id
+import core
 from core.config import load_credentials
 from core.proxy import client_arguments
 from core.constants import (
@@ -30,7 +31,8 @@ from core.constants import (
     ERR_CHAT_NOT_FOUND_KEY, CODE_DELIVERY_KEYS, NEXT_CODE_DELIVERY_KEYS, CODE_DELIVERY_OTHER_KEY,
     ERR_NO_OTHER_DELIVERY_KEY, ERR_VOICE_FORBIDDEN_KEY, ERR_API_INVALID_KEY, EVENT_NEW_MESSAGE,
     EVENT_MESSAGE_EDITED, EVENT_MESSAGES_DELETED, CONNECTION_ONLINE, CONNECTION_OFFLINE,
-    CONNECTION_WATCH_SECONDS, CONNECTION_PING_TIMEOUT_SECONDS, EVENT_MESSAGES_READ, EVENT_USER_STATUS, CONNECT_RETRY_SECONDS,
+    CONNECTION_WATCH_SECONDS, CONNECTION_PING_TIMEOUT_SECONDS, CONNECTION_RETRY_WATCH_SECONDS,
+    CONNECTION_PINGS_MISSED_OFFLINE, CONNECTION_PING_GIVE_UP_SECONDS, CLIENT_CONNECTION_RETRIES, EVENT_MESSAGES_READ, EVENT_USER_STATUS, CONNECT_RETRY_SECONDS,
     EVENT_TYPING, TYPING_ACTION_CANCEL, TYPING_ACTION_TYPING, TYPING_ACTION_VOICE, TYPING_ACTION_VIDEO,
     TYPING_ACTION_UPLOAD, ERR_NO_PHONE_KEY, ERR_USERNAME_TAKEN_KEY, ERR_USERNAME_INVALID_KEY,
     ERR_PHOTO_INVALID_KEY, ERR_PREHISTORY_HIDDEN_KEY, ERR_DISCUSSION_LINK_KEY, ERR_NO_INVITE_LINK_KEY,
@@ -158,6 +160,8 @@ class TelegramManager(ChatsMixin, MessagesMixin, MediaMixin, AdminMixin, Account
 
     def run(self):
         asyncio.set_event_loop(self.loop)
+        if core.CRYPTG_SET_ASIDE:
+            logger.warning("A cryptg that cannot encrypt was found beside the program and set aside")
         # A session file that cannot be read (half written when the computer lost power, say) would end
         # this thread and leave the sign-in window waiting for ever. It is set aside, kept for a look,
         # and a new one asks to sign in again, as after a first install.
@@ -172,12 +176,17 @@ class TelegramManager(ChatsMixin, MessagesMixin, MediaMixin, AdminMixin, Account
     def _create_client(self):
         # Whether this client has been connected before, and so may have left work running.
         self.client_was_connected = False
+        # The watcher's ping still waiting for its answer, when it was sent, and how many checks in a row went unanswered.
+        self.ping, self.ping_started, self.missed_pings = None, 0.0, 0
         self.client = TelegramClient(
             self.session_name, self.api_id, self.api_hash,
             # How the account's list of devices names this program; Telethon's own defaults say nothing of it.
             device_model=CLIENT_DEVICE_MODEL, app_version=APP_VERSION,
             system_version=CLIENT_SYSTEM_FORMAT.format(release=platform.release()),
             lang_code=self.translate_lang, system_lang_code=self.translate_lang,
+            # Few tries of its own: the watcher keeps trying every few seconds for as long as it takes,
+            # while Telethon's five tries of up to ten seconds each kept the line down for a minute.
+            connection_retries=CLIENT_CONNECTION_RETRIES,
             **client_arguments(self.proxy)
         )
         self.client.add_event_handler(self._on_new_message, events.NewMessage())
@@ -395,26 +404,52 @@ class TelegramManager(ChatsMixin, MessagesMixin, MediaMixin, AdminMixin, Account
     async def _watch_connection_async(self):
         """Keep asking Telegram for a sign of life, and reconnect when the line has dropped."""
         while True:
-            state = CONNECTION_ONLINE if await self._is_reachable_async() else CONNECTION_OFFLINE
-            if state != self.connection_state:
-                self.connection_state = state
-                logger.info("Connection to Telegram: %s", state)
-                if self.connection_listener is not None:
-                    self.connection_listener(state)
-            await asyncio.sleep(CONNECTION_WATCH_SECONDS)
+            reachable = await self._is_reachable_async()
+            if reachable is not None:
+                state = CONNECTION_ONLINE if reachable else CONNECTION_OFFLINE
+                if state != self.connection_state:
+                    self.connection_state = state
+                    logger.info("Connection to Telegram: %s", state)
+                    if self.connection_listener is not None:
+                        self.connection_listener(state)
+            # Down, it is tried again soon, so that the line is back within seconds of the network.
+            await asyncio.sleep(
+                CONNECTION_RETRY_WATCH_SECONDS if self.connection_state == CONNECTION_OFFLINE
+                else CONNECTION_WATCH_SECONDS
+            )
+
+    def _start_ping(self):
+        ping = asyncio.ensure_future(
+            self.client(functions.PingRequest(ping_id=int.from_bytes(os.urandom(8), "big", signed=True)))
+        )
+        # Its failure, once the line drops, is the watcher's to see or not; it is not left to be logged as lost.
+        ping.add_done_callback(lambda done: done.cancelled() or done.exception())
+        self.ping, self.ping_started = ping, time.monotonic()
 
     async def _is_reachable_async(self):
+        """True when Telegram answers, False when it cannot be reached, None while it is too soon to say."""
         try:
             # Telethon gives up reconnecting after a few tries; this picks it up again.
             await self._ensure_connected()
-            # An open socket proves nothing when the network died silently; an answer does.
-            await asyncio.wait_for(
-                self.client(functions.PingRequest(ping_id=int.from_bytes(os.urandom(8), "big", signed=True))),
-                CONNECTION_PING_TIMEOUT_SECONDS
-            )
-            return True
         except Exception:
+            self.ping, self.missed_pings = None, 0
             return False
+        # An open socket proves nothing when the network died silently; an answer does. One ping at a
+        # time, and never cancelled: Telethon hands over a late pong by setting the ping's result, and
+        # on a cancelled one that fails ("invalid state") and loses whatever else came in with it.
+        # A ping answered since the last check is this check's answer; only then is the next one sent.
+        if self.ping is None or (not self.ping.done() and time.monotonic() - self.ping_started > CONNECTION_PING_GIVE_UP_SECONDS):
+            self._start_ping()
+        ping = self.ping
+        await asyncio.wait({ping}, timeout=CONNECTION_PING_TIMEOUT_SECONDS)
+        if ping.done():
+            self.ping = None
+            failed = ping.cancelled() or ping.exception() is not None
+            self.missed_pings = self.missed_pings + 1 if failed else 0
+            return not failed
+        # A slow line answers late: only an answer missed check after check means it is gone.
+        self.missed_pings += 1
+        return False if self.missed_pings >= CONNECTION_PINGS_MISSED_OFFLINE else None
 
     async def _connect_async(self):
         # True once the window was opened on what this computer knew, before Telegram could be asked.

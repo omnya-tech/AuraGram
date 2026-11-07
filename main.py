@@ -359,7 +359,8 @@ def self_check():
     Returns 0 if so, otherwise the sum of: 1 for missing files (texts, icon, tones),
     2 for voice messages unavailable, 4 for screen reader output unavailable,
     8 for no API id and hash packed in (the program will ask each user for them),
-    16 for failing to connect to Telegram with them.
+    16 for failing to connect to Telegram with them, 32 for Telethon encrypting in pure Python
+    (cryptg missing or broken), which makes every message and download crawl.
     """
     import os
     from core import audio, speech
@@ -378,6 +379,9 @@ def self_check():
         problems += 8
     elif not can_reach_telegram():
         problems += 16
+    from telethon.crypto import aes
+    if aes.cryptg is None:
+        problems += 32
     return problems
 
 def can_reach_telegram():

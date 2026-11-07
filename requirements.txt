@@ -4,6 +4,9 @@
 # and set UPDATE_BASE_VERSION in core/constants.py to the release that brings it.
 wxPython==4.2.5
 Telethon==1.45.0
+# Telethon's encryption in compiled code. Without it Telethon falls back to pure Python, some two
+# thousand times slower: seconds for each megabyte sent or downloaded, and a slow start.
+cryptg==0.6.1
 # Checking that update.json is signed by the release key (core/signing.py); Telethon needs it too.
 rsa==4.9.1
 # Connecting through a SOCKS5 proxy.

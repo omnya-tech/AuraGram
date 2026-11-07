@@ -51,8 +51,8 @@ ADDRESS_TO_FILL_IN = "https://REPLACE-WITH-THE-RELEASES-ADDRESS"
 DATA_FOLDERS = ("locales", "assets")
 # Packages whose DLLs and data files PyInstaller does not find from the imports
 # alone: the screen reader bridges, the audio device library, the codecs, and the
-# SOCKS library Telethon loads only once a proxy is set.
-COLLECTED_PACKAGES = ("accessible_output2", "sounddevice", "av", "python_socks")
+# SOCKS library Telethon loads only once a proxy is set, and cryptg, which it tries inside a try.
+COLLECTED_PACKAGES = ("accessible_output2", "sounddevice", "av", "python_socks", "cryptg")
 # Where Inno Setup puts its compiler, the newer version first.
 INNO_SETUP_COMPILERS = tuple(
     os.path.join(folder, "Inno Setup " + version, "ISCC.exe")
@@ -86,7 +86,10 @@ SELF_CHECK_PROBLEMS = (
     (4, "screen reader announcements will not work (accessible_output2 not bundled)"),
     (8, "no API id and hash inside: the program will ask each user for them"),
     (16, "the built program could not connect to Telegram (no internet now, or a wrong API id)"),
+    (32, "Telethon encrypts in pure Python (cryptg not bundled): every message and download would crawl"),
 )
+# Problems the build stops for rather than warns of: a program missing its files, or one too slow to use.
+SELF_CHECK_FATAL = 1 | 32
 BUNDLED_CONFIG_BUILD_FILE = os.path.join(WORK_DIR, BUNDLED_CONFIG_NAME)
 
 
@@ -331,8 +334,9 @@ def check_program():
     problems = [text for bit, text in SELF_CHECK_PROBLEMS if code & bit]
     if code and not problems:
         sys.exit("Build stopped: the program did not start (exit code %d)." % code)
-    if code & 1:
-        sys.exit("Build stopped: " + problems[0] + ".")
+    fatal = [text for bit, text in SELF_CHECK_PROBLEMS if code & bit & SELF_CHECK_FATAL]
+    if fatal:
+        sys.exit("Build stopped: " + "; ".join(fatal) + ".")
     for text in problems:
         print("WARNING:", text)
     if not problems:
