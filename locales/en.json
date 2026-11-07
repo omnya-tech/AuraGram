@@ -538,7 +538,7 @@
     "SETTINGS_SPEAK_percent": "How far a long download has come, now and then (50%)",
     "SETTINGS_SIMPLE_TAB": "Short Tab navigation: skip the view tabs and the Send button (chats, messages, message field, attach, record)",
     "SETTINGS_SHOW_PREVIEW": "Show the “selected message” box below the message list",
-    "SETTINGS_CHAT_COLOURS": "Colour chats in the list by their kind (channels, groups, bots), and unread ones in bold",
+    "SETTINGS_CHAT_COLOURS": "Colour the lists: chats by their kind with unread ones in bold, and messages in their writer's Telegram colour",
     "SETTINGS_CHAT_PHOTOS": "Show chat pictures in the list (a small picture of each chat is kept on this computer)",
     "SETTINGS_CHAT_COLOUR_BY_LABEL": "Colour of chat names in the list:",
     "CHAT_COLOUR_BY_KIND": "By their kind: channels blue, groups green, bots purple",

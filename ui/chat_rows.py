@@ -1,4 +1,5 @@
-"""The list of chats: one line per chat, with its picture and, by its kind, its own colour.
+"""A list of rows with a picture and a colour each: the chats (their photos, colours by kind) and the
+messages (what each carries, the colour of who wrote it).
 
 A plain list box can show neither, so this is Windows' own list view (what Explorer lists files in),
 which every screen reader knows: it reads each row's words as it read the list box's. It answers to the
@@ -6,7 +7,8 @@ same calls as wx.ListBox (Set, GetSelection, SetString, Insert...) and sends the
 rest of the program uses it as it used the list box.
 
 How each row looks is asked of `row_look(index)` whenever a row is written: (colour or None, bold,
-picture index or -1).
+picture index or -1). The pictures come from whatever is given to set_pictures: anything with an
+`image_list`.
 """
 import wx
 
@@ -38,6 +40,8 @@ class ChatRows(wx.ListCtrl):
 
     def GetItems(self):
         return [self.GetItemText(index) for index in range(self.GetItemCount())]
+
+    GetStrings = GetItems
 
     def GetSelection(self):
         return self.GetFirstSelected()
@@ -92,7 +96,7 @@ class ChatRows(wx.ListCtrl):
     # ----------------------------------------------------------------- how the rows look
 
     def set_pictures(self, pictures):
-        """Show each row's picture from `pictures` (an avatars.ChatPictures), or none with None."""
+        """Show each row's picture from `pictures` (avatars.ChatPictures, icons.MediaPictures), or none with None."""
         self.pictures = pictures
         # The list does not own the image list it shows: `pictures` keeps it alive.
         self.SetImageList(pictures.image_list if pictures is not None else None, wx.IMAGE_LIST_SMALL)

@@ -11,7 +11,9 @@ import core.constants as c
 import core.settings as s
 import ui.chat_list
 import ui.main_frame
-from tests.harness import FakeTelegramClient, WindowTestCase, get_app, make_channel, make_user, pump
+from tests.harness import (
+    FakeTelegramClient, Record, WindowTestCase, get_app, make_channel, make_message, make_user, pump,
+)
 from ui import avatars, icons, themes
 from ui.chat_rows import ChatRows
 
@@ -190,6 +192,45 @@ class ChatRowsTest(unittest.TestCase):
         activated.SetIndex(0)
         self.rows.on_activated(activated)
         self.assertEqual(self.events, [("select", 0), ("open", 0)])
+
+
+MONA = with_color(make_user(21, "Mona"), 6)
+SAMI = make_user(22, "Sami")
+TEAM = make_channel(1000000030, "Team", group=True)
+
+
+class MessageLookTest(WindowTestCase):
+    chats = [(TEAM, 0, False)]
+    history = {-1001000000030: [
+        make_message(1, "hello all", sender=MONA),
+        make_message(2, "hi", sender=SAMI),
+        make_message(3, "mine", outgoing=True, sender=make_user(99, "Me", is_self=True)),
+        make_message(4, sender=MONA, voice=True, file=Record(name=None, size=3000, duration=3)),
+    ]}
+
+    def setUp(self):
+        super().setUp()
+        self.open_chat(0)
+        self.rows = self.frame.messages_list
+
+    def test_each_message_is_in_its_writers_colour_and_ones_own_in_the_lists(self):
+        self.assertEqual(self.rows.GetItemTextColour(0), themes.chat_name_colour(6))
+        # Sami chose none: the colour Telegram gives him by his number.
+        self.assertEqual(self.rows.GetItemTextColour(1), themes.chat_name_colour(22 % c.PLAIN_COLORS))
+        self.assertEqual(self.rows.GetItemTextColour(2), self.rows.GetTextColour())
+
+    def test_what_a_message_carries_has_its_picture_and_plain_words_have_none(self):
+        pictures = self.rows.pictures
+        self.assertLess(self.rows.GetItem(0).GetImage(), 0)
+        if icons.available():
+            self.assertEqual(self.rows.GetItem(3).GetImage(), pictures.index_for(c.MEDIA_VOICE))
+            self.assertGreaterEqual(pictures.index_for(c.MEDIA_VOICE), 0)
+
+    def test_colours_turned_off_leave_the_messages_plain(self):
+        self.frame.settings.set(s.SETTING_CHAT_COLOURS, False)
+        self.rows.paint_rows()
+        for index in range(self.rows.GetCount()):
+            self.assertEqual(self.rows.GetItemTextColour(index), self.rows.GetTextColour())
 
 
 async def fake_download(self, owner, file=None, download_big=False):

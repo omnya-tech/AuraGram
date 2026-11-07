@@ -174,6 +174,7 @@ class ChatListMixin:
         if self.dialogs_list.pictures is not None:
             self.dialogs_list.pictures.palette = result
         self.dialogs_list.paint_rows()
+        self.messages_list.paint_rows()
 
     def on_chat_photo(self, chat_id, photo_id, path):
         """A chat's photo has come down: it takes the place of the initials its row showed."""

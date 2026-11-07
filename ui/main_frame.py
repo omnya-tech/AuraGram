@@ -220,7 +220,8 @@ class MainFrame(
         chat_box = self.chat_box = wx.BoxSizer(wx.VERTICAL)
         self.messages_label = wx.StaticText(self.panel, label=self.i18n.get_string(MESSAGES_LABEL_KEY))
         chat_box.Add(self.messages_label, flag=wx.BOTTOM, border=5)
-        self.messages_list = wx.ListBox(self.panel, style=wx.LB_SINGLE)
+        # Windows' own list view, as the chats': each message in the colour of who wrote it, with a picture of what it carries.
+        self.messages_list = ChatRows(self.panel, self.message_row_look)
         self.messages_type_ahead = TypeAhead(self.messages_list)
         self.messages_list.Bind(wx.EVT_LISTBOX, lambda event: self.update_preview())
         self.messages_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_activate_message)
@@ -304,8 +305,18 @@ class MainFrame(
             control.SetFont(font)
         # The pictures grow with the text, and come or go with their setting.
         self.set_up_chat_pictures()
+        self.set_up_media_pictures()
         self.dialogs_list.paint_rows()
+        self.messages_list.paint_rows()
         self.panel.Layout()
+
+    def set_up_media_pictures(self):
+        """Give the message list the pictures of what messages carry, at the text's size and in its colour."""
+        scale = LARGE_TEXT_SCALE if self.settings.get(SETTING_LARGE_TEXT) else 1
+        mirrored = self.messages_list.GetLayoutDirection() == wx.Layout_RightToLeft
+        self.messages_list.set_pictures(
+            icons.MediaPictures(self.FromDIP(int(icons.ICON_SIZE * scale)), icons.list_text_colour(), mirrored)
+        )
 
     def set_up_chat_pictures(self):
         """Give the chat list its pictures, at the size the text calls for; none if they are turned off."""
@@ -371,9 +382,11 @@ class MainFrame(
         """Switch the whole app to the theme chosen in the settings."""
         set_theme(self.settings.get(SETTING_THEME))
         apply_theme(self)
-        # The pictures on the buttons, and the colours of the chats, are the theme's too.
+        # The pictures on the buttons and in the messages, and the colours of the rows, are the theme's too.
         icons.repaint(self)
+        self.set_up_media_pictures()
         self.dialogs_list.paint_rows()
+        self.messages_list.paint_rows()
         # Painted over with the rest just now: mark the current view's tab again.
         self.view_tabs.SetSelection(self.view_tabs.GetSelection())
 

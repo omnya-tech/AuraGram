@@ -240,6 +240,8 @@ class MessagesMixin:
             "sender": get_display_name(sender) if sender else EMPTY_STRING,
             # Set when a person wrote it, and so can be written to; None for a channel or a group writing as itself.
             "sender_id": sender.id if isinstance(sender, types.User) else None,
+            # The writer's colour in Telegram's palette, as its apps draw the name over the message; None if unknown.
+            "sender_color": self._chat_color(sender) if isinstance(getattr(sender, "id", None), int) else None,
             "text": message.message or EMPTY_STRING,
             # Words for an attachment that has no text of its own: a sticker's emoji, a contact's name and number.
             "detail": self._describe_detail(message),

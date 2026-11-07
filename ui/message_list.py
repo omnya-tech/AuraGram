@@ -4,7 +4,11 @@ import subprocess
 import wx
 from core.speech import speak
 from core import audio
-from core.settings import SETTING_VOICE_SPEED, SETTING_MARK_READ_ON_OPEN, SETTING_MESSAGE_STATS, SETTING_TIME_STYLE
+from core.settings import (
+    SETTING_VOICE_SPEED, SETTING_MARK_READ_ON_OPEN, SETTING_MESSAGE_STATS, SETTING_TIME_STYLE, SETTING_CHAT_COLOURS,
+)
+from ui.chat_rows import NO_LOOK
+from ui.themes import chat_name_colour
 from ui.layout import duration_text, file_kind, file_size
 from core.constants import (
     FEEDBACK_WAITING,
@@ -288,6 +292,22 @@ class MessageListMixin:
 
     def message_offset(self):
         return 1 if self.has_older else 0
+
+    def message_row_look(self, index):
+        """How a row of the message list looks, for the eyes: (colour, bold, picture), as ChatRows asks.
+        Someone else's message is in the colour Telegram gives its writer, as its apps draw the name over it,
+        so who wrote what shows at a glance; this account's own keep the list's colour. The picture says
+        what the message carries. The row's words say both, for whoever does not see them."""
+        position = index - self.message_offset()
+        if not 0 <= position < len(self.messages):
+            # The rows that load older messages, start a bot, or show files going up.
+            return NO_LOOK
+        message = self.messages[position]
+        colour = None
+        if self.settings.get(SETTING_CHAT_COLOURS) and not message["outgoing"] and not self.is_channel_post(message):
+            colour = chat_name_colour(message.get("sender_color"), self.peer_colors)
+        pictures = self.messages_list.pictures
+        return colour, False, pictures.index_for(message["media"]) if pictures is not None else -1
 
     def append_message(self, message):
         # Search results are a fixed list; the message shows up once the search is closed.

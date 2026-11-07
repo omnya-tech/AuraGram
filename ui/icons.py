@@ -20,6 +20,14 @@ GLYPHS = {
     "open": 0xE8E5, "comments": 0xE90A, "stats": 0xE9D2, "remind": 0xEA8F,
     "chats": 0xE8F2, "unread": 0xE715, "archive": 0xF12B, "channel": 0xE789, "group": 0xE902,
     "favorite": 0xE734, "contact": 0xE77B, "folder": 0xE8B7,
+    "audio": 0xE8D6, "photo": 0xE722, "video": 0xE714, "video_note": 0xE8AA, "gif": 0xF4A9, "file": 0xE7C3,
+    "sticker": 0xE76E, "location": 0xE707, "contact_card": 0xE779, "poll": 0xE9D5,
+}
+# The picture at the start of a message's row in the list, by what it carries (a MEDIA_* key).
+MEDIA_ICONS = {
+    "MEDIA_VOICE": "microphone", "MEDIA_AUDIO": "audio", "MEDIA_PHOTO": "photo", "MEDIA_VIDEO": "video",
+    "MEDIA_VIDEO_NOTE": "video_note", "MEDIA_GIF": "gif", "MEDIA_FILE": "file", "MEDIA_STICKER": "sticker",
+    "MEDIA_LOCATION": "location", "MEDIA_CONTACT": "contact_card", "MEDIA_POLL": "poll",
 }
 # Pictures that point a way: in a right-to-left window they point the other way, as the reading does
 # ("back" to the right, "send" to the left), the way Windows and Telegram's own apps turn them.
@@ -97,6 +105,35 @@ def put_on(button, name, colour=None):
     button.SetBitmapMargins(button.FromDIP(wx.Size(4, 0)))
     # Room for the picture: the button grows to hold it and its words.
     button.InvalidateBestSize()
+
+
+def list_text_colour():
+    """The colour of the words in lists, which a list's pictures take too."""
+    colours = THEME_COLOURS[current_theme()]
+    if colours is None:
+        return wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOWTEXT)
+    return wx.Colour(colours["field_text"])
+
+
+class MediaPictures:
+    """The pictures of what messages carry, for a list's rows: one image list holding one of each.
+
+    `mirrored`: the list is laid out right to left, where Windows draws its pictures back to front
+    (a "GIF" would read "FIG"); each is turned beforehand so that it comes out the right way.
+    """
+
+    def __init__(self, size, colour, mirrored=False):
+        self.size = size
+        self.image_list = wx.ImageList(size, size, mask=False)
+        self.indexes = {}
+        for media, name in MEDIA_ICONS.items():
+            bitmap = draw(name, size, colour, mirrored)
+            if bitmap is not None:
+                self.indexes[media] = self.image_list.Add(bitmap)
+
+    def index_for(self, media):
+        """The picture of a MEDIA_* kind; -1 for a message with none, or one without a picture."""
+        return self.indexes.get(media, -1)
 
 
 def repaint(window):
