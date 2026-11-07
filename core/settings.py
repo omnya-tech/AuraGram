@@ -31,6 +31,9 @@ SETTING_ANNOUNCE_CONNECTION = "announce_connection"
 SETTING_SIMPLE_TAB = "simple_tab"
 SETTING_ANNOUNCE_TYPING = "announce_typing"
 SETTING_SHOW_PREVIEW = "show_preview"
+# Rows of the chat list in a colour by the kind of chat (channel, group, bot), and with each chat's picture.
+SETTING_CHAT_COLOURS = "chat_colours"
+SETTING_CHAT_PHOTOS = "chat_photos"
 # One of the THEMES names.
 SETTING_THEME = "theme"
 SETTING_ANNOUNCE_WHEN = "announce_when"
@@ -113,6 +116,8 @@ DEFAULTS = {
     SETTING_SIMPLE_TAB: True,
     SETTING_ANNOUNCE_TYPING: True,
     SETTING_SHOW_PREVIEW: True,
+    SETTING_CHAT_COLOURS: True,
+    SETTING_CHAT_PHOTOS: True,
     SETTING_CHECK_UPDATES: True,
     SETTING_RECORD_SOUND: True,
     SETTING_ENTER_SENDS: True,

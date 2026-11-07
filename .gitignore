@@ -16,8 +16,9 @@ settings.json
 auragram.log
 auragram.log.*
 
-# Media saved from chats
+# Media saved from chats, and the small photos of chats shown in the list
 downloads/
+avatars/
 
 # Build output
 build/

@@ -1,6 +1,8 @@
 import wx
 from core.speech import speak
-from core.settings import SETTING_FAVORITES, SETTING_CHAT_KIND
+from core.settings import SETTING_FAVORITES, SETTING_CHAT_KIND, SETTING_CHAT_COLOURS
+from ui.chat_rows import NO_LOOK
+from ui.themes import kind_colour
 from ui.chat_picker_dialog import ChatPickerDialog
 from ui.type_ahead import attach_to_lists
 from ui.global_search_dialog import GlobalSearchDialog
@@ -48,7 +50,7 @@ from core.constants import (
     MSG_ALL_READ_KEY, MSG_NOTHING_UNREAD_KEY, MSG_INVITE_COPIED_KEY, MSG_CONTACTS_COUNT_FORMAT_KEY,
     STATUS_OFFLINE_KEY, CHAT_KIND_GROUP, CHAT_KIND_CHANNEL, CHAT_KIND_PLACE_AFTER, CHAT_KIND_PLACE_BEFORE,
     CHAT_KIND_BEFORE_FORMAT_KEY, MSG_LOADING_MORE_DIALOGS_KEY, MSG_MORE_DIALOGS_PROGRESS_FORMAT_KEY,
-    MSG_MORE_DIALOGS_LOADED_FORMAT_KEY, MSG_NO_MORE_DIALOGS_KEY
+    MSG_MORE_DIALOGS_LOADED_FORMAT_KEY, MSG_NO_MORE_DIALOGS_KEY, CHAT_PHOTOS_DIR, CHAT_PHOTOS_DELAY_MS
 )
 
 class ChatListMixin:
@@ -118,9 +120,56 @@ class ChatListMixin:
     def showing_contacts(self):
         return self.views[self.view_index].is_contacts
 
+    def dialog_row_look(self, index):
+        """How a row of the chat list looks, for the eyes: (colour, bold, picture), as ChatRows asks.
+        The colour tells the kind of chat, bold that it has something unread; the row's words say both
+        as well, so neither is lost on someone who cannot see the colour."""
+        if not 0 <= index < len(self.dialogs):
+            # The row that loads more chats.
+            return NO_LOOK
+        dialog = self.dialogs[index]
+        colour, bold = None, False
+        if self.settings.get(SETTING_CHAT_COLOURS):
+            colour = kind_colour(dialog.get("category"))
+            bold = bool(dialog.get("unread") or dialog.get("marked_unread"))
+        picture = -1
+        pictures = self.dialogs_list.pictures
+        if pictures is not None:
+            picture = pictures.index_for(dialog)
+            if pictures.missing:
+                self.fetch_chat_photos_soon()
+        return colour, bold, picture
+
+    def fetch_chat_photos_soon(self):
+        """Send for the photos the list is missing, once the burst of changes asking for them is over."""
+        if not self.photos_pending:
+            self.photos_pending = True
+            wx.CallLater(CHAT_PHOTOS_DELAY_MS, self.fetch_chat_photos)
+
+    def fetch_chat_photos(self):
+        if not self:
+            return
+        self.photos_pending = False
+        pictures = self.dialogs_list.pictures
+        # Offline they stay missing, to be asked for when the list is drawn again with the line up.
+        if pictures is None or not self.telegram_manager.is_connected():
+            return
+        missing = pictures.take_missing()
+        if missing:
+            self.telegram_manager.load_chat_photos(
+                missing, CHAT_PHOTOS_DIR, lambda *photo: wx.CallAfter(self.on_chat_photo, *photo)
+            )
+
+    def on_chat_photo(self, chat_id, photo_id, path):
+        """A chat's photo has come down: it takes the place of the initials its row showed."""
+        if not self or self.dialogs_list.pictures is None:
+            return
+        if self.dialogs_list.pictures.photo_arrived(chat_id, photo_id, path):
+            self.dialogs_list.Refresh()
+
     def show_folders(self, folders):
         self.views = build_views(self.i18n, folders, self.favorites)
-        self.view_tabs.Set([view.label for view in self.views])
+        self.view_tabs.Set([view.label for view in self.views], [view.icon for view in self.views])
         if self.view_index >= len(self.views):
             # The folder on show was deleted from under its view: back to every chat.
             self.view_index = 0

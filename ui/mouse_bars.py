@@ -1,5 +1,6 @@
 import wx
 from core import shortcuts
+from ui import icons
 from ui.layout import OptionalButton
 from core.constants import (
     BTN_NEW_CHAT_KEY, BTN_GLOBAL_SEARCH_KEY, BTN_DOWNLOAD_FILES_KEY, BTN_CHAT_INFO_KEY, MENU_SETTINGS_KEY,
@@ -10,6 +11,14 @@ from core.constants import (
     TOOLTIP_SEARCH_MESSAGES_KEY, MENU_SEARCH_MESSAGES_KEY, TOOLTIP_RECORD_KEY, MENU_RECORD_KEY, TOOLTIP_SEND_KEY,
 )
 from core.settings import SETTING_ENTER_SENDS
+
+# The picture beside each button's words (see ui.icons).
+BAR_ICONS = {
+    BTN_NEW_CHAT_KEY: "add", BTN_GLOBAL_SEARCH_KEY: "globe", BTN_DOWNLOAD_FILES_KEY: "download",
+    BTN_CHAT_INFO_KEY: "info", MENU_SETTINGS_KEY: "settings", BTN_MORE_ACTIONS_KEY: "more",
+    CONTEXT_REPLY_KEY: "reply", CONTEXT_FORWARD_KEY: "forward", CONTEXT_REACT_KEY: "react", BTN_PLAY_KEY: "play",
+    BTN_OPEN_KEY: "open", BTN_COMMENTS_KEY: "comments", BTN_STATS_KEY: "stats", BTN_REMIND_KEY: "remind",
+}
 
 class MouseBarsMixin:
     """Rows of buttons for the mouse: the commands used most, in sight, on each of the two screens.
@@ -50,6 +59,7 @@ class MouseBarsMixin:
             bar.Add(button, flag=wx.RIGHT|wx.BOTTOM, border=6)
         for label_key, handler, command in entries:
             button = OptionalButton(self.panel, label=self.i18n.get_string(label_key))
+            icons.put_on(button, BAR_ICONS.get(label_key))
             button.Bind(wx.EVT_BUTTON, handler)
             button.command = command
             bar.Add(button, flag=wx.RIGHT|wx.BOTTOM, border=6)

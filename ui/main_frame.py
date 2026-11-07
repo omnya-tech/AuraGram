@@ -5,8 +5,11 @@ from core.speech import speak
 from core.settings import (
     FEEDBACK_SETTINGS, SETTING_FAVORITES, SETTING_KEEP_IN_BACKGROUND, SETTING_LARGE_TEXT, SETTING_THEME,
     SETTING_SPEAK_FEEDBACK, SETTING_SIMPLE_TAB, SETTING_SHOW_PREVIEW, SETTING_ENTER_SENDS,
-    SETTING_SOUND_VOLUME,
+    SETTING_SOUND_VOLUME, SETTING_CHAT_PHOTOS,
 )
+from ui import icons
+from ui.avatars import ChatPictures
+from ui.chat_rows import ChatRows
 from ui.themes import apply_theme, set_theme
 from ui.layout import OptionalButton, ReadOnlyText, ViewTabs, is_on_a_screen, prepare_window, reading_font
 from ui.type_ahead import TypeAhead
@@ -27,7 +30,7 @@ from core.constants import (
     MESSAGE_VIEW_COMMENTS, BTN_ATTACH_KEY, TOOLTIP_ATTACH_KEY, PROGRESS_LABEL_KEY, MSG_CHAT_CLOSED_KEY,
     MESSAGE_VIEW_TOPIC, GENERAL_TOPIC_ID, BTN_SEARCH_KEY, TOOLTIP_SEARCH_CHATS_KEY,
     TOOLTIP_SEARCH_MESSAGES_KEY, BTN_BACK_KEY, TOOLTIP_BACK_KEY, MENU_SEARCH_ALL_KEY, MESSAGE_INPUT_HEIGHT,
-    SOUND_VOLUMES,
+    SOUND_VOLUMES, CHAT_PHOTOS_DIR, CHAT_PHOTO_SIZE, LARGE_TEXT_SCALE,
 )
 from ui.chat_list import ChatListMixin
 from ui.message_list import MessageListMixin
@@ -186,13 +189,16 @@ class MainFrame(
         # Every view in sight, as tabs: a drop-down would show only the one that is on.
         self.view_tabs = ViewTabs(
             self.panel, [view.label for view in self.views], lambda: self.on_view_changed(None),
-            self.i18n.get_string(TOOLTIP_VIEW_KEY)
+            self.i18n.get_string(TOOLTIP_VIEW_KEY), [view.icon for view in self.views]
         )
         self.view_tabs.SetName(self.i18n.get_string(VIEW_LABEL_KEY))
         dialogs_box.Add(self.view_tabs, flag=wx.EXPAND|wx.BOTTOM, border=6)
         dialogs_label = wx.StaticText(self.panel, label=self.i18n.get_string(DIALOGS_LABEL_KEY))
         dialogs_box.Add(dialogs_label, flag=wx.BOTTOM, border=5)
-        self.dialogs_list = wx.ListBox(self.panel, style=wx.LB_SINGLE)
+        # Windows' own list view rather than a list box: it can show each chat's picture and colour.
+        self.dialogs_list = ChatRows(self.panel, self.dialog_row_look)
+        # A photo asked for since the last time the missing ones were sent for.
+        self.photos_pending = False
         # A chat is found by its name, whatever its row says before it.
         self.dialogs_type_ahead = TypeAhead(self.dialogs_list, lambda index: self.dialogs[index]["title"])
         self.dialogs_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_open_dialog)
@@ -201,6 +207,7 @@ class MainFrame(
         self.Bind(wx.EVT_CHAR_HOOK, self.on_char_hook)
         dialogs_box.Add(self.dialogs_list, proportion=1, flag=wx.EXPAND)
         self.list_search_btn = wx.Button(self.panel, label=self.i18n.get_string(BTN_SEARCH_KEY))
+        icons.put_on(self.list_search_btn, "search")
         self.list_search_btn.Bind(wx.EVT_BUTTON, self.on_search_chats)
         self.list_search_btn.SetToolTip(self.i18n.get_string(TOOLTIP_SEARCH_CHATS_KEY))
         dialogs_box.Add(
@@ -236,26 +243,32 @@ class MainFrame(
         self.message_input.Bind(wx.EVT_CONTEXT_MENU, self.on_input_context_menu)
         input_box.Add(self.message_input, proportion=1, flag=wx.EXPAND|wx.RIGHT, border=10)
         self.send_btn = OptionalButton(self.panel, label=self.i18n.get_string(BTN_SEND_MESSAGE_KEY))
+        icons.put_on(self.send_btn, "send")
         self.send_btn.Bind(wx.EVT_BUTTON, self.on_send_message)
         input_box.Add(self.send_btn, flag=wx.RIGHT|wx.ALIGN_CENTER_VERTICAL, border=10)
         # Everything that can go with a message besides its text, in one menu.
         self.attach_btn = wx.Button(self.panel, label=self.i18n.get_string(BTN_ATTACH_KEY))
+        icons.put_on(self.attach_btn, "attach")
         self.attach_btn.Bind(wx.EVT_BUTTON, self.on_attach)
         input_box.Add(self.attach_btn, flag=wx.RIGHT|wx.ALIGN_CENTER_VERTICAL, border=10)
         # One button starts the recording and, renamed while it runs, stops and sends it.
         self.record_btn = wx.Button(self.panel, label=self.i18n.get_string(BTN_RECORD_KEY))
+        icons.put_on(self.record_btn, "microphone")
         self.record_btn.Bind(wx.EVT_BUTTON, self.on_record_menu)
         input_box.Add(self.record_btn, flag=wx.ALIGN_CENTER_VERTICAL)
         self.cancel_record_btn = wx.Button(self.panel, label=self.i18n.get_string(BTN_CANCEL_RECORDING_KEY))
+        icons.put_on(self.cancel_record_btn, "cancel")
         self.cancel_record_btn.Bind(wx.EVT_BUTTON, lambda event: self.cancel_recording())
         self.cancel_record_btn.Hide()
         input_box.Add(self.cancel_record_btn, flag=wx.LEFT|wx.ALIGN_CENTER_VERTICAL, border=10)
         self.search_btn = wx.Button(self.panel, label=self.i18n.get_string(BTN_SEARCH_KEY))
+        icons.put_on(self.search_btn, "search")
         self.search_btn.Bind(wx.EVT_BUTTON, self.on_search_messages_menu)
         self.search_btn.SetToolTip(self.i18n.get_string(TOOLTIP_SEARCH_MESSAGES_KEY))
         input_box.Add(self.search_btn, flag=wx.LEFT|wx.ALIGN_CENTER_VERTICAL, border=10)
         # For the mouse: the keyboard has Escape, so Tab need not stop here.
         self.back_btn = OptionalButton(self.panel, label=self.i18n.get_string(BTN_BACK_KEY))
+        icons.put_on(self.back_btn, "back")
         self.back_btn.Bind(wx.EVT_BUTTON, lambda event: self.close_chat())
         self.back_btn.SetToolTip(self.i18n.get_string(TOOLTIP_BACK_KEY))
         input_box.Add(self.back_btn, flag=wx.LEFT|wx.ALIGN_CENTER_VERTICAL, border=10)
@@ -287,7 +300,24 @@ class MainFrame(
         font = reading_font(self.settings.get(SETTING_LARGE_TEXT))
         for control in (self.dialogs_list, self.messages_list, self.preview_text, self.message_input):
             control.SetFont(font)
+        # The pictures grow with the text, and come or go with their setting.
+        self.set_up_chat_pictures()
+        self.dialogs_list.paint_rows()
         self.panel.Layout()
+
+    def set_up_chat_pictures(self):
+        """Give the chat list its pictures, at the size the text calls for; none if they are turned off."""
+        if not self.settings.get(SETTING_CHAT_PHOTOS):
+            self.dialogs_list.set_pictures(None)
+            return
+        scale = LARGE_TEXT_SCALE if self.settings.get(SETTING_LARGE_TEXT) else 1
+        size = self.FromDIP(int(CHAT_PHOTO_SIZE * scale))
+        pictures = self.dialogs_list.pictures
+        if pictures is not None and pictures.size == size:
+            return
+        # In a right-to-left window Windows draws the list's pictures back to front ("AM" for Mona Ali).
+        mirrored = self.dialogs_list.GetLayoutDirection() == wx.Layout_RightToLeft
+        self.dialogs_list.set_pictures(ChatPictures(CHAT_PHOTOS_DIR, size, mirrored))
 
     def apply_simplicity(self):
         """Keep the window as plain as the settings ask: fewer stops for Tab, and the preview only if wanted."""
@@ -337,6 +367,9 @@ class MainFrame(
         """Switch the whole app to the theme chosen in the settings."""
         set_theme(self.settings.get(SETTING_THEME))
         apply_theme(self)
+        # The pictures on the buttons, and the colours of the chats, are the theme's too.
+        icons.repaint(self)
+        self.dialogs_list.paint_rows()
         # Painted over with the rest just now: mark the current view's tab again.
         self.view_tabs.SetSelection(self.view_tabs.GetSelection())
 

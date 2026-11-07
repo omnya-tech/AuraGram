@@ -1,6 +1,7 @@
 import os
 import wx
 from core import audio, sounds, shortcuts, speech
+from ui import icons
 from ui.layout import duration_text
 from core.settings import (
     SETTING_VOICE_SPEED, SETTING_MIC_DEVICE, SETTING_MIC_LEVEL, SETTING_NOISE, SETTING_RECORD_SOUND
@@ -31,6 +32,7 @@ class VoiceMixin:
         """Make the record button say what pressing it does now, and offer Cancel only mid-recording."""
         recording = self.recorder.is_recording()
         self.record_btn.SetLabel(self.i18n.get_string(BTN_STOP_AND_SEND_KEY if recording else BTN_RECORD_KEY))
+        icons.put_on(self.record_btn, "stop" if recording else "microphone")
         self.cancel_record_btn.Show(recording)
         self.panel.Layout()
 

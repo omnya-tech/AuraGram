@@ -192,6 +192,13 @@ SNIPPET_LENGTH = 60
 SETTINGS_FILE = os.path.join(DATA_DIR, "settings.json")
 # Messages the user asked to be reminded of, kept between runs.
 REMINDERS_FILE = os.path.join(DATA_DIR, "reminders.json")
+# The small photos of chats, for the chat list: fetched once each, named by chat and photo.
+CHAT_PHOTOS_DIR = os.path.join(DATA_DIR, "avatars")
+CHAT_PHOTO_NAME_FORMAT = "{chat_id}_{photo_id}.jpg"
+# How big a chat's picture is in the list, before the screen's scaling.
+CHAT_PHOTO_SIZE = 32
+# How long after the list changes its missing photos are asked for: a burst of changes asks once.
+CHAT_PHOTOS_DELAY_MS = 300
 
 # The hidden window that owns the tray icon and the global shortcut. A second
 # copy of the program finds it by this title to ask the first one to come forward.
@@ -258,6 +265,8 @@ SETTINGS_SPEAK_FEEDBACK_KEY = "SETTINGS_SPEAK_FEEDBACK"
 SETTINGS_ANNOUNCE_CONNECTION_KEY = "SETTINGS_ANNOUNCE_CONNECTION"
 SETTINGS_SIMPLE_TAB_KEY = "SETTINGS_SIMPLE_TAB"
 SETTINGS_SHOW_PREVIEW_KEY = "SETTINGS_SHOW_PREVIEW"
+SETTINGS_CHAT_COLOURS_KEY = "SETTINGS_CHAT_COLOURS"
+SETTINGS_CHAT_PHOTOS_KEY = "SETTINGS_CHAT_PHOTOS"
 
 MENU_GO_KEY = "MENU_GO"
 MENU_GO_CHATS_KEY = "MENU_GO_CHATS"

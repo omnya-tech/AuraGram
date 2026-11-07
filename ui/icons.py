@@ -1,0 +1,108 @@
+"""Small pictures beside the words on buttons and tabs, for the eyes.
+
+They are drawn from the icon font Windows itself ships (Segoe Fluent Icons on Windows 11, Segoe MDL2
+Assets on Windows 10), so they need no image files, are sharp at any screen scaling, and take the
+colours of the theme in use. On a system with neither font the buttons simply keep their words alone.
+
+The words stay on every button: they are what a screen reader says, and what tells a sighted user who
+does not know the picture what it does. The picture only makes the button quicker to find.
+"""
+import wx
+
+from ui.themes import THEME_COLOURS, current_theme
+
+ICON_FONTS = ("Segoe Fluent Icons", "Segoe MDL2 Assets")
+# Icon name -> its character in those fonts (both number them the same).
+GLYPHS = {
+    "send": 0xE724, "attach": 0xE723, "microphone": 0xE720, "stop": 0xE71A, "cancel": 0xE711,
+    "search": 0xE721, "back": 0xE72B, "add": 0xE710, "globe": 0xE774, "download": 0xE896, "info": 0xE946,
+    "settings": 0xE713, "more": 0xE712, "reply": 0xE97A, "forward": 0xE72D, "react": 0xE76E, "play": 0xE768,
+    "open": 0xE8E5, "comments": 0xE90A, "stats": 0xE9D2, "remind": 0xEA8F,
+    "chats": 0xE8F2, "unread": 0xE715, "archive": 0xF12B, "channel": 0xE789, "group": 0xE902,
+    "favorite": 0xE734, "contact": 0xE77B, "folder": 0xE8B7,
+}
+# Pictures that point a way: in a right-to-left window they point the other way, as the reading does
+# ("back" to the right, "send" to the left), the way Windows and Telegram's own apps turn them.
+DIRECTIONAL = {"send", "back", "reply", "forward"}
+# How big a picture is beside a button's words, before the screen's scaling.
+ICON_SIZE = 16
+
+_font_name = None
+_looked_for_font = False
+# (name, size in pixels, colour) -> bitmap: the same picture is drawn once.
+_drawn = {}
+
+
+def font_name():
+    """The icon font this computer has; None if it has neither."""
+    global _font_name, _looked_for_font
+    if not _looked_for_font:
+        _looked_for_font = True
+        _font_name = next((name for name in ICON_FONTS if wx.FontEnumerator.IsValidFacename(name)), None)
+    return _font_name
+
+
+def available():
+    return font_name() is not None
+
+
+def icon_colour():
+    """The colour pictures are drawn in: the theme's text, or Windows' own button text."""
+    colours = THEME_COLOURS[current_theme()]
+    if colours is None:
+        return wx.SystemSettings.GetColour(wx.SYS_COLOUR_BTNTEXT)
+    return wx.Colour(colours["text"])
+
+
+def draw(name, size, colour, mirrored=False):
+    """The picture `name` as a bitmap `size` pixels square, in `colour` on a see-through background,
+    turned left to right if `mirrored`; None if there is no icon font."""
+    face = font_name()
+    if face is None:
+        return None
+    key = (name, size, colour.GetRGB(), mirrored)
+    if key in _drawn:
+        return _drawn[key]
+    # Black on white first: how dark each pixel came out is how solid it is to be.
+    canvas = wx.Bitmap(size, size, 24)
+    dc = wx.MemoryDC(canvas)
+    dc.SetBackground(wx.WHITE_BRUSH)
+    dc.Clear()
+    dc.SetFont(wx.Font(wx.FontInfo(wx.Size(0, size)).FaceName(face)))
+    dc.SetTextForeground(wx.BLACK)
+    glyph = chr(GLYPHS[name])
+    width, height = dc.GetTextExtent(glyph)
+    dc.DrawText(glyph, (size - width) // 2, (size - height) // 2)
+    dc.SelectObject(wx.NullBitmap)
+    shade = canvas.ConvertToImage().GetData()
+    image = wx.Image(size, size)
+    image.SetData(bytes((colour.Red(), colour.Green(), colour.Blue())) * (size * size))
+    image.SetAlpha(bytes(255 - shade[index] for index in range(0, len(shade), 3)))
+    bitmap = wx.Bitmap(image.Mirror() if mirrored else image)
+    _drawn[key] = bitmap
+    return bitmap
+
+
+def put_on(button, name, colour=None):
+    """Give a button (or toggle button) its picture beside its words, in the current theme's colours or
+    in `colour`. Called again after the theme changes, it repaints the picture; None leaves it without one."""
+    button.icon_name = name
+    if name is None:
+        return
+    mirrored = name in DIRECTIONAL and button.GetLayoutDirection() == wx.Layout_RightToLeft
+    bitmap = draw(name, button.FromDIP(ICON_SIZE), colour or icon_colour(), mirrored)
+    if bitmap is None:
+        return
+    button.SetBitmap(bitmap, wx.LEFT)
+    button.SetBitmapMargins(button.FromDIP(wx.Size(4, 0)))
+    # Room for the picture: the button grows to hold it and its words.
+    button.InvalidateBestSize()
+
+
+def repaint(window):
+    """Draw again, in the theme's colours now, the picture of every button inside a window."""
+    for child in window.GetChildren():
+        if getattr(child, "icon_name", None):
+            put_on(child, child.icon_name)
+        if not isinstance(child, wx.TopLevelWindow):
+            repaint(child)

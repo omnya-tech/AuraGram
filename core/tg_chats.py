@@ -182,8 +182,16 @@ class ChatsMixin:
     def _describe_chat(self, entity, unread=0, pinned=False, muted=False, archived=False,
                        marked_unread=False, last_message=None, draft=EMPTY_STRING):
         is_user = isinstance(entity, types.User)
+        chat_id = get_peer_id(entity)
+        # None for a chat with no photo, or one this account may not see.
+        photo_id = getattr(getattr(entity, "photo", None), "photo_id", None)
+        if photo_id is not None:
+            # What load_chat_photos fetches the photo through: the chat as Telegram sent it, photo and all.
+            self.photo_owners[chat_id] = entity
         return {
-            "id": get_peer_id(entity), "title": get_display_name(entity),
+            "id": chat_id, "title": get_display_name(entity),
+            # Which photo the chat has, to fetch it once and know when it changes.
+            "photo": photo_id,
             "unread": unread, "pinned": pinned, "muted": muted, "archived": archived,
             # Flagged unread by hand, with no unread messages behind it.
             "marked_unread": marked_unread,

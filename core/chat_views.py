@@ -9,9 +9,11 @@ ARCHIVE_VIEW = 2
 class ChatView:
     """One way of narrowing the chat list: a name and a test for which chats belong."""
 
-    def __init__(self, label, matches, is_contacts=False):
+    def __init__(self, label, matches, is_contacts=False, icon="folder"):
         self.label = label
         self.matches = matches
+        # The picture its tab shows beside its name (one of ui.icons.GLYPHS).
+        self.icon = icon
         # The one view that lists people rather than chats: the account's contacts,
         # whether or not anything was ever written to them.
         self.is_contacts = is_contacts
@@ -44,15 +46,21 @@ def build_views(i18n, folders, favorites=()):
     """The built-in views followed by one per Telegram folder. `favorites` holds the ids of the
     chats the user chose; it is looked into each time, so it may change after the views are made."""
     views = [
-        ChatView(i18n.get_string(VIEW_ALL_KEY), lambda chat: not chat["archived"]),
-        ChatView(i18n.get_string(VIEW_UNREAD_KEY), lambda chat: bool(chat["unread"]) and not chat["archived"]),
-        ChatView(i18n.get_string(VIEW_ARCHIVE_KEY), lambda chat: chat["archived"]),
-        ChatView(i18n.get_string(VIEW_CHANNELS_KEY), lambda chat: chat["category"] == CATEGORY_BROADCASTS and not chat["archived"]),
-        ChatView(i18n.get_string(VIEW_GROUPS_KEY), lambda chat: chat["category"] == CATEGORY_GROUPS and not chat["archived"]),
+        ChatView(i18n.get_string(VIEW_ALL_KEY), lambda chat: not chat["archived"], icon="chats"),
+        ChatView(i18n.get_string(VIEW_UNREAD_KEY), lambda chat: bool(chat["unread"]) and not chat["archived"], icon="unread"),
+        ChatView(i18n.get_string(VIEW_ARCHIVE_KEY), lambda chat: chat["archived"], icon="archive"),
+        ChatView(
+            i18n.get_string(VIEW_CHANNELS_KEY), lambda chat: chat["category"] == CATEGORY_BROADCASTS and not chat["archived"],
+            icon="channel"
+        ),
+        ChatView(
+            i18n.get_string(VIEW_GROUPS_KEY), lambda chat: chat["category"] == CATEGORY_GROUPS and not chat["archived"],
+            icon="group"
+        ),
         # Archived or not: a favourite is one because the user said so.
-        ChatView(i18n.get_string(VIEW_FAVORITES_KEY), lambda chat: chat["id"] in favorites),
+        ChatView(i18n.get_string(VIEW_FAVORITES_KEY), lambda chat: chat["id"] in favorites, icon="favorite"),
         # No chat belongs to it by any rule: its rows come from the contact list.
-        ChatView(i18n.get_string(VIEW_CONTACTS_KEY), lambda chat: False, is_contacts=True),
+        ChatView(i18n.get_string(VIEW_CONTACTS_KEY), lambda chat: False, is_contacts=True, icon="contact"),
     ]
     for folder in folders:
         views.append(ChatView(

@@ -138,6 +138,8 @@ class TelegramManager(ChatsMixin, MessagesMixin, MediaMixin, AdminMixin, Account
         self.last_typing = (None, 0.0)
         # Folder id -> the folder as Telegram sent it, for what an edit must leave untouched.
         self.folder_filters = {}
+        # Chat id -> the chat as Telegram last sent it, for those with a photo: what fetching the photo needs.
+        self.photo_owners = {}
         self.sticker_sets = {}
         self.message_listener = None
         self.connection_listener = None

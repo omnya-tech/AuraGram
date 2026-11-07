@@ -1,4 +1,5 @@
 import wx
+from ui import icons
 from ui.themes import apply_theme, chosen_colours
 import os
 from core.constants import (
@@ -109,7 +110,7 @@ class ViewTabs(wx.Panel):
     LEFT_KEYS = (wx.WXK_LEFT, wx.WXK_NUMPAD_LEFT)
     RIGHT_KEYS = (wx.WXK_RIGHT, wx.WXK_NUMPAD_RIGHT)
 
-    def __init__(self, parent, labels, on_change, tooltip=""):
+    def __init__(self, parent, labels, on_change, tooltip="", icon_names=None):
         super().__init__(parent)
         self.on_change = on_change
         self.tooltip = tooltip
@@ -118,7 +119,7 @@ class ViewTabs(wx.Panel):
         self._skipped_by_tab = False
         # No stretching of the last tab to the end of the row: each is as wide as its name.
         self.SetSizer(wx.WrapSizer(wx.HORIZONTAL, wx.REMOVE_LEADING_SPACES))
-        self.Set(labels)
+        self.Set(labels, icon_names)
 
     @property
     def skipped_by_tab(self):
@@ -133,13 +134,15 @@ class ViewTabs(wx.Panel):
     def AcceptsFocusFromKeyboard(self):
         return any(button.AcceptsFocusFromKeyboard() for button in self.buttons)
 
-    def Set(self, labels):
-        """Replace the tabs with one per label, keeping the place of the current one where it still exists."""
+    def Set(self, labels, icon_names=None):
+        """Replace the tabs with one per label, keeping the place of the current one where it still exists.
+        `icon_names` gives each its picture (see ui.icons), in the same order; None for words alone."""
         sizer = self.GetSizer()
         sizer.Clear(delete_windows=True)
         self.buttons = []
-        for label in labels:
+        for position, label in enumerate(labels):
             button = TabButton(self, label=label)
+            button.icon_name = icon_names[position] if icon_names else None
             button.skipped_by_tab = self._skipped_by_tab
             button.SetToolTip(self.tooltip)
             button.Bind(wx.EVT_TOGGLEBUTTON, self.on_click)
@@ -168,6 +171,8 @@ class ViewTabs(wx.Panel):
             if current and chosen is not None:
                 button.SetBackgroundColour(chosen[0])
                 button.SetForegroundColour(chosen[1])
+            # The picture in the same colour as the words beside it, whichever way round they are.
+            icons.put_on(button, button.icon_name, chosen[1] if current and chosen is not None else None)
         self.Layout()
         self.Refresh()
 

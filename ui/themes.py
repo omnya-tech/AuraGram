@@ -1,6 +1,8 @@
 import ctypes
 import wx
-from core.constants import THEME_SYSTEM, THEME_DARK, THEME_SEPIA, THEME_HIGH_CONTRAST
+from core.constants import (
+    THEME_SYSTEM, THEME_DARK, THEME_SEPIA, THEME_HIGH_CONTRAST, CATEGORY_BROADCASTS, CATEGORY_GROUPS, CATEGORY_BOTS
+)
 
 # Colours per theme: the window itself, and the places text is read or typed.
 # The system theme has none: it leaves every control exactly as Windows draws it.
@@ -20,7 +22,16 @@ THEME_COLOURS = {
     },
 }
 # Controls that hold text to read or edit, and so take the "field" colours.
-FIELD_CONTROLS = (wx.TextCtrl, wx.ListBox, wx.Choice)
+FIELD_CONTROLS = (wx.TextCtrl, wx.ListBox, wx.ListCtrl, wx.Choice)
+# The colour of a chat's row in the list, by the kind of chat, so channels, groups and bots stand apart
+# at a glance; a person's chat keeps the list's own text colour. One set for light backgrounds, one for
+# dark, one for high contrast; each is at least 4.5 times as bright or dark as the background it is on,
+# the measure the web's accessibility rules ask of text.
+KIND_COLOURS = {
+    "light": {CATEGORY_BROADCASTS: "#0B57A4", CATEGORY_GROUPS: "#1E6B2E", CATEGORY_BOTS: "#7B2D9B"},
+    "dark": {CATEGORY_BROADCASTS: "#8CC4FF", CATEGORY_GROUPS: "#9EE09E", CATEGORY_BOTS: "#E0A8F5"},
+    "contrast": {CATEGORY_BROADCASTS: "#00FFFF", CATEGORY_GROUPS: "#00FF00", CATEGORY_BOTS: "#FF99FF"},
+}
 DWMWA_USE_IMMERSIVE_DARK_MODE = 20
 
 _current = THEME_SYSTEM
@@ -56,6 +67,26 @@ def chosen_colours():
         return None
     # The theme's two strongest colours swapped: as far from its neighbours as the theme allows.
     return wx.Colour(colours["text"]), wx.Colour(colours["window"])
+
+def field_background():
+    """The colour behind the text of lists and fields in the current theme."""
+    colours = THEME_COLOURS[_current]
+    if colours is None:
+        return wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOW)
+    return wx.Colour(colours["field"])
+
+def kind_colour(category):
+    """The colour of the row of a chat of this category (one of the CATEGORY_* names); None for a person's
+    chat, which keeps the list's own colour."""
+    if _current == THEME_HIGH_CONTRAST:
+        palette = KIND_COLOURS["contrast"]
+    else:
+        background = field_background()
+        # Whichever of black and white stands out more on it says whether the background is light.
+        light = contrast_ratio(background, wx.BLACK) >= contrast_ratio(background, wx.WHITE)
+        palette = KIND_COLOURS["light" if light else "dark"]
+    colour = palette.get(category)
+    return None if colour is None else wx.Colour(colour)
 
 def _paint(control, colours):
     if colours is None or isinstance(control, wx.StatusBar):

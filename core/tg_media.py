@@ -1,17 +1,70 @@
 """Files going up and coming down, sounds played as they arrive, stickers, contacts and places sent, and stories.
 
 Part of TelegramManager (core.telegram_client): its methods run as that thread's, on its event loop."""
+import asyncio
+import glob
+import logging
 import os
+from telethon.errors import FloodWaitError
 from telethon.tl import functions, types
 from telethon.utils import get_display_name, get_input_peer, get_peer_id
 from core.constants import (
     STREAM_REQUEST_BYTES, EMPTY_STRING, DOWNLOADS_DIR, CHAT_FILES_LIMIT, DOWNLOADABLE_MEDIA, STORY_AUDIENCES,
-    STORY_SECONDS,
+    STORY_SECONDS, CHAT_PHOTO_NAME_FORMAT,
 )
 from core.tg_shared import PhoneHiddenError, CHAT_FILE_FILTERS
 
+logger = logging.getLogger(__name__)
+PARTIAL_SUFFIX = ".part"
+
 
 class MediaMixin:
+    def load_chat_photos(self, wanted, folder, on_photo):
+        """Fetch the small photos of chats into `folder`, one after another, beside everything else.
+
+        `wanted` is [(chat id, photo id)], as the chats of load_dialogs give them; on_photo(chat id,
+        photo id, path) is called from this thread as each is saved. A photo already there, or of a chat
+        this side has not seen, is passed over. A chat's older photos are deleted once its new one is in.
+        """
+        asyncio.run_coroutine_threadsafe(self._load_chat_photos_async(list(wanted), folder, on_photo), self.loop)
+
+    async def _load_chat_photos_async(self, wanted, folder, on_photo):
+        try:
+            await self._ensure_connected()
+            os.makedirs(folder, exist_ok=True)
+        except Exception:
+            logger.info("Chat photos cannot be fetched now", exc_info=True)
+            return
+        for chat_id, photo_id in wanted:
+            owner = self.photo_owners.get(chat_id)
+            path = os.path.join(folder, CHAT_PHOTO_NAME_FORMAT.format(chat_id=chat_id, photo_id=photo_id))
+            if owner is None or os.path.exists(path):
+                continue
+            partial = path + PARTIAL_SUFFIX
+            try:
+                # The small one: a few kilobytes, all a row of the list needs.
+                saved = await self.client.download_profile_photo(owner, file=partial, download_big=False)
+                if not saved:
+                    continue
+                os.replace(partial, path)
+            except FloodWaitError:
+                # Telegram asks to slow down: the rest wait for another time.
+                logger.info("Chat photos put off: Telegram asked to wait")
+                return
+            except Exception:
+                logger.info("A chat photo could not be fetched", exc_info=True)
+                continue
+            finally:
+                if os.path.exists(partial):
+                    os.remove(partial)
+            for old in glob.glob(os.path.join(glob.escape(folder), glob.escape("%s_" % chat_id) + "*.jpg")):
+                if old != path:
+                    try:
+                        os.remove(old)
+                    except OSError:
+                        pass
+            on_photo(chat_id, photo_id, path)
+
     def load_stories(self, on_result):
         """The result is [{"peer_id", "name", "stories": [{"id", "caption", "media", "date"}]}]."""
         self._request(on_result, self._load_stories_async)
