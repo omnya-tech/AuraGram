@@ -199,6 +199,8 @@ class MainFrame(
         self.dialogs_list = ChatRows(self.panel, self.dialog_row_look)
         # A photo asked for since the last time the missing ones were sent for.
         self.photos_pending = False
+        # Telegram's mixed colours, by number, once asked for (TelegramManager.load_peer_colors).
+        self.peer_colors = {}
         # A chat is found by its name, whatever its row says before it.
         self.dialogs_type_ahead = TypeAhead(self.dialogs_list, lambda index: self.dialogs[index]["title"])
         self.dialogs_list.Bind(wx.EVT_LISTBOX_DCLICK, self.on_open_dialog)
@@ -317,7 +319,9 @@ class MainFrame(
             return
         # In a right-to-left window Windows draws the list's pictures back to front ("AM" for Mona Ali).
         mirrored = self.dialogs_list.GetLayoutDirection() == wx.Layout_RightToLeft
-        self.dialogs_list.set_pictures(ChatPictures(CHAT_PHOTOS_DIR, size, mirrored))
+        pictures = ChatPictures(CHAT_PHOTOS_DIR, size, mirrored)
+        pictures.palette = self.peer_colors
+        self.dialogs_list.set_pictures(pictures)
 
     def apply_simplicity(self):
         """Keep the window as plain as the settings ask: fewer stops for Tab, and the preview only if wanted."""
@@ -703,6 +707,11 @@ class MainFrame(
         self.set_status(MSG_LOADING_KEY)
         self.telegram_manager.load_dialogs(self.quietly(self.show_dialogs), self.dialogs_limit)
         self.telegram_manager.load_folders(self.quietly(self.show_folders))
+        if not self.peer_colors:
+            # Once is enough: they change only with Telegram's own updates. A failure is no news to tell.
+            self.telegram_manager.load_peer_colors(
+                lambda result, error_key: wx.CallAfter(self.on_peer_colors, result, error_key)
+            )
 
     def quietly(self, handler):
         def deliver(result, error_key):

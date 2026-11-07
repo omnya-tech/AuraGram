@@ -10,8 +10,21 @@ import wx
 
 from core.constants import CHAT_PHOTO_NAME_FORMAT
 
-# The colours Telegram gives chats without a photo, picked by the chat's number so each keeps its own.
+# The circle Telegram draws behind the initials of a chat without a photo, by the chat's colour number:
+# red, orange, violet, green, cyan, blue, pink, as its own apps draw them.
 PLACEHOLDER_COLOURS = ("#E17076", "#FAA774", "#A695E7", "#7BC862", "#6EC9CB", "#65AADD", "#EE7AAE")
+
+
+def circle_colour(chat, palette=None):
+    """The colour of the circle behind a chat's initials: its Telegram colour (see core's "color"), the main
+    shade of a mixed one from `palette`, or the plain colour its number comes nearest to."""
+    color_id = chat.get("color")
+    if color_id is None:
+        color_id = abs(chat["id"])
+    option = (palette or {}).get(color_id)
+    if color_id >= len(PLACEHOLDER_COLOURS) and option:
+        return option["light"][0]
+    return PLACEHOLDER_COLOURS[color_id % len(PLACEHOLDER_COLOURS)]
 
 
 def photo_path(folder, chat_id, photo_id):
@@ -36,14 +49,14 @@ def circle_alpha(size):
     return bytes(alpha)
 
 
-def placeholder(title, chat_id, size, mirrored=False):
-    """A round bitmap with the chat's initials in white on its colour."""
+def placeholder(title, colour, size, mirrored=False):
+    """A round bitmap with the chat's initials in white on `colour` ("#RRGGBB")."""
     image = wx.Image(size, size)
     image.InitAlpha()
     image.SetAlpha(bytes(size * size))
     context = wx.GraphicsContext.Create(image)
     context.SetAntialiasMode(wx.ANTIALIAS_DEFAULT)
-    context.SetBrush(wx.Brush(wx.Colour(PLACEHOLDER_COLOURS[abs(chat_id) % len(PLACEHOLDER_COLOURS)])))
+    context.SetBrush(wx.Brush(wx.Colour(colour)))
     context.SetPen(wx.TRANSPARENT_PEN)
     context.DrawEllipse(0, 0, size, size)
     font = wx.Font(wx.FontInfo(wx.Size(0, size * 2 // 5)).Bold())
@@ -80,31 +93,35 @@ class ChatPictures:
         self.size = size
         self.mirrored = mirrored
         self.image_list = wx.ImageList(size, size, mask=False)
-        # chat id -> (its photo's id or None, index of its picture in the image list).
+        # Telegram's mixed colours, once they are known (TelegramManager.load_peer_colors).
+        self.palette = {}
+        # chat id -> (its photo's id or None, its circle's colour, index of its picture in the image list).
         self.indexes = {}
         # (chat id, photo id) of the photos to be fetched: wanted, and not on this computer yet.
         self.missing = set()
 
     def index_for(self, chat):
-        """The image list index of a chat's picture, made the first time it is asked for."""
+        """The image list index of a chat's picture, made the first time it is asked for, and made again
+        when the chat changes its photo or its colour."""
         chat_id, photo_id = chat["id"], chat.get("photo")
+        colour = circle_colour(chat, self.palette)
         known = self.indexes.get(chat_id)
-        if known is not None and known[0] == photo_id:
-            return known[1]
+        if known is not None and known[:2] == (photo_id, colour):
+            return known[2]
         bitmap = None
         if photo_id is not None:
             bitmap = round_photo(photo_path(self.folder, chat_id, photo_id), self.size, self.mirrored)
             if bitmap is None:
                 self.missing.add((chat_id, photo_id))
         if bitmap is None:
-            bitmap = placeholder(chat["title"], chat_id, self.size, self.mirrored)
+            bitmap = placeholder(chat["title"], colour, self.size, self.mirrored)
         if known is not None:
-            # The chat changed its photo: the same place in the list of pictures takes the new one.
-            self.image_list.Replace(known[1], bitmap)
-            index = known[1]
+            # The same place in the list of pictures takes the new one.
+            self.image_list.Replace(known[2], bitmap)
+            index = known[2]
         else:
             index = self.image_list.Add(bitmap)
-        self.indexes[chat_id] = (photo_id, index)
+        self.indexes[chat_id] = (photo_id, colour, index)
         return index
 
     def take_missing(self):
@@ -120,5 +137,5 @@ class ChatPictures:
         bitmap = round_photo(path, self.size, self.mirrored)
         if bitmap is None:
             return False
-        self.image_list.Replace(known[1], bitmap)
+        self.image_list.Replace(known[2], bitmap)
         return True

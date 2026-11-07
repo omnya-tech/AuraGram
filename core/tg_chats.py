@@ -12,6 +12,7 @@ from core.constants import (
     EMPTY_STRING, DIALOGS_LIMIT, MUTE_FOREVER, FOLDER_CATEGORIES, CATEGORY_CONTACTS, CATEGORY_NON_CONTACTS,
     CATEGORY_GROUPS, CATEGORY_BROADCASTS, CATEGORY_BOTS, USER_STATUS_KEYS, SAVED_MESSAGES_PEER, BLOCKED_LIMIT,
     GLOBAL_SEARCH_LIMIT, NOTIFY_USERS, NOTIFY_GROUPS, NOTIFY_CHANNELS, TYPING_SEND_SECONDS, FOLDER_EXCLUSIONS,
+    PLAIN_COLORS,
 )
 from core.tg_shared import ChatNotFoundError
 
@@ -192,6 +193,7 @@ class ChatsMixin:
             "id": chat_id, "title": get_display_name(entity),
             # Which photo the chat has, to fetch it once and know when it changes.
             "photo": photo_id,
+            "color": self._chat_color(entity),
             "unread": unread, "pinned": pinned, "muted": muted, "archived": archived,
             # Flagged unread by hand, with no unread messages behind it.
             "marked_unread": marked_unread,
@@ -218,6 +220,35 @@ class ChatsMixin:
             "status": self._describe_status(getattr(entity, "status", None))
             if is_user and not entity.bot and not entity.is_self else None,
         }
+
+    @staticmethod
+    def _chat_color(entity):
+        """The number of the chat's colour in Telegram's palette: the one its owner chose (0 to 6 are the
+        seven plain colours, higher ones Telegram's mixed ones, see load_peer_colors), or else the one
+        Telegram's own apps give it by its number, so it looks the same here as there."""
+        chosen = getattr(entity, "color", None)
+        if isinstance(chosen, types.PeerColor) and chosen.color is not None:
+            return chosen.color
+        return entity.id % PLAIN_COLORS
+
+    def load_peer_colors(self, on_result):
+        """Telegram's mixed colours, those numbered from PLAIN_COLORS up: {number: {"light": ["#RRGGBB", ...],
+        "dark": [...]}}, the first of each list being the main one."""
+        self._request(on_result, self._load_peer_colors_async)
+
+    async def _load_peer_colors_async(self):
+        result = await self.client(functions.help.GetPeerColorsRequest(hash=0))
+        palette = {}
+        for option in getattr(result, "colors", None) or []:
+            light = getattr(getattr(option, "colors", None), "colors", None)
+            if not light:
+                # The plain colours come with no shades: every app draws them its own way.
+                continue
+            dark = getattr(getattr(option, "dark_colors", None), "colors", None) or light
+            palette[option.color_id] = {
+                "light": ["#%06X" % colour for colour in light], "dark": ["#%06X" % colour for colour in dark],
+            }
+        return palette
 
     def _describe_status(self, status):
         """(locale key, time or None) for a person's online status, or None if Telegram gives none."""

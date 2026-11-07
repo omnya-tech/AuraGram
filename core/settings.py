@@ -11,7 +11,7 @@ from core.constants import (
     VOICE_SPEEDS, VOICE_SPEED_NORMAL, MIC_LEVELS, MIC_LEVEL_NORMAL, NOISE_LEVELS, NOISE_OFF,
     LANGUAGES, DEFAULT_LANG, PROXY_TYPES, PROXY_NONE, CHAT_KIND_PLACES, CHAT_KIND_PLACE_AFTER,
     MESSAGE_STATS_PLACES, MESSAGE_STATS_AFTER, TIME_STYLES, TIME_STYLE_NUMBERS, SOUND_VOLUMES, SOUND_VOLUME_FULL,
-    DOWNLOAD_KINDS, DOWNLOAD_KINDS_ALL
+    DOWNLOAD_KINDS, DOWNLOAD_KINDS_ALL, CHAT_COLOUR_SOURCES, CHAT_COLOUR_BY_KIND
 )
 
 SETTING_PLAY_SOUND = "play_sound"
@@ -34,6 +34,8 @@ SETTING_SHOW_PREVIEW = "show_preview"
 # Rows of the chat list in a colour by the kind of chat (channel, group, bot), and with each chat's picture.
 SETTING_CHAT_COLOURS = "chat_colours"
 SETTING_CHAT_PHOTOS = "chat_photos"
+# One of CHAT_COLOUR_SOURCES: whether a name in the chat list takes the colour of its kind or the chat's own.
+SETTING_CHAT_COLOUR_BY = "chat_colour_by"
 # One of the THEMES names.
 SETTING_THEME = "theme"
 SETTING_ANNOUNCE_WHEN = "announce_when"
@@ -142,6 +144,7 @@ CHOICES = {
     SETTING_CHAT_KIND: (CHAT_KIND_PLACES, CHAT_KIND_PLACE_AFTER),
     SETTING_MESSAGE_STATS: (MESSAGE_STATS_PLACES, MESSAGE_STATS_AFTER),
     SETTING_TIME_STYLE: (TIME_STYLES, TIME_STYLE_NUMBERS),
+    SETTING_CHAT_COLOUR_BY: (CHAT_COLOUR_SOURCES, CHAT_COLOUR_BY_KIND),
     SETTING_SPEECH_LEVEL: (SPEECH_LEVELS, SPEECH_LEVEL_BEGINNER),
 }
 # What each level ticks among the speech settings; the others it leaves unticked. Of the ten the

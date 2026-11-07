@@ -1,8 +1,8 @@
 import wx
 from core.speech import speak
-from core.settings import SETTING_FAVORITES, SETTING_CHAT_KIND, SETTING_CHAT_COLOURS
+from core.settings import SETTING_FAVORITES, SETTING_CHAT_KIND, SETTING_CHAT_COLOURS, SETTING_CHAT_COLOUR_BY
 from ui.chat_rows import NO_LOOK
-from ui.themes import kind_colour
+from ui.themes import chat_name_colour, kind_colour
 from ui.chat_picker_dialog import ChatPickerDialog
 from ui.type_ahead import attach_to_lists
 from ui.global_search_dialog import GlobalSearchDialog
@@ -50,7 +50,8 @@ from core.constants import (
     MSG_ALL_READ_KEY, MSG_NOTHING_UNREAD_KEY, MSG_INVITE_COPIED_KEY, MSG_CONTACTS_COUNT_FORMAT_KEY,
     STATUS_OFFLINE_KEY, CHAT_KIND_GROUP, CHAT_KIND_CHANNEL, CHAT_KIND_PLACE_AFTER, CHAT_KIND_PLACE_BEFORE,
     CHAT_KIND_BEFORE_FORMAT_KEY, MSG_LOADING_MORE_DIALOGS_KEY, MSG_MORE_DIALOGS_PROGRESS_FORMAT_KEY,
-    MSG_MORE_DIALOGS_LOADED_FORMAT_KEY, MSG_NO_MORE_DIALOGS_KEY, CHAT_PHOTOS_DIR, CHAT_PHOTOS_DELAY_MS
+    MSG_MORE_DIALOGS_LOADED_FORMAT_KEY, MSG_NO_MORE_DIALOGS_KEY, CHAT_PHOTOS_DIR, CHAT_PHOTOS_DELAY_MS,
+    CHAT_COLOUR_BY_CHAT,
 )
 
 class ChatListMixin:
@@ -122,15 +123,19 @@ class ChatListMixin:
 
     def dialog_row_look(self, index):
         """How a row of the chat list looks, for the eyes: (colour, bold, picture), as ChatRows asks.
-        The colour tells the kind of chat, bold that it has something unread; the row's words say both
-        as well, so neither is lost on someone who cannot see the colour."""
+        The colour tells the kind of chat, or is the chat's own on Telegram, as the settings say; bold
+        tells it has something unread. The row's words say the kind and the unread messages as well, so
+        nothing is lost on someone who cannot see the colour."""
         if not 0 <= index < len(self.dialogs):
             # The row that loads more chats.
             return NO_LOOK
         dialog = self.dialogs[index]
         colour, bold = None, False
         if self.settings.get(SETTING_CHAT_COLOURS):
-            colour = kind_colour(dialog.get("category"))
+            if self.settings.get(SETTING_CHAT_COLOUR_BY) == CHAT_COLOUR_BY_CHAT:
+                colour = chat_name_colour(dialog.get("color"), self.peer_colors)
+            else:
+                colour = kind_colour(dialog.get("category"))
             bold = bool(dialog.get("unread") or dialog.get("marked_unread"))
         picture = -1
         pictures = self.dialogs_list.pictures
@@ -159,6 +164,16 @@ class ChatListMixin:
             self.telegram_manager.load_chat_photos(
                 missing, CHAT_PHOTOS_DIR, lambda *photo: wx.CallAfter(self.on_chat_photo, *photo)
             )
+
+    def on_peer_colors(self, result, error_key):
+        """Telegram's mixed colours have come: the rows and circles drawn in them are drawn again.
+        Without them (an older server, the line down) those chats keep the plain colour nearest theirs."""
+        if not self or error_key or not result:
+            return
+        self.peer_colors = result
+        if self.dialogs_list.pictures is not None:
+            self.dialogs_list.pictures.palette = result
+        self.dialogs_list.paint_rows()
 
     def on_chat_photo(self, chat_id, photo_id, path):
         """A chat's photo has come down: it takes the place of the initials its row showed."""

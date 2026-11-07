@@ -20,6 +20,11 @@ HAS_ICON_FONT = unittest.skipUnless(
 )
 
 
+def with_color(entity, color):
+    entity.color = types.PeerColor(color=color)
+    return entity
+
+
 def with_photo(entity, photo_id):
     entity.photo = types.UserProfilePhoto(photo_id=photo_id, dc_id=2) if isinstance(entity, types.User) \
         else types.ChatPhoto(photo_id=photo_id, dc_id=2)
@@ -80,6 +85,24 @@ class KindColourTest(unittest.TestCase):
         self.assertIsNone(themes.kind_colour(c.CATEGORY_CONTACTS))
         self.assertIsNone(themes.kind_colour(c.CATEGORY_NON_CONTACTS))
 
+    def test_every_telegram_colour_is_made_easy_to_read_in_every_theme(self):
+        palette = {9: {"light": ["#FFEE88", "#FFFFFF"], "dark": ["#101030", "#000000"]}}
+        for theme in c.THEMES:
+            themes.set_theme(theme)
+            minimum = themes.HIGH_CONTRAST if theme == c.THEME_HIGH_CONTRAST else themes.READABLE_CONTRAST
+            for color_id in list(range(c.PLAIN_COLORS)) + [9, 15]:
+                colour = themes.chat_name_colour(color_id, palette)
+                ratio = themes.contrast_ratio(colour, themes.field_background())
+                self.assertGreaterEqual(ratio, minimum, "colour %d in %s: %.2f" % (color_id, theme, ratio))
+        self.assertIsNone(themes.chat_name_colour(None))
+
+    def test_a_colour_that_reads_well_already_is_left_as_it_is(self):
+        self.assertEqual(themes.readable(wx.Colour("#000080"), wx.WHITE), wx.Colour("#000080"))
+        # Pale yellow on white is darkened, keeping its hue as long as it can.
+        darker = themes.readable(wx.Colour("#FFEE88"), wx.WHITE)
+        self.assertGreaterEqual(themes.contrast_ratio(darker, wx.WHITE), 4.5)
+        self.assertGreater(darker.Red(), darker.Blue())
+
 
 class AvatarTest(unittest.TestCase):
     def setUp(self):
@@ -98,6 +121,20 @@ class AvatarTest(unittest.TestCase):
         self.assertEqual(alpha[0], 0)
         self.assertEqual(alpha[16 * 32 + 16], 255)
         self.assertIsNone(avatars.round_photo(path + ".missing", 32))
+
+    def test_the_circle_takes_the_chats_own_colour(self):
+        self.assertEqual(avatars.circle_colour({"id": 1, "color": 5}), avatars.PLACEHOLDER_COLOURS[5])
+        palette = {12: {"light": ["#112233", "#445566"], "dark": ["#778899"]}}
+        self.assertEqual(avatars.circle_colour({"id": 1, "color": 12}, palette), "#112233")
+        # A mixed colour not known yet: the plain one its number comes nearest to.
+        self.assertEqual(avatars.circle_colour({"id": 1, "color": 12}), avatars.PLACEHOLDER_COLOURS[5])
+
+    def test_a_chat_that_changes_its_colour_gets_a_new_circle_in_the_same_place(self):
+        pictures = avatars.ChatPictures(tempfile.mkdtemp(), 32)
+        index = pictures.index_for({"id": 5, "photo": None, "title": "Mona", "color": 1})
+        self.assertEqual(pictures.index_for({"id": 5, "photo": None, "title": "Mona", "color": 4}), index)
+        self.assertEqual(pictures.indexes[5][1], avatars.PLACEHOLDER_COLOURS[4])
+        self.assertEqual(pictures.image_list.GetImageCount(), 1)
 
     def test_a_chat_without_its_photo_here_shows_initials_until_it_comes(self):
         folder = tempfile.mkdtemp()
@@ -164,8 +201,8 @@ async def fake_download(self, owner, file=None, download_big=False):
 class ChatListLookTest(WindowTestCase):
     chats = [
         (with_photo(make_user(11, "Ahmed"), 501), 2, False),
-        (make_channel(1000000002, "News"), 0, False),
-        (make_channel(1000000003, "Friends", group=True), 0, False),
+        (with_color(make_channel(1000000002, "News"), 3), 0, False),
+        (with_color(make_channel(1000000003, "Friends", group=True), 9), 0, False),
         (make_user(14, "Weather", bot=True), 0, False),
     ]
 
@@ -235,6 +272,41 @@ class ChatListLookTest(WindowTestCase):
         self.frame.settings.set(s.SETTING_LARGE_TEXT, True)
         self.frame.apply_text_size()
         self.assertGreater(self.rows.pictures.size, size)
+
+    def test_each_chat_carries_its_telegram_colour_or_the_one_telegram_gives_it(self):
+        colour = lambda title: self.frame.dialogs[self.row(title)]["color"]
+        self.assertEqual(colour("News"), 3)
+        self.assertEqual(colour("Friends"), 9)
+        # None chosen: Telegram's own apps go by the chat's number.
+        self.assertEqual(colour("Weather"), 14 % c.PLAIN_COLORS)
+        self.assertEqual(self.rows.pictures.indexes[self.frame.dialogs[self.row("News")]["id"]][1],
+                         avatars.PLACEHOLDER_COLOURS[3])
+
+    def test_names_take_the_chats_own_colour_when_asked(self):
+        self.frame.settings.set(s.SETTING_CHAT_COLOUR_BY, c.CHAT_COLOUR_BY_CHAT)
+        self.rows.paint_rows()
+        for title, color_id in (("News", 3), ("Weather", 14 % c.PLAIN_COLORS)):
+            self.assertEqual(self.rows.GetItemTextColour(self.row(title)), themes.chat_name_colour(color_id), title)
+
+    def test_telegrams_mixed_colours_are_asked_for_and_drawn_once_known(self):
+        FakeTelegramClient.peer_colors = [
+            types.help.PeerColorOption(color_id=2),
+            types.help.PeerColorOption(
+                color_id=9, colors=types.help.PeerColorSet(colors=[0x3E88F7, 0xFF5694]),
+                dark_colors=types.help.PeerColorSet(colors=[0x9AB8FF, 0xFF8AAC])
+            ),
+        ]
+        self.frame.peer_colors = {}
+        self.frame.load_chats()
+        self.assertTrue(pump(lambda: self.frame.peer_colors))
+        self.assertEqual(self.frame.peer_colors, {9: {"light": ["#3E88F7", "#FF5694"], "dark": ["#9AB8FF", "#FF8AAC"]}})
+        friends = self.frame.dialogs[self.row("Friends")]["id"]
+        self.assertEqual(self.rows.pictures.indexes[friends][1], "#3E88F7")
+        self.frame.settings.set(s.SETTING_CHAT_COLOUR_BY, c.CHAT_COLOUR_BY_CHAT)
+        self.rows.paint_rows()
+        self.assertEqual(
+            self.rows.GetItemTextColour(self.row("Friends")), themes.chat_name_colour(9, self.frame.peer_colors)
+        )
 
     @HAS_ICON_FONT
     def test_buttons_and_tabs_carry_pictures(self):

@@ -132,6 +132,7 @@ class FakeTelegramClient:
     recent_stickers = []
     invitation = None  # (title, entity) behind any invitation link, where a test sets it
     read_outbox = None  # id of the newest sent message the other side has read, where a test sets it
+    peer_colors = []  # the PeerColorOption objects GetPeerColorsRequest answers
     calls = []
     created_with = []  # the keyword arguments each client was made with, in order
 
@@ -180,6 +181,7 @@ class FakeTelegramClient:
         cls.profile_photos = []
         cls.recent_stickers = []
         cls.invitation = None
+        cls.peer_colors = []
         cls.calls = []
 
     def __init__(self, *args, **kwargs):
@@ -418,6 +420,8 @@ class FakeTelegramClient:
             return Record(dialogs=[Record(read_outbox_max_id=self.read_outbox)])
         if name == "GetContactsRequest":
             return Record(users=list(self.contacts or []))
+        if name == "GetPeerColorsRequest":
+            return types.help.PeerColors(hash=0, colors=list(self.peer_colors))
         if name == "GetAllStickersRequest":
             return Record(sets=[
                 Record(id=index, access_hash=1, title=title) for index, (title, emojis) in enumerate(self.sticker_sets)

@@ -199,6 +199,13 @@ CHAT_PHOTO_NAME_FORMAT = "{chat_id}_{photo_id}.jpg"
 CHAT_PHOTO_SIZE = 32
 # How long after the list changes its missing photos are asked for: a burst of changes asks once.
 CHAT_PHOTOS_DELAY_MS = 300
+# Telegram's seven plain colours, numbered 0 to 6: red, orange, violet, green, cyan, blue, pink.
+PLAIN_COLORS = 7
+# What colours the names in the chat list: the kind of chat, or the colour the chat has on Telegram.
+CHAT_COLOUR_BY_KIND = "CHAT_COLOUR_BY_KIND"
+CHAT_COLOUR_BY_CHAT = "CHAT_COLOUR_BY_CHAT"
+CHAT_COLOUR_SOURCES = (CHAT_COLOUR_BY_KIND, CHAT_COLOUR_BY_CHAT)
+SETTINGS_CHAT_COLOUR_BY_LABEL_KEY = "SETTINGS_CHAT_COLOUR_BY_LABEL"
 
 # The hidden window that owns the tray icon and the global shortcut. A second
 # copy of the program finds it by this title to ask the first one to come forward.

@@ -32,6 +32,17 @@ KIND_COLOURS = {
     "dark": {CATEGORY_BROADCASTS: "#8CC4FF", CATEGORY_GROUPS: "#9EE09E", CATEGORY_BOTS: "#E0A8F5"},
     "contrast": {CATEGORY_BROADCASTS: "#00FFFF", CATEGORY_GROUPS: "#00FF00", CATEGORY_BOTS: "#FF99FF"},
 }
+# Telegram's seven plain colours as names are drawn in them, by number (red, orange, violet, green, cyan,
+# blue, pink): one shade for light backgrounds, one for dark. A shade is made darker or lighter still,
+# where the theme calls for it, until it reads clearly (see readable).
+CHAT_NAME_COLOURS = {
+    "light": ("#CC5049", "#D67722", "#955CDB", "#40A920", "#309EBA", "#368AD1", "#C7508B"),
+    "dark": ("#FF8E86", "#FFA357", "#B18FFF", "#5FD68E", "#45D8E8", "#7AC0FF", "#FF85C8"),
+}
+# How far apart text and its background must be: the web's accessibility rules ask 4.5 of text,
+# and 7 of the strongest level, which the high contrast theme keeps to.
+READABLE_CONTRAST = 4.5
+HIGH_CONTRAST = 7
 DWMWA_USE_IMMERSIVE_DARK_MODE = 20
 
 _current = THEME_SYSTEM
@@ -75,18 +86,47 @@ def field_background():
         return wx.SystemSettings.GetColour(wx.SYS_COLOUR_WINDOW)
     return wx.Colour(colours["field"])
 
+def light_background():
+    """Whether lists and fields are light in the current theme: whichever of black and white stands out
+    more on their background says so."""
+    background = field_background()
+    return contrast_ratio(background, wx.BLACK) >= contrast_ratio(background, wx.WHITE)
+
 def kind_colour(category):
     """The colour of the row of a chat of this category (one of the CATEGORY_* names); None for a person's
     chat, which keeps the list's own colour."""
     if _current == THEME_HIGH_CONTRAST:
         palette = KIND_COLOURS["contrast"]
     else:
-        background = field_background()
-        # Whichever of black and white stands out more on it says whether the background is light.
-        light = contrast_ratio(background, wx.BLACK) >= contrast_ratio(background, wx.WHITE)
-        palette = KIND_COLOURS["light" if light else "dark"]
+        palette = KIND_COLOURS["light" if light_background() else "dark"]
     colour = palette.get(category)
     return None if colour is None else wx.Colour(colour)
+
+def readable(colour, background, minimum=READABLE_CONTRAST):
+    """`colour`, made darker on a light background or lighter on a dark one, only as far as it takes to
+    stand `minimum` times apart from it; its hue is kept as long as it can be."""
+    target = wx.BLACK if contrast_ratio(background, wx.BLACK) >= contrast_ratio(background, wx.WHITE) else wx.WHITE
+    for step in range(21):
+        share = step / 20
+        mixed = wx.Colour(*(round(own + (far - own) * share) for own, far in zip(colour.Get()[:3], target.Get()[:3])))
+        if contrast_ratio(mixed, background) >= minimum:
+            return mixed
+    return wx.Colour(target)
+
+def chat_name_colour(color_id, palette=None):
+    """The colour a chat's name is drawn in by its Telegram colour number, readable in the current theme;
+    None for a chat with none. `palette` holds Telegram's mixed colours (TelegramManager.load_peer_colors);
+    one not in it is drawn in the plain colour it comes nearest to, its number's remainder by seven."""
+    if color_id is None:
+        return None
+    shade = "light" if light_background() else "dark"
+    option = (palette or {}).get(color_id)
+    if option:
+        colour = option[shade][0]
+    else:
+        colour = CHAT_NAME_COLOURS[shade][color_id % len(CHAT_NAME_COLOURS[shade])]
+    minimum = HIGH_CONTRAST if _current == THEME_HIGH_CONTRAST else READABLE_CONTRAST
+    return readable(wx.Colour(colour), field_background(), minimum)
 
 def _paint(control, colours):
     if colours is None or isinstance(control, wx.StatusBar):
