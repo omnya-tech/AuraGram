@@ -18,6 +18,9 @@ from ui.menu_bar import EVERY_CHAT
 ALI = make_user(1, "Ali")
 NEWS = make_channel(3, "News")
 MY_GROUP = make_channel(4, "MyGroup", group=True, creator=True)
+# A large group this account is an ordinary member of: others' messages there are not its to delete.
+CLUB = make_channel(5, "Club", group=True)
+CLUB_ID = telegram_client.get_peer_id(CLUB)
 OLD = make_user(6, "Old")
 NEWS_ID = telegram_client.get_peer_id(NEWS)
 GROUP_ID = telegram_client.get_peer_id(MY_GROUP)
@@ -126,16 +129,42 @@ class ChatListTest(WindowTestCase):
         self.frame.on_dialog_context_menu(self.context_event(self.frame.dialogs_list))
         self.assertEqual(self.menu_labels[-1], self.text(c.CONTEXT_DELETE_CHAT_KEY))
 
-    def test_leaving_needs_confirmation_and_removes_the_chat(self):
+    def test_leaving_is_chosen_in_a_window_and_removes_the_chat(self):
         news = self.frame.dialogs[1]
-        self.box_answer = wx.NO
-        self.frame.leave_chat(news, False)
+        FakeChooser.confirmed = False
+        self.frame.delete_chat(news)
         self.assertEqual(self.calls("leave"), [])
-        self.box_answer = wx.YES
-        self.frame.leave_chat(news, False)
+        # A channel this account does not own: leaving is all there is.
+        self.assertEqual(FakeChooser.last_choices, [self.text(c.LEAVE_CHANNEL_KEY)])
+        FakeChooser.confirmed = True
+        self.frame.delete_chat(news)
         self.assertTrue(pump(lambda: news not in self.frame.all_dialogs))
         self.assertEqual(self.calls("leave"), [("leave", NEWS_ID)])
         self.assertEqual(self.titles(), ["Ali", "MyGroup"])
+
+    def test_a_private_chat_goes_from_this_side_only_or_from_the_other_persons_too(self):
+        ali = self.frame.dialogs[0]
+        FakeChooser.selection = 1
+        self.frame.delete_chat(ali)
+        self.assertEqual(FakeChooser.last_choices, [
+            self.text(c.DELETE_CHAT_FOR_ME_KEY), self.text(c.DELETE_CHAT_FOR_BOTH_FORMAT_KEY).format(name="Ali")
+        ])
+        self.assertTrue(pump(lambda: self.calls("leave") == [("leave", 1, "revoke")]))
+        self.assertTrue(pump(lambda: "Ali" not in self.titles()))
+
+    def test_the_owner_may_delete_the_group_for_everyone_after_typing_its_name(self):
+        group = self.frame.dialogs[2]
+        FakeChooser.selection = 1
+        FakeChooser.values = ["MyGrou"]
+        self.frame.delete_chat(group)
+        self.assertEqual(FakeChooser.last_choices[1], self.text(c.DELETE_GROUP_FOR_ALL_KEY))
+        self.assertEqual(self.calls("DeleteChannelRequest"), [])
+        self.assertEqual(self.spoken[-1], self.text(c.MSG_DELETE_CHAT_CANCELLED_KEY))
+        FakeChooser.values = ["MyGroup"]
+        self.frame.delete_chat(group)
+        self.assertTrue(pump(lambda: group not in self.frame.all_dialogs))
+        self.assertEqual(len(self.calls("DeleteChannelRequest")), 1)
+        self.assertEqual(self.calls("leave"), [])
 
     def test_find_jumps_to_a_matching_chat_and_wraps(self):
         self.frame.find_text = "my"
@@ -180,8 +209,11 @@ class ChatListTest(WindowTestCase):
 
 
 class MessagesTest(WindowTestCase):
-    chats = [(ALI, 0, False), (MY_GROUP, 0, False)]
-    history = {1: conversation(), GROUP_ID: [make_message(1, "theirs", sender=ALI)]}
+    chats = [(ALI, 0, False), (MY_GROUP, 0, False), (CLUB, 0, False)]
+    history = {
+        1: conversation(), GROUP_ID: [make_message(1, "theirs", sender=ALI)],
+        CLUB_ID: [make_message(1, "theirs", sender=ALI)],
+    }
 
     def setUp(self):
         super().setUp()
@@ -228,11 +260,7 @@ class MessagesTest(WindowTestCase):
         self.assertEqual(self.calls("edit"), [("edit", 2, "mine, fixed")])
         self.assertEqual(self.calls("send"), [])
 
-    def test_delete_asks_first_and_refuses_other_peoples_messages(self):
-        self.messages.SetSelection(0)
-        self.frame.on_delete_menu(None)
-        self.assertEqual(self.boxes, [])
-        self.assertEqual(self.spoken[-1], self.text(c.MSG_CANNOT_DELETE_KEY))
+    def test_delete_asks_first(self):
         self.messages.SetSelection(1)
         self.box_answer = wx.NO
         self.frame.on_delete_menu(None)
@@ -241,6 +269,38 @@ class MessagesTest(WindowTestCase):
         self.frame.on_delete_menu(None)
         self.assertTrue(pump(lambda: self.messages.GetCount() == 2))
         self.assertEqual(self.calls("delete"), [("delete", 1, [2])])
+
+    def test_in_a_private_chat_the_other_persons_message_can_go_too_for_both_or_for_me(self):
+        # As in Telegram: the chat is the two people's, and either may delete any of it.
+        self.messages.SetSelection(0)
+        FakeChooser.selection = 1
+        self.frame.on_delete_menu(None)
+        self.assertIn("Ali", self.boxes[-1])
+        self.assertTrue(pump(lambda: self.calls("delete_for_me") == [("delete_for_me", 1, [1])]))
+        # The first is done before the next is asked for.
+        self.assertTrue(pump(lambda: not self.frame.is_busy and self.messages.GetCount() == 2))
+        self.messages.SetSelection(0)
+        FakeChooser.selection = 0
+        self.frame.on_delete_menu(None)
+        self.assertTrue(pump(lambda: len(self.calls("delete")) == 2))
+        self.assertEqual(len(self.calls("delete_for_me")), 1)
+
+    def test_in_a_large_group_another_members_message_is_not_ours_to_delete(self):
+        self.open_chat(2)
+        self.frame.messages_list.SetSelection(0)
+        self.frame.on_delete_menu(None)
+        self.assertEqual(self.boxes, [])
+        self.assertEqual(self.spoken[-1], self.text(c.MSG_CANNOT_DELETE_KEY))
+        self.frame.on_message_context_menu(self.context_event(self.frame.messages_list))
+        self.assertNotIn(self.text(c.CONTEXT_DELETE_KEY), self.menu_labels)
+
+    def test_the_delete_key_on_a_message_deletes_it_after_asking(self):
+        self.messages.SetSelection(1)
+        self.box_answer = wx.NO
+        with mock.patch.object(wx.Window, "FindFocus", lambda: self.messages):
+            self.press(wx.WXK_DELETE)
+        self.assertIn("mine", self.boxes[-1])
+        self.assertEqual(self.calls("delete"), [])
 
     def test_owner_may_delete_members_messages_and_is_told_whose(self):
         self.open_chat(1)
@@ -253,7 +313,8 @@ class MessagesTest(WindowTestCase):
         self.messages.SetSelection(0)
         self.frame.on_message_context_menu(self.context_event(self.messages))
         self.assertNotIn(self.text(c.CONTEXT_EDIT_KEY), self.menu_labels)
-        self.assertNotIn(self.text(c.CONTEXT_DELETE_KEY), self.menu_labels)
+        # The other person's message, in a private chat: deleting it is on offer.
+        self.assertIn(self.text(c.CONTEXT_DELETE_KEY), self.menu_labels)
         self.assertIn(self.text(c.CONTEXT_COPY_KEY), self.menu_labels)
         self.messages.SetSelection(1)
         self.frame.on_message_context_menu(self.context_event(self.messages))
@@ -271,7 +332,7 @@ class MessagesTest(WindowTestCase):
         FakeChooser.selection = 1
         self.frame.on_forward_menu(None)
         self.assertTrue(pump(lambda: self.calls("forward") == [("forward", GROUP_ID, 1, 1)]))
-        self.assertEqual(FakeChooser.last_choices, ["Ali", "MyGroup"])
+        self.assertEqual(FakeChooser.last_choices, ["Ali", "MyGroup", "Club"])
 
     def test_search_shows_results_and_escape_returns(self):
         FakeChooser.values = ["pinned"]
@@ -623,11 +684,14 @@ class MessageMenuAndRecordingTest(WindowTestCase):
 
 
 class MarkingTest(WindowTestCase):
-    chats = [(ALI, 0, False), (MY_GROUP, 0, False)]
+    chats = [(ALI, 0, False), (MY_GROUP, 0, False), (CLUB, 0, False)]
     history = {1: [
         make_message(1, "theirs", sender=ALI),
         make_message(2, "mine one", outgoing=True),
         make_message(3, "mine two", outgoing=True),
+    ], CLUB_ID: [
+        make_message(1, "theirs", sender=ALI),
+        make_message(2, "mine", outgoing=True),
     ]}
 
     def setUp(self):
@@ -663,6 +727,8 @@ class MarkingTest(WindowTestCase):
         self.assertEqual(self.frame.marked, set())
 
     def test_delete_refuses_if_any_marked_message_is_not_deletable(self):
+        self.open_chat(2)
+        self.messages = self.frame.messages_list
         self.mark(0, 1)
         self.frame.on_delete_menu(None)
         self.assertEqual(self.boxes, [])

@@ -982,8 +982,17 @@ MEMBER_ACTION_DECLINE = "decline"
 
 CONTEXT_LEAVE_KEY = "CONTEXT_LEAVE"
 CONTEXT_DELETE_CHAT_KEY = "CONTEXT_DELETE_CHAT"
-MSG_CONFIRM_LEAVE_KEY = "MSG_CONFIRM_LEAVE"
-MSG_CONFIRM_DELETE_CHAT_KEY = "MSG_CONFIRM_DELETE_CHAT"
+CONTEXT_LEAVE_OR_DELETE_KEY = "CONTEXT_LEAVE_OR_DELETE"
+BTN_DELETE_CHAT_SHORT_KEY = "BTN_DELETE_CHAT_SHORT"
+# The window that asks how a chat goes, as Telegram's apps ask it.
+MSG_DELETE_PRIVATE_CHAT_FORMAT_KEY = "MSG_DELETE_PRIVATE_CHAT_FORMAT"
+MSG_LEAVE_CHAT_FORMAT_KEY = "MSG_LEAVE_CHAT_FORMAT"
+DELETE_CHAT_FOR_ME_KEY = "DELETE_CHAT_FOR_ME"
+DELETE_CHAT_FOR_BOTH_FORMAT_KEY = "DELETE_CHAT_FOR_BOTH_FORMAT"
+LEAVE_GROUP_KEY = "LEAVE_GROUP"
+LEAVE_CHANNEL_KEY = "LEAVE_CHANNEL"
+DELETE_GROUP_FOR_ALL_KEY = "DELETE_GROUP_FOR_ALL"
+DELETE_CHANNEL_FOR_ALL_KEY = "DELETE_CHANNEL_FOR_ALL"
 MSG_LEFT_KEY = "MSG_LEFT"
 
 MENU_REACT_KEY = "MENU_REACT"
@@ -1399,6 +1408,12 @@ EVENT_MESSAGES_DELETED = "messages_deleted"
 EVENT_MESSAGES_READ = "messages_read"
 EVENT_USER_STATUS = "user_status"
 EVENT_TYPING = "typing"
+# A post's views, forwards or comments changed: (chat id, {message id: {"views"/"forwards"/"comments": number}}).
+EVENT_MESSAGE_NUMBERS = "message_numbers"
+# Keeping the open channel's numbers current: how often they are asked for, and for how many posts
+# around the one selected (Telegram takes up to a hundred at a time).
+LIVE_NUMBERS_SECONDS = 10
+LIVE_NUMBERS_AROUND = 25
 
 # What Telegram tells about when a person was last around, by the name of its answer
 # type. Each value is the text shown for it; only the first of the two carries a time.

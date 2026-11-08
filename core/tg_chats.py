@@ -50,9 +50,10 @@ class ChatsMixin:
         """Removes every message of the chat for this account only; the chat itself stays."""
         self._request(on_result, self._clear_history_async, dialog_id)
 
-    def leave_chat(self, dialog_id, on_result):
-        """Leaves a group or channel; for a private chat, deletes it from this account's list."""
-        self._request(on_result, self._leave_chat_async, dialog_id)
+    def leave_chat(self, dialog_id, on_result, revoke=False):
+        """Leaves a group or channel; for a private chat, deletes it from this account's list, and with
+        `revoke` from the other person's too, as Telegram's "also delete for" does."""
+        self._request(on_result, self._leave_chat_async, dialog_id, revoke)
 
     def open_saved_messages(self, on_result):
         """The account's chat with itself; the result is shaped like those of load_dialogs."""
@@ -214,6 +215,10 @@ class ChatsMixin:
             "is_forum": bool(getattr(entity, "forum", False)),
             # The owner or an admin of a group or channel, who gets its management.
             "is_admin": not is_user and bool(getattr(entity, "creator", False) or getattr(entity, "admin_rights", None)),
+            # Its owner, who alone may delete it for everyone.
+            "is_owner": not is_user and bool(getattr(entity, "creator", False)),
+            # This account's chat with itself, Saved Messages: there is nobody else to delete it for.
+            "is_self": is_user and bool(entity.is_self),
             # Text left unsent in this chat, as saved on the account by any device.
             "draft": draft,
             # For a person: when they were last around. Bots and this account itself have none.
@@ -537,9 +542,9 @@ class ChatsMixin:
         except Exception:
             pass
 
-    async def _leave_chat_async(self, dialog_id):
+    async def _leave_chat_async(self, dialog_id, revoke):
         try:
-            await self.client.delete_dialog(self.entities[dialog_id])
+            await self.client.delete_dialog(self.entities[dialog_id], revoke=revoke)
         except UserNotParticipantError:
             # Never joined, or already gone: either way it is left.
             pass

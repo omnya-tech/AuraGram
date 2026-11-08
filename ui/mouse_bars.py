@@ -9,6 +9,7 @@ from core.constants import (
     MENU_NEW_CHAT_KEY, MENU_GLOBAL_SEARCH_KEY, MENU_DOWNLOAD_FILES_KEY, MENU_CHAT_INFO_KEY, MENU_REPLY_KEY,
     MENU_FORWARD_KEY, MENU_REACT_KEY, MENU_OPEN_MEDIA_KEY, MENU_COMMENTS_KEY, MENU_MESSAGE_STATS_KEY, MENU_REMIND_KEY,
     TOOLTIP_SEARCH_MESSAGES_KEY, MENU_SEARCH_MESSAGES_KEY, TOOLTIP_RECORD_KEY, MENU_RECORD_KEY, TOOLTIP_SEND_KEY,
+    CONTEXT_DELETE_KEY, MENU_DELETE_KEY, BTN_DELETE_CHAT_SHORT_KEY, MENU_CHAT_LEAVE_KEY,
 )
 from core.settings import SETTING_ENTER_SENDS
 
@@ -18,6 +19,7 @@ BAR_ICONS = {
     BTN_CHAT_INFO_KEY: "info", MENU_SETTINGS_KEY: "settings", BTN_MORE_ACTIONS_KEY: "more",
     CONTEXT_REPLY_KEY: "reply", CONTEXT_FORWARD_KEY: "forward", CONTEXT_REACT_KEY: "react", BTN_PLAY_KEY: "play",
     BTN_OPEN_KEY: "open", BTN_COMMENTS_KEY: "comments", BTN_STATS_KEY: "stats", BTN_REMIND_KEY: "remind",
+    CONTEXT_DELETE_KEY: "delete", BTN_DELETE_CHAT_SHORT_KEY: "delete",
 }
 
 class MouseBarsMixin:
@@ -35,6 +37,7 @@ class MouseBarsMixin:
             (BTN_DOWNLOAD_FILES_KEY, self.on_download_files_menu, MENU_DOWNLOAD_FILES_KEY),
             (BTN_CHAT_INFO_KEY, lambda event: self.on_chat_menu(self.show_chat_info), MENU_CHAT_INFO_KEY),
             (MENU_SETTINGS_KEY, self.on_settings_menu, MENU_SETTINGS_KEY),
+            (BTN_DELETE_CHAT_SHORT_KEY, lambda event: self.on_chat_menu(self.delete_chat), MENU_CHAT_LEAVE_KEY),
             (BTN_MORE_ACTIONS_KEY, lambda event: self.on_dialog_context_menu(self.no_position(self.dialogs_list)), None),
         )
 
@@ -48,6 +51,7 @@ class MouseBarsMixin:
             (BTN_COMMENTS_KEY, self.on_comments_menu, MENU_COMMENTS_KEY),
             (BTN_STATS_KEY, self.on_message_stats_menu, MENU_MESSAGE_STATS_KEY),
             (BTN_REMIND_KEY, self.on_remind_menu, MENU_REMIND_KEY),
+            (CONTEXT_DELETE_KEY, self.on_delete_menu, MENU_DELETE_KEY),
             (BTN_MORE_ACTIONS_KEY, lambda event: self.on_message_context_menu(self.no_position(self.messages_list)), None),
         )
 

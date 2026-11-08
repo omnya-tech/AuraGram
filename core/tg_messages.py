@@ -92,6 +92,26 @@ class MessagesMixin:
     def edit_message(self, dialog_id, message_id, text, on_result):
         self._request(on_result, self._edit_message_async, dialog_id, message_id, text)
 
+    def load_message_views(self, dialog_id, message_ids, on_result):
+        """The latest numbers of a channel's posts, as {id: {"views", "forwards", "comments"}}, asked for
+        without counting a view: a list kept up to date is not read again each time it is asked."""
+        self._request(on_result, self._load_message_views_async, dialog_id, list(message_ids))
+
+    async def _load_message_views_async(self, dialog_id, message_ids):
+        result = await self.client(functions.messages.GetMessagesViewsRequest(
+            peer=self.entities[dialog_id], id=message_ids, increment=False
+        ))
+        # In the order asked for, one for each id.
+        return {message_id: self._describe_numbers(numbers) for message_id, numbers in zip(message_ids, result.views)}
+
+    @staticmethod
+    def _describe_numbers(numbers):
+        replies = getattr(numbers, "replies", None)
+        return {
+            "views": getattr(numbers, "views", None), "forwards": getattr(numbers, "forwards", None),
+            "comments": replies.replies if replies is not None and getattr(replies, "comments", False) else None,
+        }
+
     def delete_message(self, dialog_id, message_id, on_result, for_everyone=True):
         """Deletes a message, or a list of message ids: for everyone in the chat, or from this account's side only."""
         self._request(on_result, self._delete_message_async, dialog_id, message_id, for_everyone)

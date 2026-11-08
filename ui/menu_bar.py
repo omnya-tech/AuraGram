@@ -199,7 +199,7 @@ class MenuBarMixin:
             None,
             # Last, away from the everyday entries: these cannot be undone.
             (MENU_CHAT_CLEAR_KEY, lambda event: on_chat(self.clear_history)),
-            (MENU_CHAT_LEAVE_KEY, lambda event: on_chat(lambda dialog: self.leave_chat(dialog, self.is_private_chat(dialog)))),
+            (MENU_CHAT_LEAVE_KEY, lambda event: on_chat(self.delete_chat)),
         )
         if chat is None:
             return [

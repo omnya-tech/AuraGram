@@ -39,6 +39,51 @@ class MessageStatsTest(WindowTestCase):
         self.assertIn(self.text(c.CONTEXT_MESSAGE_STATS_KEY), self.menu_labels)
         self.assertIn(self.text(c.CONTEXT_COMMENTS_KEY), self.menu_labels)
 
+    def test_new_numbers_show_on_their_row_without_opening_the_chat_again(self):
+        self.open_chat(0)
+        self.frame.messages_list.SetSelection(1)
+        self.frame.on_message_numbers(self.frame.current_dialog_id, {1: {"views": 1234, "forwards": 15}})
+        self.assertIn(self.text(c.VIEWS_FORMAT_KEY).format(count=1234), self.frame.messages_list.GetString(0))
+        # A message without numbers is left as it was.
+        self.assertNotIn("1234", self.frame.messages_list.GetString(1))
+        # Another chat's numbers are no business of this one.
+        self.frame.on_message_numbers(-1000000000099, {1: {"views": 5}})
+        self.assertIn("1234", self.frame.messages_list.GetString(0))
+
+    def test_the_row_being_read_keeps_its_words_until_the_selection_moves_on(self):
+        self.open_chat(0)
+        messages = self.frame.messages_list
+        messages.SetSelection(0)
+        before = messages.GetString(0)
+        with mock.patch.object(wx.Window, "FindFocus", return_value=messages):
+            self.frame.on_message_numbers(self.frame.current_dialog_id, {1: {"views": 2000}})
+        # Not changed under the screen reader: it would read the row out again.
+        self.assertEqual(messages.GetString(0), before)
+        # Its numbers are current all the same, where they are asked for, and in the preview.
+        self.frame.on_message_stats_menu(None)
+        self.assertIn(self.text(c.VIEWS_FORMAT_KEY).format(count=2000), self.spoken[-1])
+        messages.SetSelection(1)
+        self.frame.update_preview()
+        self.assertIn("2000", messages.GetString(0))
+
+    def test_the_open_channel_is_asked_for_its_numbers_without_counting_a_view(self):
+        from tests.harness import FakeTelegramClient, pump
+        self.open_chat(0)
+        FakeTelegramClient.live_views = {1: 1500}
+        with mock.patch.object(self.frame, "IsShown", return_value=True):
+            self.frame.ask_live_numbers()
+        self.assertTrue(pump(lambda: "1500" in self.frame.messages_list.GetString(0)))
+        request = self.calls("GetMessagesViewsRequest")[-1][1]
+        # Only posts are asked about, and asking is not reading: no view is added by it.
+        self.assertEqual(request.id, [1])
+        self.assertFalse(request.increment)
+
+    def test_nothing_is_asked_while_the_window_is_hidden(self):
+        self.open_chat(0)
+        with mock.patch.object(self.frame, "IsShown", return_value=False):
+            self.frame.ask_live_numbers()
+        self.assertEqual(self.calls("GetMessagesViewsRequest"), [])
+
     def press_on_messages(self, code):
         event = wx.KeyEvent(wx.wxEVT_CHAR_HOOK)
         event.SetKeyCode(code)
@@ -54,3 +99,25 @@ class MessageStatsTest(WindowTestCase):
         with mock.patch.object(self.frame, "open_thread") as open_thread:
             self.press_on_messages(wx.WXK_LEFT)
         self.assertEqual(open_thread.call_args[0][0]["id"], 1)
+
+
+class NumbersSentByTelegramTest(MessageStatsTest.__base__):
+    """What Telegram sends of its own accord when a post's numbers change reaches the window as they do."""
+    chats = []
+
+    def test_views_and_forwards_updates_become_one_event(self):
+        import asyncio
+        from telethon.tl import types
+        import core.telegram_client as telegram_client
+        told = []
+        stub = mock.Mock(message_listener=lambda *details: told.append(details))
+        asyncio.run(telegram_client.TelegramManager._on_numbers(
+            stub, types.UpdateChannelMessageViews(channel_id=41, id=1, views=77)
+        ))
+        asyncio.run(telegram_client.TelegramManager._on_numbers(
+            stub, types.UpdateChannelMessageForwards(channel_id=41, id=1, forwards=4)
+        ))
+        self.assertEqual(told, [
+            (c.EVENT_MESSAGE_NUMBERS, -1000000000041, {1: {"views": 77}}),
+            (c.EVENT_MESSAGE_NUMBERS, -1000000000041, {1: {"forwards": 4}}),
+        ])

@@ -138,6 +138,11 @@ class MainFrame(
         self.messages = []
         # Ids of the messages marked for a group action (delete, forward, copy).
         self.marked = set()
+        # Ids of posts whose numbers changed while their row had the screen reader on it: their row's
+        # words are brought up to date once the selection moves on, not under the user (see live_updates).
+        self.stale_rows = set()
+        # Whether the open channel's numbers have been asked for and not answered yet.
+        self.numbers_pending = False
         self.has_older = False
         # True while older messages, a search or a sound are being fetched: what the list waits for.
         self.is_busy = False
@@ -166,6 +171,7 @@ class MainFrame(
         self.typing_row_timers = {}
         self.init_ui()
         self.init_reminders()
+        self.start_live_numbers()
         # Photos of chats long gone from every list: on a thread of their own, the disk is no reason to wait.
         threading.Thread(target=forget_old_photos, args=(CHAT_PHOTOS_DIR,), daemon=True).start()
         self.Bind(wx.EVT_CLOSE, self.on_close)
@@ -801,6 +807,12 @@ class MainFrame(
             self.on_show_in_folder_menu(event)
         elif is_enter and focused is self.messages_list:
             self.on_activate_message(event)
+        elif event.GetKeyCode() in (wx.WXK_DELETE, wx.WXK_NUMPAD_DELETE) and focused is self.messages_list                 and not event.HasAnyModifiers():
+            # As in Telegram's own apps: Delete on a message deletes it, after asking.
+            self.on_delete_menu(event)
+        elif event.GetKeyCode() in (wx.WXK_DELETE, wx.WXK_NUMPAD_DELETE) and focused is self.dialogs_list                 and not event.HasAnyModifiers():
+            # And on a chat, the window that asks how it is deleted or left.
+            self.on_chat_menu(self.delete_chat)
         elif is_enter and focused is self.message_input \
                 and shortcuts.from_key_event(event) not in self.menu_shortcuts:
             # Where Enter with other keys is the shortcut of a menu entry, it is the menu's to act on.

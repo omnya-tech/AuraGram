@@ -210,7 +210,7 @@ class FindingAndJoiningTest(WindowTestCase):
 
     def test_leaving_a_channel_never_joined_asks_telegram_nothing_and_shows_no_error(self):
         channel = self.open_unjoined_channel()
-        self.frame.leave_chat(channel, False)
+        self.frame.delete_chat(channel)
         self.assertEqual(self.boxes, [])
         self.assertEqual(self.calls("leave"), [])
         self.assertIsNone(self.frame.find_known_dialog(self.channel_id))

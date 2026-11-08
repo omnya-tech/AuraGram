@@ -9,7 +9,8 @@ from core.constants import (
     EVENT_NEW_MESSAGE, EVENT_MESSAGE_EDITED, EVENT_MESSAGES_DELETED, ANNOUNCE_FORMAT_KEY,
     SOUND_MESSAGE_IN_CHAT, ANNOUNCE_WHEN_FOREGROUND, ANNOUNCE_WHEN_BACKGROUND,
     ANNOUNCE_WHAT_SENDER, ANNOUNCE_WHAT_WHOLE, ANNOUNCE_SENDER_FORMAT_KEY, EVENT_MESSAGES_READ, EVENT_USER_STATUS, EVENT_TYPING, TYPING_ACTION_TYPING, TYPING_ACTION_CANCEL, TYPING_ACTION_KEYS,
-    TYPING_SHOWN_MS, EVENT_DRAFT, PREVIEW_SENDER_FORMAT_KEY
+    TYPING_SHOWN_MS, EVENT_DRAFT, PREVIEW_SENDER_FORMAT_KEY, EVENT_MESSAGE_NUMBERS, LIVE_NUMBERS_SECONDS,
+    LIVE_NUMBERS_AROUND, CONNECTION_OFFLINE, MESSAGE_VIEW_SCHEDULED
 )
 
 class LiveUpdatesMixin:
@@ -29,6 +30,7 @@ class LiveUpdatesMixin:
             EVENT_USER_STATUS: self.on_user_status,
             EVENT_TYPING: self.on_typing,
             EVENT_DRAFT: self.on_draft,
+            EVENT_MESSAGE_NUMBERS: self.on_message_numbers,
         }
         handlers[event](*details)
 
@@ -109,6 +111,88 @@ class LiveUpdatesMixin:
                 # Re-render: replies quoting this message show its text too.
                 self.render_messages(self.messages_list.GetSelection() - self.message_offset())
                 return
+
+    def start_live_numbers(self):
+        """Keep the open channel's views, forwards and comments current, as Telegram's apps do, without
+        the chat being opened again."""
+        wx.CallLater(LIVE_NUMBERS_SECONDS * 1000, self.live_numbers_tick)
+
+    def live_numbers_tick(self):
+        """Now and again, for as long as the window is there. Not a wx.Timer: one owned by the window
+        outlives it, and takes the program down when it goes (as ui.reminders found before)."""
+        if not self:
+            return
+        wx.CallLater(LIVE_NUMBERS_SECONDS * 1000, self.live_numbers_tick)
+        self.ask_live_numbers()
+
+    def ask_live_numbers(self, event=None):
+        """Ask for the numbers of the posts around the selected one, when there is someone to see them."""
+        if not self or self.numbers_pending or not self.IsShown() or self.IsIconized() or self.current_dialog_id is None:
+            return
+        if self.telegram_manager.connection_state == CONNECTION_OFFLINE or self.message_view == MESSAGE_VIEW_SCHEDULED:
+            return
+        posts = [message for message in self.messages if message["views"] is not None]
+        if not posts:
+            # A private chat or a group: Telegram counts views of channel posts only.
+            return
+        selected = self.selected_message()
+        middle = posts.index(selected) if selected in posts else len(posts) - 1
+        start = max(0, middle - LIVE_NUMBERS_AROUND)
+        ids = [message["id"] for message in posts[start:middle + LIVE_NUMBERS_AROUND + 1]]
+        dialog_id = self.current_dialog_id
+        self.numbers_pending = True
+
+        def deliver(result, error_key):
+            # A failure is no news: the next round asks again.
+            wx.CallAfter(self.on_numbers_answer, dialog_id, result)
+        self.telegram_manager.load_message_views(self.peer(dialog_id), ids, deliver)
+
+    def on_numbers_answer(self, dialog_id, numbers):
+        if not self:
+            return
+        self.numbers_pending = False
+        if numbers:
+            self.on_message_numbers(dialog_id, numbers)
+
+    def on_message_numbers(self, dialog_id, numbers):
+        """New numbers for posts of a chat: {message id: {"views"/"forwards"/"comments": number}}."""
+        if dialog_id != self.current_dialog_id:
+            return
+        selected = self.messages_list.GetSelection()
+        # The row the screen reader is on keeps its words while it is there: changed under it, they could be
+        # read out again at every change. Its numbers are current all the same, for the preview and the
+        # statistics (the arrow back), and its row catches up once the selection moves.
+        reading = selected if wx.Window.FindFocus() is self.messages_list else None
+        offset = self.message_offset()
+        selected_changed = False
+        for index, message in enumerate(self.messages):
+            changed = {
+                name: number for name, number in numbers.get(message["id"], {}).items()
+                if number is not None and message.get(name) != number
+            }
+            if not changed:
+                continue
+            message.update(changed)
+            row = index + offset
+            if row == selected:
+                selected_changed = True
+            if row == reading:
+                self.stale_rows.add(message["id"])
+            else:
+                self.messages_list.SetString(row, self.format_message(message))
+        if selected_changed:
+            self.update_preview()
+
+    def refresh_stale_rows(self):
+        """Bring up to date the rows left as they were while being read, now that the selection is elsewhere."""
+        if not self.stale_rows:
+            return
+        selected = self.messages_list.GetSelection()
+        offset = self.message_offset()
+        for index, message in enumerate(self.messages):
+            if message["id"] in self.stale_rows and index + offset != selected:
+                self.stale_rows.discard(message["id"])
+                self.messages_list.SetString(index + offset, self.format_message(message))
 
     def on_messages_read(self, dialog_id, max_id):
         if dialog_id != self.current_dialog_id:

@@ -267,6 +267,8 @@ class MessageListMixin:
         elif self.start_row_wanted():
             # A bot that was never started, or a link that says what to start it with: the way in, in sight.
             items.append(self.i18n.get_string(BOT_START_ROW_KEY))
+        # Every row is written anew from the messages as they are now.
+        self.stale_rows = set()
         self.messages_list.Set(items)
         if self.messages:
             self.messages_list.SetSelection(selected_message_index + self.message_offset())
@@ -278,6 +280,7 @@ class MessageListMixin:
     def update_preview(self):
         """Show the selected message in full below the list."""
         message = self.selected_message()
+        self.refresh_stale_rows()
         # What the attachment's button says follows the message selected.
         self.update_attachment_words()
         if message is None:

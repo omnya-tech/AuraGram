@@ -167,7 +167,7 @@ li { margin: .3rem 0; }
 <li><b>Join</b> a channel or group you are only looking at ({{MENU_CHAT_JOIN}}).</li>
 <li>For people: <b>add to contacts</b> or delete ({{MENU_CHAT_CONTACT}}), and <b>block</b> or unblock ({{MENU_CHAT_BLOCK}}).</li>
 <li><b>Manage</b> ({{MENU_CHAT_MANAGE}}): offered only to a channel's or group's owner and admins. See <a href="#admin">Running channels and groups</a>.</li>
-<li><b>Clear history</b> ({{MENU_CHAT_CLEAR}}), then <b>leave</b> or <b>delete the chat</b> ({{MENU_CHAT_LEAVE}}). Both ask first, since neither can be undone.</li>
+<li><b>Clear history</b> ({{MENU_CHAT_CLEAR}}), then <b>delete or leave the chat</b> ({{MENU_CHAT_LEAVE}}, or the Delete key on the chat): a window opens to choose how, as in Telegram. A private chat goes for you only, or for you and the other person too. A group or channel is left and taken off your list; if you own it, deleting it for good for all its members is offered too, which asks once more and has you type its name.</li>
 </ul>
 <h3>Other chat commands (the Chats menu)</h3>
 <ul>
@@ -204,6 +204,7 @@ li { margin: .3rem 0; }
 <ul>
 <li>Posts are not each led by the channel's name, so you hear the post straight away.</li>
 <li>Left arrow on a post says its statistics once: views, comments, forwards and reactions ({{MENU_MESSAGE_STATS}} does the same).</li>
+<li>The numbers keep themselves current while the channel is open, about every ten seconds, for the posts around the one you are on, without opening the channel again. The row the screen reader is on keeps its words while you are there, so it is not read out again; the left arrow says its new numbers, and its row catches up once you move.</li>
 <li>Right arrow on a post opens its comments ({{MENU_COMMENTS}}).</li>
 </ul>
 <h3>Moving within a chat</h3>
@@ -285,7 +286,7 @@ li { margin: .3rem 0; }
 <li><b>Describe the picture</b> with AI ({{MENU_DESCRIBE_IMAGE}}): a description of the picture and the text in it. It needs your own Gemini key in the settings, and no picture goes to Google unless you ask for it to be described.</li>
 <li><b>Read the message in full</b> in a window ({{MENU_READ_MESSAGE}}).</li>
 <li><b>Mark the message</b> or unmark it ({{MENU_MARK}}).</li>
-<li><b>Delete</b> ({{MENU_DELETE}}): asks whether for everyone or just for you.</li>
+<li><b>Delete</b> ({{MENU_DELETE}}, or the Delete key on the message): asks first, then whether for everyone or just for you. In a private chat you can delete the other person's messages too, as in Telegram. In a small group you delete someone else's message for yourself only, unless you are an admin. In a channel or a large group, only your own messages, or others' where you have the right.</li>
 </ul>
 <h3>Under More</h3>
 <ul>
@@ -537,7 +538,7 @@ li { margin: .3rem 0; }
 <li>In the chat list each chat shows its picture beside its name; one without a picture shows a circle in its Telegram colour with its initials. Channels are blue, groups green, bots purple, and chats with unread messages are in bold; in the settings, names can take each chat's own colour as its owner chose it on Telegram instead. The colours are chosen to read clearly in every colour theme of the app.</li>
 <li>In the message list each message is in its writer's Telegram colour, as Telegram colours names in groups, and yours in the list's usual colour. Each message with an attachment starts with a small symbol for its kind (voice, song, photo, video, file, location...).</li>
 <li>Every button and tab has a small symbol beside its name (send, attach, record, search...), in the colours of the theme you chose.</li>
-<li>Below the chat list is a row of buttons for the commands used most (new chat, global search, download files, information, settings, more), and below a chat another (reply, forward, react, play, open, comments, statistics, remind, more).</li>
+<li>Below the chat list is a row of buttons for the commands used most (new chat, global search, download files, information, settings, delete chat, more), and below a chat another (reply, forward, react, play, open, comments, statistics, remind, delete, more).</li>
 <li>Each button has a tooltip naming its shortcut, so you learn the shortcuts as you use the mouse.</li>
 <li>The More button opens the same menu as the Applications key, as does a right click in any list or in the writing field.</li>
 <li>The tabs above the chat list are clicked like buttons, and a double click on a chat opens it.</li>

@@ -139,6 +139,8 @@ class FakeTelegramClient:
     @classmethod
     def reset(cls, chats, history=None):
         cls.created_with = []
+        # message id -> the view count GetMessagesViewsRequest answers with now.
+        cls.live_views = {}
         cls.chats = chats
         cls.history = history or {}
         cls.scheduled = {}
@@ -190,7 +192,16 @@ class FakeTelegramClient:
         self.created_with.append(kwargs)
 
     def add_event_handler(self, handler, event):
-        self.handlers[type(event).__name__] = handler
+        name = type(event).__name__
+        if name == "Raw":
+            # Several raw handlers, each for its own updates: "Raw" stays the first one (drafts), and
+            # each is also found by the updates it takes, as "Raw:UpdateChannelMessageViews".
+            taken = getattr(event, "types", None) or ()
+            for update_type in taken if isinstance(taken, (tuple, list, set)) else (taken,):
+                self.handlers["Raw:" + update_type.__name__] = handler
+            self.handlers.setdefault(name, handler)
+            return
+        self.handlers[name] = handler
 
     def is_connected(self):
         return self.connected
@@ -356,8 +367,9 @@ class FakeTelegramClient:
             telegram_client.get_peer_id(from_entity)
         ))
 
-    async def delete_dialog(self, entity):
-        self.calls.append(("leave", telegram_client.get_peer_id(entity)))
+    async def delete_dialog(self, entity, revoke=False):
+        peer_id = telegram_client.get_peer_id(entity)
+        self.calls.append(("leave", peer_id, "revoke") if revoke else ("leave", peer_id))
 
     async def get_entity(self, peer):
         if isinstance(peer, str):
@@ -404,6 +416,10 @@ class FakeTelegramClient:
     async def __call__(self, request):
         name = type(request).__name__
         self.calls.append((name, request))
+        if name == "GetMessagesViewsRequest":
+            return types.messages.MessageViews(views=[
+                types.MessageViews(views=FakeTelegramClient.live_views.get(message_id)) for message_id in request.id
+            ], chats=[], users=[])
         if name == "GetPollVotesRequest":
             # Every vote on one page: (voter, the options they chose).
             users = [user for user, options in self.poll_votes]

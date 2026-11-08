@@ -20,7 +20,10 @@ from core.constants import (
     MSG_NOT_JOINED_FORMAT_KEY, MSG_NOT_JOINED_NO_KEY_FORMAT_KEY, DIALOG_NOT_JOINED_KEY,
     MSG_PREVIEW_REMOVED_FORMAT_KEY, MENU_CHAT_JOIN_KEY,
     CATEGORY_GROUPS, CATEGORY_BROADCASTS, CONTEXT_LEAVE_KEY, CONTEXT_DELETE_CHAT_KEY,
-    MSG_CONFIRM_LEAVE_KEY, MSG_CONFIRM_DELETE_CHAT_KEY, MSG_LEFT_KEY, MSG_VIEW_COUNT_FORMAT_KEY,
+    MSG_LEFT_KEY, CONTEXT_LEAVE_OR_DELETE_KEY, MSG_DELETE_PRIVATE_CHAT_FORMAT_KEY, MSG_LEAVE_CHAT_FORMAT_KEY,
+    DELETE_CHAT_FOR_ME_KEY, DELETE_CHAT_FOR_BOTH_FORMAT_KEY, LEAVE_GROUP_KEY, LEAVE_CHANNEL_KEY,
+    DELETE_GROUP_FOR_ALL_KEY, DELETE_CHANNEL_FOR_ALL_KEY, CATEGORY_BOTS, MSG_CONFIRM_DELETE_CHAT_FOREVER_FORMAT_KEY,
+    MSG_TYPE_CHAT_NAME_FORMAT_KEY, MSG_DELETE_CHAT_CANCELLED_KEY, MSG_VIEW_COUNT_FORMAT_KEY,
     MSG_CHOOSE_CONTACT_KEY, MSG_NO_CONTACTS_KEY, MSG_FIND_CHAT_PROMPT_KEY, CONTEXT_INFO_KEY, CONTEXT_ADD_FAVORITE_KEY, CONTEXT_REMOVE_FAVORITE_KEY,
     MSG_FAVORITE_ADDED_FORMAT_KEY, MSG_FAVORITE_REMOVED_FORMAT_KEY, VIEW_FAVORITES_KEY, CONTEXT_SEND_KEY, CONTEXT_SEND_FILE_KEY,
     CONTEXT_SEND_STICKER_KEY, CONTEXT_SEND_CONTACT_KEY, CONTEXT_SEND_LOCATION_KEY, CONTEXT_SEND_POLL_KEY, CONTEXT_INFO_GROUP_KEY, CONTEXT_INFO_CHANNEL_KEY,
@@ -901,9 +904,11 @@ class ChatListMixin:
             entries.append((manage_key, lambda event: self.manage_chat(dialog)))
         entries.append((CONTEXT_CLEAR_HISTORY_KEY, lambda event: self.clear_history(dialog)))
         # Last, away from the everyday entries: it cannot be undone.
-        is_private = self.is_private_chat(dialog)
-        leave_key = CONTEXT_DELETE_CHAT_KEY if is_private else CONTEXT_LEAVE_KEY
-        entries.append((leave_key, lambda event: self.leave_chat(dialog, is_private)))
+        if self.is_private_chat(dialog):
+            leave_key = CONTEXT_DELETE_CHAT_KEY
+        else:
+            leave_key = CONTEXT_LEAVE_OR_DELETE_KEY if dialog.get("is_owner") else CONTEXT_LEAVE_KEY
+        entries.append((leave_key, lambda event: self.delete_chat(dialog)))
         self.show_context_menu(entries)
 
     def send_from_list(self, dialog, handler):
@@ -1088,18 +1093,50 @@ class ChatListMixin:
             self.preview_text.ChangeValue("")
         self.notify(MSG_HISTORY_CLEARED_KEY)
 
-    def leave_chat(self, dialog, is_private):
+    def delete_chat(self, dialog):
+        """Delete or leave a chat, choosing how in one window, as Telegram's apps ask it: a private chat
+        from this side only or from the other person's too; a group or channel left, or, by its owner,
+        deleted for everyone. Choosing is the confirmation, except for deleting for everyone, which asks
+        again and has the chat's name typed out."""
+        is_private = self.is_private_chat(dialog)
         if not is_private and not dialog["joined"]:
             self.remove_preview(dialog)
             return
-        confirm_key = MSG_CONFIRM_DELETE_CHAT_KEY if is_private else MSG_CONFIRM_LEAVE_KEY
-        answer = wx.MessageBox(
-            self.i18n.get_string(confirm_key).format(title=dialog["title"]),
-            self.i18n.get_string(APP_TITLE_KEY),
-            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING, self
-        )
-        if answer == wx.YES:
-            self.telegram_manager.leave_chat(dialog["id"], self.on_ui_thread(self.on_chat_left, dialog))
+        text = self.i18n.get_string
+        if is_private:
+            prompt = text(MSG_DELETE_PRIVATE_CHAT_FORMAT_KEY).format(title=dialog["title"])
+            choices = [(text(DELETE_CHAT_FOR_ME_KEY), lambda: self.leave(dialog, False))]
+            # A bot keeps nothing to delete, and Saved Messages has nobody else.
+            if dialog["category"] != CATEGORY_BOTS and not dialog.get("is_self"):
+                choices.append((
+                    text(DELETE_CHAT_FOR_BOTH_FORMAT_KEY).format(name=dialog["title"]), lambda: self.leave(dialog, True)
+                ))
+        else:
+            is_channel = dialog["category"] == CATEGORY_BROADCASTS
+            prompt = text(MSG_LEAVE_CHAT_FORMAT_KEY).format(title=dialog["title"])
+            choices = [(text(LEAVE_CHANNEL_KEY if is_channel else LEAVE_GROUP_KEY), lambda: self.leave(dialog, False))]
+            if dialog.get("is_owner"):
+                choices.append((
+                    text(DELETE_CHANNEL_FOR_ALL_KEY if is_channel else DELETE_GROUP_FOR_ALL_KEY),
+                    lambda: self.delete_chat_for_everyone(dialog)
+                ))
+        index = self.pick(prompt, [label for label, action in choices])
+        if index is not None:
+            choices[index][1]()
+
+    def leave(self, dialog, revoke):
+        self.telegram_manager.leave_chat(dialog["id"], self.on_ui_thread(self.on_chat_left, dialog), revoke=revoke)
+
+    def delete_chat_for_everyone(self, dialog):
+        """The owner's deleting of a group or channel for all: a question, then its own name typed out."""
+        text = self.i18n.get_string
+        if not self.confirm(text(MSG_CONFIRM_DELETE_CHAT_FOREVER_FORMAT_KEY).format(chat=dialog["title"])):
+            return
+        typed = self.ask_text(text(MSG_TYPE_CHAT_NAME_FORMAT_KEY).format(chat=dialog["title"]))
+        if typed != dialog["title"].strip():
+            self.notify(MSG_DELETE_CHAT_CANCELLED_KEY)
+            return
+        self.telegram_manager.delete_chat(dialog["id"], self.on_ui_thread(self.on_chat_left, dialog))
 
     def remove_preview(self, dialog):
         """"Leave" a group or channel never joined: there is nothing to leave, only its row to take away."""

@@ -30,7 +30,7 @@ from core.constants import (
     ERR_PASSWORD_INVALID_KEY, ERR_FLOOD_KEY, ERR_CONNECTION_KEY, ERR_GENERAL_KEY, ERR_NO_PERMISSION_KEY,
     ERR_CHAT_NOT_FOUND_KEY, CODE_DELIVERY_KEYS, NEXT_CODE_DELIVERY_KEYS, CODE_DELIVERY_OTHER_KEY,
     ERR_NO_OTHER_DELIVERY_KEY, ERR_VOICE_FORBIDDEN_KEY, ERR_API_INVALID_KEY, EVENT_NEW_MESSAGE,
-    EVENT_MESSAGE_EDITED, EVENT_MESSAGES_DELETED, CONNECTION_ONLINE, CONNECTION_OFFLINE,
+    EVENT_MESSAGE_EDITED, EVENT_MESSAGES_DELETED, EVENT_MESSAGE_NUMBERS, CONNECTION_ONLINE, CONNECTION_OFFLINE,
     CONNECTION_WATCH_SECONDS, CONNECTION_PING_TIMEOUT_SECONDS, CONNECTION_RETRY_WATCH_SECONDS,
     CONNECTION_PINGS_MISSED_OFFLINE, CONNECTION_PING_GIVE_UP_SECONDS, CLIENT_CONNECTION_RETRIES, EVENT_MESSAGES_READ, EVENT_USER_STATUS, CONNECT_RETRY_SECONDS,
     EVENT_TYPING, TYPING_ACTION_CANCEL, TYPING_ACTION_TYPING, TYPING_ACTION_VOICE, TYPING_ACTION_VIDEO,
@@ -195,6 +195,11 @@ class TelegramManager(ChatsMixin, MessagesMixin, MediaMixin, AdminMixin, Account
         self.client.add_event_handler(self._on_messages_read, events.MessageRead())
         self.client.add_event_handler(self._on_user_update, events.UserUpdate())
         self.client.add_event_handler(self._on_draft, events.Raw(types.UpdateDraftMessage))
+        # What Telegram sends of its own accord when a post's numbers change; the window also asks every
+        # few seconds, since Telegram sends these only now and then.
+        self.client.add_event_handler(
+            self._on_numbers, events.Raw((types.UpdateChannelMessageViews, types.UpdateChannelMessageForwards))
+        )
         self.entities = {}
 
     def stop(self):
@@ -379,6 +384,14 @@ class TelegramManager(ChatsMixin, MessagesMixin, MediaMixin, AdminMixin, Account
         if getattr(event, "uploading", False):
             return TYPING_ACTION_UPLOAD
         return None
+
+    async def _on_numbers(self, update):
+        if self.message_listener is None:
+            return
+        numbers = {"views": update.views} if isinstance(update, types.UpdateChannelMessageViews)             else {"forwards": update.forwards}
+        self.message_listener(
+            EVENT_MESSAGE_NUMBERS, get_peer_id(types.PeerChannel(update.channel_id)), {update.id: numbers}
+        )
 
     async def _on_draft(self, update):
         if self.message_listener is not None:

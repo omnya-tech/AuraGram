@@ -38,7 +38,18 @@ class MessageActionsMixin:
     """
 
     def can_delete(self, message):
-        return message["outgoing"] or self.shown_chat()["can_delete_others"]
+        """Whether Telegram lets this account delete the message at all. In a private chat or a small
+        group anyone may delete any message, someone else's too (for themselves at least); in a channel
+        or a large group, only their own, or others' with the right to."""
+        chat = self.shown_chat()
+        return message["outgoing"] or chat["can_delete_others"] or not chat["is_channel"]
+
+    def can_delete_for_everyone(self, message):
+        """Whether it can go for everyone, not just from this account's side: one's own, anything in a
+        private chat, or others' where one has the right; another member's message in a small group,
+        without the right, can only be taken off one's own copy."""
+        chat = self.shown_chat()
+        return message["outgoing"] or chat["can_delete_others"] or self.is_private_chat(chat)
 
     def on_delete_menu(self, event):
         message = self.selected_message()
@@ -69,7 +80,7 @@ class MessageActionsMixin:
         )
         if answer != wx.YES:
             return
-        for_everyone = self.ask_delete_scope()
+        for_everyone = self.ask_delete_scope([message])
         if for_everyone is None:
             return
         self.is_busy = True
@@ -122,7 +133,7 @@ class MessageActionsMixin:
         )
         if answer != wx.YES:
             return
-        for_everyone = self.ask_delete_scope()
+        for_everyone = self.ask_delete_scope(marked)
         if for_everyone is None:
             return
         self.is_busy = True
@@ -134,7 +145,7 @@ class MessageActionsMixin:
             for_everyone=for_everyone
         )
 
-    def ask_delete_scope(self):
+    def ask_delete_scope(self, messages):
         """Whether to delete for everyone (True) or only on this side (False); None if the user backs out.
 
         Only a private chat or a small group keeps a copy per person. In a channel or
@@ -142,6 +153,9 @@ class MessageActionsMixin:
         """
         if self.shown_chat()["is_channel"]:
             return True
+        if not all(self.can_delete_for_everyone(message) for message in messages):
+            # Nothing to choose: only this account's own copy can go.
+            return False
         with wx.SingleChoiceDialog(
             self, self.i18n.get_string(MSG_DELETE_SCOPE_KEY), self.i18n.get_string(APP_TITLE_KEY),
             [self.i18n.get_string(DELETE_FOR_ALL_KEY), self.i18n.get_string(DELETE_FOR_ME_KEY)]
