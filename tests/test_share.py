@@ -133,6 +133,27 @@ class ShareWindowTest(WindowTestCase):
         self.tick(dialog, 4, False)
         self.assertEqual(dialog.chosen(), [2])
 
+    def test_the_list_is_windows_own_with_its_own_check_boxes(self):
+        # What a screen reader takes for a list of check boxes, and reads ticked or not.
+        dialog = self.picker()
+        self.assertIsInstance(dialog.chats_list, wx.ListCtrl)
+        self.assertTrue(dialog.chats_list.HasCheckBoxes())
+
+    def test_a_tick_by_the_user_is_kept_and_one_by_the_program_tells_nothing(self):
+        dialog = self.picker()
+        # As Space or a click does it: Windows ticks the box, and the window hears of it.
+        dialog.chats_list.CheckItem(1, True)
+        pump(timeout=0.1)
+        self.assertEqual(dialog.ticked, {1})
+        # Filling the list again after a search, and ticking from the program, are no choices of the user's.
+        dialog.search_input.SetValue("mona")
+        dialog.search_input.SetValue("")
+        self.assertEqual(dialog.ticked, {1})
+        self.assertTrue(dialog.chats_list.IsChecked(1))
+        dialog.chats_list.CheckItem(1, False)
+        pump(timeout=0.1)
+        self.assertEqual(dialog.chosen(), [0])
+
     def test_with_nothing_ticked_the_chat_the_list_stands_on_is_meant(self):
         dialog = self.picker()
         dialog.search_input.SetValue("fam")

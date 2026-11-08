@@ -2,6 +2,7 @@ import wx
 from core.speech import say
 from ui.layout import prepare_window
 from ui.type_ahead import TypeAhead
+from ui.chat_rows import CheckRows
 from core.constants import (
     FEEDBACK_COUNT,
     APP_TITLE_KEY, CHAT_PICKER_SEARCH_LABEL_KEY, CHAT_PICKER_LIST_LABEL_KEY, MSG_CHAT_PICKER_COUNT_FORMAT_KEY,
@@ -37,7 +38,8 @@ class ChatPickerDialog(wx.Dialog):
         self.search_input.Bind(wx.EVT_KEY_DOWN, self.on_search_key)
         sizer.Add(self.search_input, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)
         sizer.Add(wx.StaticText(self, label=i18n.get_string(CHAT_PICKER_LIST_LABEL_KEY)), flag=wx.LEFT|wx.RIGHT, border=10)
-        self.chats_list = wx.CheckListBox(self)
+        # Windows' own list with check boxes: a screen reader reads each chat and whether it is ticked.
+        self.chats_list = CheckRows(self)
         self.type_ahead = TypeAhead(self.chats_list)
         self.chats_list.Bind(wx.EVT_CHECKLISTBOX, self.on_tick)
         sizer.Add(self.chats_list, proportion=1, flag=wx.EXPAND|wx.LEFT|wx.RIGHT|wx.BOTTOM, border=10)

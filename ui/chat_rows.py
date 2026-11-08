@@ -146,3 +146,41 @@ class ChatRows(wx.ListCtrl):
         command.SetEventObject(self)
         command.SetInt(index)
         self.ProcessWindowEvent(command)
+
+
+class CheckRows(ChatRows):
+    """Rows with Windows' own check box on each, for choosing several: what wx.CheckListBox draws by
+    itself, a screen reader does not take for a control at all, nor read ticked or not; this list view's
+    are Windows' own, read as such, and Space ticks the one the list stands on.
+
+    It answers as wx.CheckListBox does (Check, IsChecked) and sends its event when the user ticks."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.EnableCheckBoxes(True)
+        # True while the program itself ticks or fills the list: a check list box says nothing of that.
+        self.checking = False
+        self.Bind(wx.EVT_LIST_ITEM_CHECKED, self.on_checked)
+        self.Bind(wx.EVT_LIST_ITEM_UNCHECKED, self.on_checked)
+
+    def Set(self, items):
+        self.checking = True
+        try:
+            super().Set(items)
+        finally:
+            self.checking = False
+
+    def Check(self, index, check=True):
+        self.checking = True
+        try:
+            self.CheckItem(index, check)
+        finally:
+            self.checking = False
+
+    def IsChecked(self, index):
+        return self.IsItemChecked(index)
+
+    def on_checked(self, event):
+        event.Skip()
+        if not self.checking:
+            self.send(wx.wxEVT_CHECKLISTBOX, event.GetIndex())
