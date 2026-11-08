@@ -24,10 +24,11 @@ class ChatToolsTest(WindowTestCase):
         self.open_chat(0)
         self.assertTrue(self.frame.attach_btn.IsEnabled())
         self.frame.on_attach(None)
+        # Telegram's attach menu, in its own short words; a private chat with a person takes no poll.
         self.assertEqual(self.menu_labels, [
-            self.frame.i18n.get_string(key).partition("\t")[0] for key in (
-                c.MENU_SEND_FILE_KEY, c.MENU_SEND_STICKER_KEY, c.MENU_SEND_CONTACT_KEY,
-                c.MENU_SEND_LOCATION_KEY, c.MENU_NEW_POLL_KEY,
+            self.frame.i18n.get_string(c.ATTACH_LABELS[key]) for key in (
+                c.MENU_SEND_MEDIA_KEY, c.MENU_SEND_FILE_KEY, c.MENU_SEND_AUDIO_KEY, c.MENU_SEND_LOCATION_KEY,
+                c.MENU_SEND_CONTACT_KEY,
             )
         ])
 

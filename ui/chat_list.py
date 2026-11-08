@@ -25,7 +25,7 @@ from core.constants import (
     DELETE_GROUP_FOR_ALL_KEY, DELETE_CHANNEL_FOR_ALL_KEY, CATEGORY_BOTS, MSG_CONFIRM_DELETE_CHAT_FOREVER_FORMAT_KEY,
     MSG_TYPE_CHAT_NAME_FORMAT_KEY, MSG_DELETE_CHAT_CANCELLED_KEY, MSG_VIEW_COUNT_FORMAT_KEY,
     MSG_CHOOSE_CONTACT_KEY, MSG_NO_CONTACTS_KEY, MSG_FIND_CHAT_PROMPT_KEY, CONTEXT_INFO_KEY, CONTEXT_ADD_FAVORITE_KEY, CONTEXT_REMOVE_FAVORITE_KEY,
-    MSG_FAVORITE_ADDED_FORMAT_KEY, MSG_FAVORITE_REMOVED_FORMAT_KEY, VIEW_FAVORITES_KEY, CONTEXT_SEND_KEY, CONTEXT_SEND_FILE_KEY, CONTEXT_SEND_AUDIO_KEY,
+    MSG_FAVORITE_ADDED_FORMAT_KEY, MSG_FAVORITE_REMOVED_FORMAT_KEY, VIEW_FAVORITES_KEY, CONTEXT_SEND_KEY, CONTEXT_SEND_FILE_KEY, CONTEXT_SEND_AUDIO_KEY, CONTEXT_SEND_MEDIA_KEY,
     CONTEXT_SEND_STICKER_KEY, CONTEXT_SEND_CONTACT_KEY, CONTEXT_SEND_LOCATION_KEY, CONTEXT_SEND_POLL_KEY, CONTEXT_INFO_GROUP_KEY, CONTEXT_INFO_CHANNEL_KEY,
     CONTEXT_MANAGE_GROUP_KEY, CONTEXT_MANAGE_CHANNEL_KEY, MSG_NOT_ADMIN_KEY,
     MSG_CHAT_SAVED_KEY, CONTEXT_OPEN_KEY, CONTEXT_MARK_READ_KEY, CONTEXT_MUTE_KEY,
@@ -859,12 +859,13 @@ class ChatListMixin:
             entries.append((CONTEXT_SEND_KEY, [
                 (label_key, lambda event, handler=handler: self.send_from_list(dialog, handler))
                 for label_key, handler in (
+                    (CONTEXT_SEND_MEDIA_KEY, self.on_send_media_menu),
                     (CONTEXT_SEND_FILE_KEY, self.on_send_file_menu),
                     (CONTEXT_SEND_AUDIO_KEY, self.on_send_audio_menu),
-                    (CONTEXT_SEND_STICKER_KEY, self.on_send_sticker_menu),
-                    (CONTEXT_SEND_CONTACT_KEY, self.on_send_contact_menu),
                     (CONTEXT_SEND_LOCATION_KEY, self.on_send_location_menu),
                     (CONTEXT_SEND_POLL_KEY, self.on_new_poll_menu),
+                    (CONTEXT_SEND_CONTACT_KEY, self.on_send_contact_menu),
+                    (CONTEXT_SEND_STICKER_KEY, self.on_send_sticker_menu),
                 )
             ]))
         # Each entry names the change it makes, so the menu also tells the chat's current state.

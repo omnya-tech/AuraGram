@@ -314,7 +314,8 @@ class ShortcutsWindowTest(WindowTestCase):
         self.open_chat(0)
         self.frame.on_input_context_menu(None)
         table = shortcuts.defaults()
-        self.assertEqual(self.menu_labels[0], self.text(c.MENU_SEND_FILE_KEY))
+        # First the attach menu's own, in Telegram's order.
+        self.assertEqual(self.menu_labels[0], self.text(c.MENU_SEND_MEDIA_KEY))
         self.assertIn(self.text(c.MENU_SEND_STICKER_KEY), self.menu_labels)
         # Then the editing a text field's own menu would have offered.
         self.assertEqual(self.menu_labels[-4:], [

@@ -26,7 +26,8 @@ from core.constants import (
     APP_TITLE_KEY, MESSAGE_INPUT_LABEL_KEY, MSG_LOADING_KEY, DATE_TIME_FORMAT, STATUS_READY_KEY,
     PHOTO_VIDEO_EXTENSIONS, PASTED_IMAGE_NAME, MSG_CAPTION_PROMPT_KEY, MSG_SEND_AS_PROMPT_KEY,
     AUDIO_MIME_TYPES, MSG_SEND_AUDIO_AS_PROMPT_KEY, SEND_AUDIO_AS_AUDIO_KEY, SEND_AUDIO_AS_FILES_KEY,
-    MSG_CHOOSE_AUDIO_KEY, SOUND_FILES_KEY, SEND_AS_CHOICES,
+    MSG_CHOOSE_AUDIO_KEY, SOUND_FILES_KEY, SEND_AS_CHOICES, SEND_AS_FILE, SEND_AS_MEDIA, SEND_AS_AUDIO,
+    MSG_CHOOSE_MEDIA_KEY, MEDIA_FILES_KEY,
     SEND_AS_MEDIA_KEY, SEND_AS_FILES_KEY, MSG_FILES_SENT_FORMAT_KEY, STICKERS_RECENT_KEY,
     MSG_CHOOSE_STICKER_SET_KEY, MSG_CHOOSE_STICKER_KEY, STICKER_CHOICE_FORMAT_KEY, MSG_NO_STICKERS_KEY,
     MSG_STICKER_SENT_KEY, MSG_CHOOSE_CONTACT_TO_SEND_KEY, MSG_CONTACT_SENT_KEY, MSG_NO_CONTACTS_KEY,
@@ -267,7 +268,23 @@ class ComposerMixin:
             if file_dialog.ShowModal() != wx.ID_OK:
                 return
             paths = file_dialog.GetPaths()
-        self.send_paths(paths)
+        # As Telegram's File: everything as it is, a picture uncompressed, a song as a file.
+        self.send_paths(paths, send_as=SEND_AS_FILE)
+
+    def on_send_media_menu(self, event):
+        """Pictures and videos shown in the chat, several as an album, as Telegram's "Photo or video" sends them."""
+        if not self.can_send_now():
+            return
+        patterns = ";".join("*" + extension for extension in sorted(PHOTO_VIDEO_EXTENSIONS))
+        with wx.FileDialog(
+            self, self.i18n.get_string(MSG_CHOOSE_MEDIA_KEY),
+            wildcard="%s (%s)|%s" % (self.i18n.get_string(MEDIA_FILES_KEY), patterns, patterns),
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST | wx.FD_MULTIPLE
+        ) as file_dialog:
+            if file_dialog.ShowModal() != wx.ID_OK:
+                return
+            paths = file_dialog.GetPaths()
+        self.send_paths(paths, send_as=SEND_AS_MEDIA)
 
     def on_send_audio_menu(self, event):
         """Sound files sent as sounds, as Telegram's apps send music: played in the chat, with the song's
@@ -283,7 +300,7 @@ class ComposerMixin:
             if file_dialog.ShowModal() != wx.ID_OK:
                 return
             paths = file_dialog.GetPaths()
-        self.send_paths(paths, as_audio=True)
+        self.send_paths(paths, send_as=SEND_AS_AUDIO)
 
     def share_files(self, paths, send_as=None):
         """Files handed over from outside the app, by Windows' "Send to" menu: ask which chats they are for,
@@ -409,10 +426,10 @@ class ComposerMixin:
             for dialog_id in dialog_ids:
                 self.refresh_after_sending(dialog_id)
 
-    def ask_how_to_send(self, paths, as_audio=False, send_as=None):
+    def ask_how_to_send(self, paths, send_as=None):
         """What goes with files about to be sent, as (caption, whether pictures and videos go as plain files,
-        whether sound files do); None if the user backs out. `as_audio`: picked as sounds, so sent as sounds.
-        `send_as`: chosen already, from the "Send to" submenu (SEND_AS_CHOICES), so only the caption is asked."""
+        whether sound files do); None if the user backs out. `send_as`: chosen already (SEND_AS_CHOICES), by the
+        attach menu's entry or a "Send to" one, so only the caption is asked; None, as for files pasted, to ask."""
         # Said before anything is sent: what each file is and how big, so a wrong pick is caught here.
         with wx.TextEntryDialog(
             self, self.describe_paths(paths) + "\n\n" + self.i18n.get_string(MSG_CAPTION_PROMPT_KEY),
@@ -433,7 +450,7 @@ class ComposerMixin:
                     return None
                 as_documents = kind_dialog.GetSelection() == 1
         audio_as_files = False
-        if not as_audio and any(os.path.splitext(path)[1].lower() in AUDIO_MIME_TYPES for path in paths):
+        if any(os.path.splitext(path)[1].lower() in AUDIO_MIME_TYPES for path in paths):
             # Picked as files: a song may be meant to go as one, to keep it exactly as it is.
             with wx.SingleChoiceDialog(
                 self, self.i18n.get_string(MSG_SEND_AUDIO_AS_PROMPT_KEY), self.i18n.get_string(APP_TITLE_KEY),
@@ -444,13 +461,13 @@ class ComposerMixin:
                 audio_as_files = kind_dialog.GetSelection() == 1
         return caption, as_documents, audio_as_files
 
-    def send_paths(self, paths, as_audio=False):
+    def send_paths(self, paths, send_as=None):
         """Send files to the open chat as one message, after asking what goes with them; cancelling either question sends nothing."""
         if self.upload is not None:
             # One lot of files at a time: the row at the end of the chat stands for one.
             self.notify(MSG_SHARE_BUSY_KEY)
             return
-        how = self.ask_how_to_send(paths, as_audio)
+        how = self.ask_how_to_send(paths, send_as)
         if how is None:
             return
         caption, as_documents, audio_as_files = how

@@ -15,7 +15,7 @@ from core.constants import (
     MENU_RECORD_KEY, MENU_SEARCH_MESSAGES_KEY, MENU_REPLY_KEY, MENU_EDIT_KEY, MENU_DELETE_KEY,
     MENU_SEND_FILE_KEY, MENU_SEND_AUDIO_KEY, MENU_SEARCH_KEY, MENU_FIND_KEY, MENU_FIND_NEXT_KEY, MENU_FILE_KEY, MENU_LOGOUT_KEY,
     MENU_EXIT_KEY, CONTEXT_CUT_KEY, CONTEXT_PASTE_KEY, CONTEXT_COPY_KEY, BTN_SELECT_ALL_KEY,
-    MENU_BOT_START_KEY, MENU_BOT_COMMANDS_KEY, MENU_BOT_KEYBOARD_KEY, ATTACH_COMMANDS, MENU_GO_KEY,
+    MENU_BOT_START_KEY, MENU_BOT_COMMANDS_KEY, MENU_BOT_KEYBOARD_KEY, ATTACH_COMMANDS, ATTACH_LABELS, MENU_SEND_MEDIA_KEY, MENU_GO_KEY,
     MENU_GO_CHATS_KEY, MENU_GO_MESSAGES_KEY, MENU_GO_INPUT_KEY, MENU_NEXT_UNREAD_KEY, MENU_NEXT_VIEW_KEY,
     MENU_PREVIOUS_VIEW_KEY, MENU_CHAT_INFO_KEY, MENU_CHAT_MANAGE_KEY, MENU_CHAT_READ_KEY,
     MENU_CHAT_FAVORITE_KEY, MENU_CHAT_PIN_KEY, MENU_CHAT_MUTE_KEY, MENU_CHAT_ARCHIVE_KEY, MENU_CHAT_CLEAR_KEY,
@@ -79,13 +79,15 @@ class MenuBarMixin:
         """What can go with a message, or how it goes: the menu of the writing field, and of the
         Attach button. None draws a line between groups of entries."""
         return (
+            # The attach menu's, in its order (ATTACH_COMMANDS), then what Telegram keeps apart from it.
+            (MENU_SEND_MEDIA_KEY, self.on_send_media_menu),
             (MENU_SEND_FILE_KEY, self.on_send_file_menu),
             (MENU_SEND_AUDIO_KEY, self.on_send_audio_menu),
-            (MENU_RECORD_KEY, self.on_record_menu),
-            (MENU_SEND_STICKER_KEY, self.on_send_sticker_menu),
-            (MENU_SEND_CONTACT_KEY, self.on_send_contact_menu),
             (MENU_SEND_LOCATION_KEY, self.on_send_location_menu),
             (MENU_NEW_POLL_KEY, self.on_new_poll_menu),
+            (MENU_SEND_CONTACT_KEY, self.on_send_contact_menu),
+            (MENU_SEND_STICKER_KEY, self.on_send_sticker_menu),
+            (MENU_RECORD_KEY, self.on_record_menu),
             (MENU_SEND_SILENT_KEY, lambda event: self.on_send_message(event, silent=True)),
             (MENU_SCHEDULE_KEY, self.on_schedule_menu),
             None,
@@ -100,18 +102,28 @@ class MenuBarMixin:
         )
 
     def on_attach(self, event):
-        # Only what is attached to a message: the button is named for that.
-        self.show_send_menu(only=ATTACH_COMMANDS)
+        # Only what is attached to a message, as Telegram's apps have it: the button is named for that.
+        self.show_send_menu(only=ATTACH_COMMANDS, labels=ATTACH_LABELS)
+
+    def polls_allowed(self):
+        """Telegram takes polls in groups and channels, and in a private chat only with a bot or with oneself."""
+        if self.current_dialog_id is None:
+            return True
+        dialog = self.current_dialog()
+        return not self.is_private_chat(dialog) or dialog.get("category") == CATEGORY_BOTS or bool(dialog.get("is_self"))
 
     def on_input_context_menu(self, event):
         self.show_send_menu(with_editing=True)
 
-    def show_send_menu(self, with_editing=False, only=None):
+    def show_send_menu(self, with_editing=False, only=None, labels=None):
         """The send commands, each with its shortcut; in the writing field, the usual editing ones after them,
         since this menu takes the place of the one Windows gives a text field."""
         table = shortcuts.current(self.settings)
         menu = wx.Menu()
         entries = [entry for entry in self.send_entries() if only is None or (entry is not None and entry[0] in only)]
+        if only is not None:
+            # In the order asked for, not the order of the longer menu.
+            entries.sort(key=lambda entry: only.index(entry[0]))
         # Only what the open chat's kind has: someone to mention or a name to send as in a group, bots in a bot's chat or a group.
         category = self.current_dialog().get("category") if self.current_dialog_id is not None else None
         missing = set()
@@ -119,6 +131,8 @@ class MenuBarMixin:
             missing |= {MENU_MENTION_KEY, MENU_SEND_AS_KEY}
         if category not in (CATEGORY_GROUPS, CATEGORY_BOTS):
             missing |= {MENU_BOT_START_KEY, MENU_BOT_COMMANDS_KEY, MENU_BOT_KEYBOARD_KEY}
+        if not self.polls_allowed():
+            missing.add(MENU_NEW_POLL_KEY)
         entries = [entry for entry in entries if entry is None or entry[0] not in missing]
         if with_editing:
             entries += [None] + [
@@ -137,7 +151,7 @@ class MenuBarMixin:
                 menu.AppendSeparator()
                 separator_due = False
             label_key, handler = entry
-            label = self.i18n.get_string(label_key)
+            label = self.i18n.get_string((labels or {}).get(label_key, label_key))
             shortcut = table.get(label_key)
             item = menu.Append(wx.ID_ANY, label + "\t" + shortcut if shortcut else label)
             menu.Bind(wx.EVT_MENU, handler, item)

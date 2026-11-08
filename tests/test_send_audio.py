@@ -10,7 +10,7 @@ import wx
 
 import core.constants as c
 from core import audio
-from tests.harness import FakeChooser, WindowTestCase, make_user, pump
+from tests.harness import FakeChooser, FakeTelegramClient, WindowTestCase, make_user, pump
 
 ALI = make_user(1, "Ali")
 
@@ -99,6 +99,32 @@ class SendAudioTest(WindowTestCase):
         self.assertEqual([call[2] for call in self.calls("send_file")], [notes, song])
         self.assertEqual(len(self.sounds()), 1)
 
-    def test_the_attach_menu_offers_a_file_and_audio(self):
-        labels = [self.text(key) for key, handler in [entry for entry in self.frame.send_entries() if entry][:2]]
-        self.assertEqual(labels, [self.text(c.MENU_SEND_FILE_KEY), self.text(c.MENU_SEND_AUDIO_KEY)])
+    def test_the_attach_menu_is_telegrams_in_its_order_and_words(self):
+        # Unigram's: photo or video, file, music, location, poll, contact.
+        self.assertEqual(c.ATTACH_COMMANDS, (
+            c.MENU_SEND_MEDIA_KEY, c.MENU_SEND_FILE_KEY, c.MENU_SEND_AUDIO_KEY, c.MENU_SEND_LOCATION_KEY,
+            c.MENU_NEW_POLL_KEY, c.MENU_SEND_CONTACT_KEY,
+        ))
+        shown = []
+
+        def popup(menu, *args):
+            shown.extend(item.GetItemLabelText() for item in menu.GetMenuItems() if not item.IsSeparator())
+        with mock.patch.object(self.frame, "PopupMenu", popup):
+            self.frame.on_attach(None)
+        # A private chat with a person takes no poll, as in Telegram.
+        self.assertEqual(shown, [self.text(c.ATTACH_LABELS[key]) for key in c.ATTACH_COMMANDS if key != c.MENU_NEW_POLL_KEY])
+
+    def test_photo_or_video_goes_shown_in_the_chat_and_file_goes_as_it_is_without_asking(self):
+        picture = os.path.join(self.folder, "a.jpg")
+        open(picture, "wb").close()
+        for handler, as_documents in ((self.frame.on_send_media_menu, False), (self.frame.on_send_file_menu, True)):
+            FakeChooser.values = [""]
+            FakeChooser.last_choices = None
+            with mock.patch.object(wx, "FileDialog") as file_dialog:
+                file_dialog.return_value.__enter__.return_value.ShowModal.return_value = wx.ID_OK
+                file_dialog.return_value.__enter__.return_value.GetPaths.return_value = [picture]
+                handler(None)
+            self.assertTrue(pump(lambda: self.frame.upload is None and self.calls("send_file")))
+            self.assertIsNone(FakeChooser.last_choices)
+            self.assertEqual(self.calls("send_file")[-1][4], as_documents)
+            FakeTelegramClient.calls.clear()
