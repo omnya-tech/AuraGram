@@ -122,8 +122,11 @@ Source: "dist\{#AppName}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsu
 ; not would stay behind and be loaded as if it belonged (1.0.0's cryptg, built for Python 3.11,
 ; broke 1.1's encryption that way and with it every connection to Telegram).
 Type: filesandordirs; Name: "{app}\_internal"
-; 1.0.0 put a single AuraGram entry in "Send to"; the submenu of the same name takes its place.
+; 1.0.0 put a single AuraGram entry in "Send to"; the four below take its place. And a folder of that
+; name, as a build between them made it: Windows treats a folder in "Send to" as somewhere to copy the
+; files into, so Enter on it copied them there, and its submenu opened and closed under the keyboard.
 Type: files; Name: "{usersendto}\{#AppName}.lnk"
+Type: filesandordirs; Name: "{usersendto}\{#AppName}"
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
@@ -131,12 +134,13 @@ Name: "{group}\{cm:UninstallShortcut}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
 ; Right click on files, "Send to", AuraGram: the program starts with their paths and asks which chat.
 ; Windows keeps this menu per user and has no shared one, so it is added for whoever runs the installer.
-; A submenu, AuraGram, with an entry for each way the files can go; the entry's flag tells the program
-; which (SEND_AS_* in core/constants.py), and Windows adds the files after it.
-Name: "{usersendto}\{#AppName}\{cm:SendToAuto}"; Filename: "{app}\{#AppExe}"; Parameters: "--send-as=auto"; Tasks: sendto
-Name: "{usersendto}\{#AppName}\{cm:SendToFile}"; Filename: "{app}\{#AppExe}"; Parameters: "--send-as=file"; Tasks: sendto
-Name: "{usersendto}\{#AppName}\{cm:SendToAudio}"; Filename: "{app}\{#AppExe}"; Parameters: "--send-as=audio"; Tasks: sendto
-Name: "{usersendto}\{#AppName}\{cm:SendToMedia}"; Filename: "{app}\{#AppExe}"; Parameters: "--send-as=media"; Tasks: sendto
+; An entry for each way the files can go, side by side and all starting with AuraGram, so they stand
+; together; the entry's flag tells the program which (SEND_AS_* in core/constants.py), and Windows adds
+; the files after it. Not a folder of entries: see what is deleted before installing, above.
+Name: "{usersendto}\{#AppName} - {cm:SendToAuto}"; Filename: "{app}\{#AppExe}"; Parameters: "--send-as=auto"; Tasks: sendto
+Name: "{usersendto}\{#AppName} - {cm:SendToFile}"; Filename: "{app}\{#AppExe}"; Parameters: "--send-as=file"; Tasks: sendto
+Name: "{usersendto}\{#AppName} - {cm:SendToAudio}"; Filename: "{app}\{#AppExe}"; Parameters: "--send-as=audio"; Tasks: sendto
+Name: "{usersendto}\{#AppName} - {cm:SendToMedia}"; Filename: "{app}\{#AppExe}"; Parameters: "--send-as=media"; Tasks: sendto
 
 [Registry]
 ; --background: start hidden next to the clock; the window opens with Ctrl+Alt+Shift+A.
@@ -151,7 +155,7 @@ Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchNow}"; Flags: nowait postin
 [UninstallDelete]
 ; Anything the program left beside itself (there should be nothing: it writes only to the user's folders).
 Type: filesandordirs; Name: "{app}"
-; The "Send to" submenu's folder, once its entries are gone.
+; The "Send to" folder a build between 1.0.0 and 1.1 made, once its entries are gone.
 Type: dirifempty; Name: "{usersendto}\{#AppName}"
 
 [Code]
