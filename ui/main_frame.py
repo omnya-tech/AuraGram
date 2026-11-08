@@ -85,6 +85,8 @@ class MainFrame(
         self.bot_start_params = {}
         # Files from outside the app, waiting for the chat list to load before asking where they go.
         self.shared_paths = []
+        # How the files waiting there are to go, as the "Send to" entry they came from said; None to ask.
+        self.shared_send_as = None
         # Whether this run has already looked for shortcuts that other programs hold.
         self.shortcuts_checked = False
         # Every loaded chat, and the subset the current view shows in the list.

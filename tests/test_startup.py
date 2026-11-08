@@ -17,7 +17,7 @@ class HandOverTest(unittest.TestCase):
         for patch in (
             mock.patch.object(main, "ask_running_copy_to_show", lambda: self.asked.append("show") or True),
             mock.patch.object(main, "ask_running_copy_to_take_files", lambda: self.asked.append("files") or True),
-            mock.patch.object(main.share, "leave", self.left.extend),
+            mock.patch.object(main.share, "leave", lambda paths, send_as=None: self.left.extend(paths + [send_as])),
         ):
             patch.start()
             self.addCleanup(patch.stop)
@@ -38,7 +38,13 @@ class HandOverTest(unittest.TestCase):
         path = os.path.join(tempfile.mkdtemp(), "notes.txt")
         open(path, "w").close()
         self.assertTrue(self.hand_over([path]))
-        self.assertEqual((self.asked, self.left), (["files"], [path]))
+        self.assertEqual((self.asked, self.left), (["files"], [path, None]))
+
+    def test_how_they_go_is_left_with_them(self):
+        path = os.path.join(tempfile.mkdtemp(), "song.mp3")
+        open(path, "w").close()
+        self.assertTrue(self.hand_over(["--send-as=audio", path]))
+        self.assertEqual(self.left, [path, c.SEND_AS_AUDIO])
 
     def test_the_build_checks_and_the_installer_quit_are_never_handed_over(self):
         for flag in (c.CHECK_FLAG, c.QUIT_FLAG):

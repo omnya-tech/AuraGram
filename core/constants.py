@@ -1941,6 +1941,21 @@ CONTEXT_PASTE_KEY = "CONTEXT_PASTE"
 # leaves their paths in this folder and tells the running one, by this number, to pick them up.
 SHARE_INBOX_DIR = os.path.join(tempfile.gettempdir(), APP_NAME + "-shared")
 SHARE_HOTKEY_ID = 2
+# How files from the "Send to" menu go, by the entry of the AuraGram submenu they came from: the
+# installer gives each entry the flag, and the program asks no more how to send them.
+SEND_AS_FLAG = "--send-as="
+SEND_AS_AUTO = "auto"
+SEND_AS_FILE = "file"
+SEND_AS_AUDIO = "audio"
+SEND_AS_MEDIA = "media"
+# (pictures and videos as plain files, sounds as plain files) for each.
+SEND_AS_CHOICES = {
+    # By what each file is: a sound as a sound, a picture or video shown in the chat, the rest as files.
+    SEND_AS_AUTO: (False, False),
+    SEND_AS_FILE: (True, True),
+    SEND_AS_AUDIO: (True, False),
+    SEND_AS_MEDIA: (False, True),
+}
 MSG_SHARE_TO_KEY = "MSG_SHARE_TO"
 MSG_SHARE_BUSY_KEY = "MSG_SHARE_BUSY"
 MSG_SHARE_NO_CHAT_KEY = "MSG_SHARE_NO_CHAT"

@@ -21,8 +21,9 @@ def hand_over_to_running_copy(arguments):
     if CHECK_FLAG in arguments or QUIT_FLAG in arguments or not running_copy_window():
         return False
     paths = share.files_among(arguments)
+    send_as = share.send_as_among(arguments)
     if paths:
-        share.leave(paths)
+        share.leave(paths, send_as)
         return ask_running_copy_to_take_files()
     return ask_running_copy_to_show()
 
@@ -84,9 +85,11 @@ class MainApplication(wx.App):
             time.sleep(RESTART_POLL_SECONDS)
         # Files to send, when started from Windows' "Send to" menu.
         self.shared_paths = share.files_among(sys.argv[1:])
+        # The entry of the "Send to" submenu they came from says how they go.
+        self.shared_send_as = share.send_as_among(sys.argv[1:])
         if self.instance_checker.IsAnotherRunning():
             if self.shared_paths:
-                share.leave(self.shared_paths)
+                share.leave(self.shared_paths, self.shared_send_as)
                 ask_running_copy_to_take_files()
             else:
                 ask_running_copy_to_show()
@@ -296,7 +299,9 @@ class MainApplication(wx.App):
 
     def take_shared_files(self):
         """Another copy was started with files to send and left them for this one."""
-        self.shared_paths += share.collect()
+        paths, send_as = share.collect()
+        self.shared_paths += paths
+        self.shared_send_as = send_as or self.shared_send_as
         self.show_window()
         self.hand_over_shared_files()
 
@@ -304,7 +309,8 @@ class MainApplication(wx.App):
         # Until someone is signed in the files wait: there is nobody to send them as.
         if self.main_frame and self.shared_paths:
             paths, self.shared_paths = self.shared_paths, []
-            self.main_frame.share_files(paths)
+            send_as, self.shared_send_as = self.shared_send_as, None
+            self.main_frame.share_files(paths, send_as)
 
     def on_me(self, main_frame, me):
         self.remember_account(me)

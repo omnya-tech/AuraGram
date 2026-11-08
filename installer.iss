@@ -78,6 +78,14 @@ arabic.StartWithWindows=تشغيل AuraGram في الخلفية عند بدء و
 english.StartWithWindows=Start AuraGram in the background when Windows starts
 arabic.SendToMenu=إضافة AuraGram إلى قائمة «إرسال إلى» لإرسال الملفات من مستكشف الملفات
 english.SendToMenu=Add AuraGram to the "Send to" menu, to send files from File Explorer
+arabic.SendToAuto=حسب نوع الملف
+english.SendToAuto=By file type
+arabic.SendToFile=كملف
+english.SendToFile=As a file
+arabic.SendToAudio=كمقطع صوتي
+english.SendToAudio=As audio
+arabic.SendToMedia=كصورة أو فيديو
+english.SendToMedia=As a photo or video
 arabic.LaunchNow=تشغيل AuraGram الآن
 english.LaunchNow=Launch AuraGram now
 arabic.UninstallShortcut=إزالة AuraGram
@@ -114,6 +122,8 @@ Source: "dist\{#AppName}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsu
 ; not would stay behind and be loaded as if it belonged (1.0.0's cryptg, built for Python 3.11,
 ; broke 1.1's encryption that way and with it every connection to Telegram).
 Type: filesandordirs; Name: "{app}\_internal"
+; 1.0.0 put a single AuraGram entry in "Send to"; the submenu of the same name takes its place.
+Type: files; Name: "{usersendto}\{#AppName}.lnk"
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
@@ -121,7 +131,12 @@ Name: "{group}\{cm:UninstallShortcut}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
 ; Right click on files, "Send to", AuraGram: the program starts with their paths and asks which chat.
 ; Windows keeps this menu per user and has no shared one, so it is added for whoever runs the installer.
-Name: "{usersendto}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: sendto
+; A submenu, AuraGram, with an entry for each way the files can go; the entry's flag tells the program
+; which (SEND_AS_* in core/constants.py), and Windows adds the files after it.
+Name: "{usersendto}\{#AppName}\{cm:SendToAuto}"; Filename: "{app}\{#AppExe}"; Parameters: "--send-as=auto"; Tasks: sendto
+Name: "{usersendto}\{#AppName}\{cm:SendToFile}"; Filename: "{app}\{#AppExe}"; Parameters: "--send-as=file"; Tasks: sendto
+Name: "{usersendto}\{#AppName}\{cm:SendToAudio}"; Filename: "{app}\{#AppExe}"; Parameters: "--send-as=audio"; Tasks: sendto
+Name: "{usersendto}\{#AppName}\{cm:SendToMedia}"; Filename: "{app}\{#AppExe}"; Parameters: "--send-as=media"; Tasks: sendto
 
 [Registry]
 ; --background: start hidden next to the clock; the window opens with Ctrl+Alt+Shift+A.
@@ -136,6 +151,8 @@ Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchNow}"; Flags: nowait postin
 [UninstallDelete]
 ; Anything the program left beside itself (there should be nothing: it writes only to the user's folders).
 Type: filesandordirs; Name: "{app}"
+; The "Send to" submenu's folder, once its entries are gone.
+Type: dirifempty; Name: "{usersendto}\{#AppName}"
 
 [Code]
 #ifdef UpdateOnly

@@ -58,6 +58,20 @@ class InstallerCleanupTest(unittest.TestCase):
         self.assertEqual(script.count("[InstallDelete]"), 1)
 
 
+class SendToMenuTest(unittest.TestCase):
+    def test_the_send_to_menu_has_an_auragram_submenu_with_each_way_the_files_can_go(self):
+        with open(os.path.join(c.BASE_DIR, "installer.iss"), encoding="utf-8") as script_file:
+            script = script_file.read()
+        entries = re.findall(r'Name: "\{usersendto\}\\\{#AppName\}\\\{cm:(\w+)\}".*?Parameters: "--send-as=(\w+)"', script)
+        self.assertEqual(sorted(way for name, way in entries), sorted(c.SEND_AS_CHOICES))
+        for name, way in entries:
+            self.assertIn("arabic.%s=" % name, script)
+            self.assertIn("english.%s=" % name, script)
+        # 1.0.0's single entry gives way to the submenu, and the submenu goes with the program.
+        self.assertIn('Type: files; Name: "{usersendto}\\{#AppName}.lnk"', script)
+        self.assertIn('Type: dirifempty; Name: "{usersendto}\\{#AppName}"', script)
+
+
 class SelfCheckTest(unittest.TestCase):
     def test_pure_python_encryption_stops_the_build(self):
         import build

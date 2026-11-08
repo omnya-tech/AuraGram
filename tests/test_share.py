@@ -1,5 +1,6 @@
 """Files sent to the program from Windows' "Send to" menu: from the command line to the chosen chat."""
 import ctypes
+import json
 import os
 import tempfile
 import unittest
@@ -10,7 +11,9 @@ import wx
 import core.constants as c
 import core.share as share
 from core.i18n import I18NManager
-from tests.harness import FakeChooser, WindowTestCase, get_app, make_channel, make_message, make_user, pump
+from tests.harness import (
+    FakeChooser, FakeTelegramClient, WindowTestCase, get_app, make_channel, make_message, make_user, pump
+)
 from ui.background import WM_HOTKEY, BackgroundWindow
 from ui.chat_picker_dialog import ChatPickerDialog
 
@@ -40,12 +43,31 @@ class ShareNotesTest(unittest.TestCase):
         )
 
     def test_what_one_copy_leaves_the_other_collects_once(self):
-        self.assertEqual(share.collect(), [])
+        self.assertEqual(share.collect(), ([], None))
         first, second = self.file("one.txt"), self.file("two.txt")
         share.leave([first])
         share.leave([second, os.path.join(self.folder, "gone.txt")])
-        self.assertEqual(sorted(share.collect()), [first, second])
-        self.assertEqual(share.collect(), [])
+        paths, send_as = share.collect()
+        self.assertEqual(sorted(paths), [first, second])
+        self.assertIsNone(send_as)
+        self.assertEqual(share.collect(), ([], None))
+
+    def test_the_send_to_entry_says_how_the_files_go_and_travels_with_them(self):
+        song = self.file("song.mp3")
+        self.assertEqual(share.send_as_among(["--send-as=audio", song]), c.SEND_AS_AUDIO)
+        # Its flag is no file to send, and a way that does not exist is no way at all.
+        self.assertEqual(share.files_among(["--send-as=audio", song]), [song])
+        self.assertIsNone(share.send_as_among(["--send-as=fax", song]))
+        self.assertIsNone(share.send_as_among([song]))
+        share.leave([song], c.SEND_AS_AUDIO)
+        self.assertEqual(share.collect(), ([song], c.SEND_AS_AUDIO))
+
+    def test_a_note_from_an_older_copy_is_still_read(self):
+        kept = self.file("kept.txt")
+        os.makedirs(share.SHARE_INBOX_DIR)
+        with open(os.path.join(share.SHARE_INBOX_DIR, "old.json"), "w", encoding="utf-8") as note:
+            json.dump([kept], note)
+        self.assertEqual(share.collect(), ([kept], None))
 
     def test_a_damaged_note_is_passed_over(self):
         os.makedirs(share.SHARE_INBOX_DIR)
@@ -53,7 +75,7 @@ class ShareNotesTest(unittest.TestCase):
             note.write("{not json")
         kept = self.file("kept.txt")
         share.leave([kept])
-        self.assertEqual(share.collect(), [kept])
+        self.assertEqual(share.collect(), ([kept], None))
 
 
 class RunningCopyTest(unittest.TestCase):
@@ -142,6 +164,27 @@ class ShareWindowTest(WindowTestCase):
         self.assertEqual(FakeChooser.values, [])
         self.assertEqual(self.spoken[-1], self.text(c.MSG_SHARED_TO_CHATS_FORMAT_KEY).format(count=2))
         self.assertEqual(self.frame.all_dialogs[0]["id"], 2)
+
+    def test_the_send_to_entry_chosen_is_how_they_go_and_nothing_more_is_asked(self):
+        for send_as, as_documents in ((c.SEND_AS_FILE, True), (c.SEND_AS_MEDIA, False)):
+            FakeChooser.picked = [1]
+            FakeChooser.values = [""]
+            FakeChooser.last_choices = None
+            self.frame.share_files(["a.jpg"], send_as)
+            self.assertTrue(pump(lambda: self.frame.upload is None and len(self.sent()) == 1))
+            # Only the caption was asked: not whether the picture goes as a picture or as a file.
+            self.assertEqual(FakeChooser.values, [])
+            self.assertEqual(self.sent()[0][4], as_documents)
+            FakeTelegramClient.calls.clear()
+
+    def test_with_no_entry_said_they_are_asked_about_as_before(self):
+        FakeChooser.picked = [1]
+        FakeChooser.values = [""]
+        FakeChooser.selection = 1
+        self.frame.share_files(["a.jpg"])
+        self.assertTrue(pump(lambda: len(self.sent()) == 1))
+        self.assertEqual(FakeChooser.last_choices, [self.text(c.SEND_AS_MEDIA_KEY), self.text(c.SEND_AS_FILES_KEY)])
+        self.assertTrue(self.sent()[0][4])
 
     def test_ticking_no_chat_sends_nothing(self):
         FakeChooser.picked = []

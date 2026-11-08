@@ -26,7 +26,7 @@ from core.constants import (
     APP_TITLE_KEY, MESSAGE_INPUT_LABEL_KEY, MSG_LOADING_KEY, DATE_TIME_FORMAT, STATUS_READY_KEY,
     PHOTO_VIDEO_EXTENSIONS, PASTED_IMAGE_NAME, MSG_CAPTION_PROMPT_KEY, MSG_SEND_AS_PROMPT_KEY,
     AUDIO_MIME_TYPES, MSG_SEND_AUDIO_AS_PROMPT_KEY, SEND_AUDIO_AS_AUDIO_KEY, SEND_AUDIO_AS_FILES_KEY,
-    MSG_CHOOSE_AUDIO_KEY, SOUND_FILES_KEY,
+    MSG_CHOOSE_AUDIO_KEY, SOUND_FILES_KEY, SEND_AS_CHOICES,
     SEND_AS_MEDIA_KEY, SEND_AS_FILES_KEY, MSG_FILES_SENT_FORMAT_KEY, STICKERS_RECENT_KEY,
     MSG_CHOOSE_STICKER_SET_KEY, MSG_CHOOSE_STICKER_KEY, STICKER_CHOICE_FORMAT_KEY, MSG_NO_STICKERS_KEY,
     MSG_STICKER_SENT_KEY, MSG_CHOOSE_CONTACT_TO_SEND_KEY, MSG_CONTACT_SENT_KEY, MSG_NO_CONTACTS_KEY,
@@ -285,16 +285,18 @@ class ComposerMixin:
             paths = file_dialog.GetPaths()
         self.send_paths(paths, as_audio=True)
 
-    def share_files(self, paths):
-        """Files handed over from outside the app, by Windows' "Send to" menu: ask which chats they are for, then send as usual."""
+    def share_files(self, paths, send_as=None):
+        """Files handed over from outside the app, by Windows' "Send to" menu: ask which chats they are for,
+        then send them as the submenu's entry said (SEND_AS_CHOICES), or, said by none, as usual."""
         if not self:
             return
         paths, self.shared_paths = self.shared_paths + paths, []
+        send_as, self.shared_send_as = send_as or self.shared_send_as, None
         if not paths:
             return
         if not self.all_dialogs:
             # The chats are still on their way: asked again once they are in.
-            self.shared_paths = paths
+            self.shared_paths, self.shared_send_as = paths, send_as
             return
         if self.upload is not None:
             self.notify(MSG_SHARE_BUSY_KEY)
@@ -306,7 +308,7 @@ class ComposerMixin:
         chosen = self.choose_chats(MSG_SHARE_TO_KEY, chats)
         if not chosen:
             return
-        how = self.ask_how_to_send(paths)
+        how = self.ask_how_to_send(paths, send_as=send_as)
         if how is not None:
             self.send_to_chats(paths, how, [chat["id"] for chat in chosen])
 
@@ -407,9 +409,10 @@ class ComposerMixin:
             for dialog_id in dialog_ids:
                 self.refresh_after_sending(dialog_id)
 
-    def ask_how_to_send(self, paths, as_audio=False):
+    def ask_how_to_send(self, paths, as_audio=False, send_as=None):
         """What goes with files about to be sent, as (caption, whether pictures and videos go as plain files,
-        whether sound files do); None if the user backs out. `as_audio`: picked as sounds, so sent as sounds."""
+        whether sound files do); None if the user backs out. `as_audio`: picked as sounds, so sent as sounds.
+        `send_as`: chosen already, from the "Send to" submenu (SEND_AS_CHOICES), so only the caption is asked."""
         # Said before anything is sent: what each file is and how big, so a wrong pick is caught here.
         with wx.TextEntryDialog(
             self, self.describe_paths(paths) + "\n\n" + self.i18n.get_string(MSG_CAPTION_PROMPT_KEY),
@@ -418,6 +421,8 @@ class ComposerMixin:
             if caption_dialog.ShowModal() != wx.ID_OK:
                 return None
             caption = caption_dialog.GetValue().strip()
+        if send_as in SEND_AS_CHOICES:
+            return (caption, *SEND_AS_CHOICES[send_as])
         as_documents = False
         if any(os.path.splitext(path)[1].lower() in PHOTO_VIDEO_EXTENSIONS for path in paths):
             with wx.SingleChoiceDialog(
