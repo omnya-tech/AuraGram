@@ -20,6 +20,30 @@ class NoSoundError(Exception):
     """The file has no sound in it to play: a silent video, say."""
 
 
+def sound_details(path):
+    """(whole seconds, title, performer) of a sound file, as far as it says; (0, None, None) when it cannot
+    be read. What Telegram shows a song by, and plays it with to the end."""
+    if not AVAILABLE:
+        return 0, None, None
+    try:
+        with av.open(path) as container:
+            stream = audio_stream(container)
+            if container.duration:
+                seconds = container.duration / av.time_base
+            elif stream.duration and stream.time_base:
+                seconds = float(stream.duration * stream.time_base)
+            else:
+                seconds = 0
+            tags = {}
+            # The file's own tags first, then the sound's, as Ogg and Opus keep them there.
+            for metadata in (stream.metadata, container.metadata):
+                tags.update({name.lower(): value.strip() for name, value in (metadata or {}).items() if value and value.strip()})
+    except Exception:
+        return 0, None, None
+    performer = tags.get("artist") or tags.get("album_artist") or tags.get("performer")
+    return int(round(seconds)), tags.get("title") or None, performer or None
+
+
 def audio_stream(container):
     """The first sound of a file opened with av, picture and all; NoSoundError if it has none."""
     if not container.streams.audio:

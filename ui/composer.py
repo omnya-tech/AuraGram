@@ -25,6 +25,8 @@ from core.constants import (
     EDIT_LABEL_KEY, MSG_CANNOT_EDIT_KEY, MSG_CHOOSE_FILE_KEY, MSG_UPLOADING_KEY, MSG_FILE_SENT_KEY,
     APP_TITLE_KEY, MESSAGE_INPUT_LABEL_KEY, MSG_LOADING_KEY, DATE_TIME_FORMAT, STATUS_READY_KEY,
     PHOTO_VIDEO_EXTENSIONS, PASTED_IMAGE_NAME, MSG_CAPTION_PROMPT_KEY, MSG_SEND_AS_PROMPT_KEY,
+    AUDIO_MIME_TYPES, MSG_SEND_AUDIO_AS_PROMPT_KEY, SEND_AUDIO_AS_AUDIO_KEY, SEND_AUDIO_AS_FILES_KEY,
+    MSG_CHOOSE_AUDIO_KEY, SOUND_FILES_KEY,
     SEND_AS_MEDIA_KEY, SEND_AS_FILES_KEY, MSG_FILES_SENT_FORMAT_KEY, STICKERS_RECENT_KEY,
     MSG_CHOOSE_STICKER_SET_KEY, MSG_CHOOSE_STICKER_KEY, STICKER_CHOICE_FORMAT_KEY, MSG_NO_STICKERS_KEY,
     MSG_STICKER_SENT_KEY, MSG_CHOOSE_CONTACT_TO_SEND_KEY, MSG_CONTACT_SENT_KEY, MSG_NO_CONTACTS_KEY,
@@ -267,6 +269,22 @@ class ComposerMixin:
             paths = file_dialog.GetPaths()
         self.send_paths(paths)
 
+    def on_send_audio_menu(self, event):
+        """Sound files sent as sounds, as Telegram's apps send music: played in the chat, with the song's
+        title and singer and its length, not as a file to download."""
+        if not self.can_send_now():
+            return
+        patterns = ";".join("*" + extension for extension in AUDIO_MIME_TYPES)
+        with wx.FileDialog(
+            self, self.i18n.get_string(MSG_CHOOSE_AUDIO_KEY),
+            wildcard="%s (%s)|%s" % (self.i18n.get_string(SOUND_FILES_KEY), patterns, patterns),
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST | wx.FD_MULTIPLE
+        ) as file_dialog:
+            if file_dialog.ShowModal() != wx.ID_OK:
+                return
+            paths = file_dialog.GetPaths()
+        self.send_paths(paths, as_audio=True)
+
     def share_files(self, paths):
         """Files handed over from outside the app, by Windows' "Send to" menu: ask which chats they are for, then send as usual."""
         if not self:
@@ -290,17 +308,18 @@ class ComposerMixin:
             return
         how = self.ask_how_to_send(paths)
         if how is not None:
-            self.send_to_chats(paths, *how, [chat["id"] for chat in chosen])
+            self.send_to_chats(paths, how, [chat["id"] for chat in chosen])
 
-    def send_to_chats(self, paths, caption, as_documents, dialog_ids, position=0):
+    def send_to_chats(self, paths, how, dialog_ids, position=0):
         """Send the same files to one chat after another. Each gets them as they are: not as an
         answer, and not under the post or in the topic that may be open."""
         self.set_status(MSG_UPLOADING_KEY)
+        caption, as_documents, audio_as_files = how
         on_progress = self.start_upload(dialog_ids[position], paths)
         self.upload["request"] = self.telegram_manager.send_files(
             dialog_ids[position], paths, caption, as_documents,
-            self.on_ui_thread(self.on_sent_to_chat, paths, caption, as_documents, dialog_ids, position),
-            on_progress=on_progress
+            self.on_ui_thread(self.on_sent_to_chat, paths, how, dialog_ids, position),
+            on_progress=on_progress, audio_as_files=audio_as_files
         )
 
     def start_upload(self, dialog_id, paths):
@@ -374,10 +393,10 @@ class ComposerMixin:
         if self.upload_row_shown():
             self.messages_list.Delete(self.messages_list.GetCount() - 1)
 
-    def on_sent_to_chat(self, result, paths, caption, as_documents, dialog_ids, position):
+    def on_sent_to_chat(self, result, paths, how, dialog_ids, position):
         self.end_upload()
         if position + 1 < len(dialog_ids):
-            self.send_to_chats(paths, caption, as_documents, dialog_ids, position + 1)
+            self.send_to_chats(paths, how, dialog_ids, position + 1)
         elif len(dialog_ids) == 1:
             self.on_files_sent(result, dialog_ids[0], len(paths))
         else:
@@ -388,8 +407,9 @@ class ComposerMixin:
             for dialog_id in dialog_ids:
                 self.refresh_after_sending(dialog_id)
 
-    def ask_how_to_send(self, paths):
-        """What goes with files about to be sent, as (caption, whether as plain files); None if the user backs out."""
+    def ask_how_to_send(self, paths, as_audio=False):
+        """What goes with files about to be sent, as (caption, whether pictures and videos go as plain files,
+        whether sound files do); None if the user backs out. `as_audio`: picked as sounds, so sent as sounds."""
         # Said before anything is sent: what each file is and how big, so a wrong pick is caught here.
         with wx.TextEntryDialog(
             self, self.describe_paths(paths) + "\n\n" + self.i18n.get_string(MSG_CAPTION_PROMPT_KEY),
@@ -407,24 +427,35 @@ class ComposerMixin:
                 if kind_dialog.ShowModal() != wx.ID_OK:
                     return None
                 as_documents = kind_dialog.GetSelection() == 1
-        return caption, as_documents
+        audio_as_files = False
+        if not as_audio and any(os.path.splitext(path)[1].lower() in AUDIO_MIME_TYPES for path in paths):
+            # Picked as files: a song may be meant to go as one, to keep it exactly as it is.
+            with wx.SingleChoiceDialog(
+                self, self.i18n.get_string(MSG_SEND_AUDIO_AS_PROMPT_KEY), self.i18n.get_string(APP_TITLE_KEY),
+                [self.i18n.get_string(SEND_AUDIO_AS_AUDIO_KEY), self.i18n.get_string(SEND_AUDIO_AS_FILES_KEY)]
+            ) as kind_dialog:
+                if kind_dialog.ShowModal() != wx.ID_OK:
+                    return None
+                audio_as_files = kind_dialog.GetSelection() == 1
+        return caption, as_documents, audio_as_files
 
-    def send_paths(self, paths):
+    def send_paths(self, paths, as_audio=False):
         """Send files to the open chat as one message, after asking what goes with them; cancelling either question sends nothing."""
         if self.upload is not None:
             # One lot of files at a time: the row at the end of the chat stands for one.
             self.notify(MSG_SHARE_BUSY_KEY)
             return
-        how = self.ask_how_to_send(paths)
+        how = self.ask_how_to_send(paths, as_audio)
         if how is None:
             return
+        caption, as_documents, audio_as_files = how
         self.set_status(MSG_UPLOADING_KEY)
         dialog_id = self.current_dialog_id
         on_progress = self.start_upload(dialog_id, paths)
         self.upload["request"] = self.telegram_manager.send_files(
-            self.peer(dialog_id), paths, *how,
+            self.peer(dialog_id), paths, caption, as_documents,
             self.on_ui_thread(self.on_files_sent, dialog_id, len(paths)), reply_to=self.take_reply(),
-            on_progress=on_progress
+            on_progress=on_progress, audio_as_files=audio_as_files
         )
 
     def describe_paths(self, paths):

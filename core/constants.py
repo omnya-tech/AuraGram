@@ -784,6 +784,12 @@ MSG_MIC_TEST_SILENT_KEY = "MSG_MIC_TEST_SILENT"
 
 # What a file is, told from the end of its name. Each group's text names the kind for the user.
 AUDIO_EXTENSIONS = (".mp3", ".wav", ".ogg", ".oga", ".opus", ".m4a", ".flac", ".aac", ".wma")
+# What each is declared as when sent as a sound: Telegram's apps play a document as music by this
+# and by its audio details, which Telethon fills in only with a library this program does without.
+AUDIO_MIME_TYPES = {
+    ".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg", ".oga": "audio/ogg", ".opus": "audio/ogg",
+    ".m4a": "audio/mp4", ".flac": "audio/flac", ".aac": "audio/aac", ".wma": "audio/x-ms-wma",
+}
 FILE_KINDS = (
     ("FILE_KIND_PDF", (".pdf",)),
     ("FILE_KIND_DOCUMENT", (".doc", ".docx", ".odt", ".rtf")),
@@ -1621,6 +1627,13 @@ ERR_NO_AUDIO_SUPPORT_KEY = "ERR_NO_AUDIO_SUPPORT"
 MENU_EDIT_KEY = "MENU_EDIT"
 MENU_DELETE_KEY = "MENU_DELETE"
 MENU_SEND_FILE_KEY = "MENU_SEND_FILE"
+MENU_SEND_AUDIO_KEY = "MENU_SEND_AUDIO"
+CONTEXT_SEND_AUDIO_KEY = "CONTEXT_SEND_AUDIO"
+MSG_CHOOSE_AUDIO_KEY = "MSG_CHOOSE_AUDIO"
+# How sound files picked as plain files go: played in the chat, or as files.
+MSG_SEND_AUDIO_AS_PROMPT_KEY = "MSG_SEND_AUDIO_AS_PROMPT"
+SEND_AUDIO_AS_AUDIO_KEY = "SEND_AUDIO_AS_AUDIO"
+SEND_AUDIO_AS_FILES_KEY = "SEND_AUDIO_AS_FILES"
 MENU_SEARCH_KEY = "MENU_SEARCH"
 MENU_FIND_KEY = "MENU_FIND"
 MENU_FIND_NEXT_KEY = "MENU_FIND_NEXT"

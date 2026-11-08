@@ -316,7 +316,14 @@ class FakeTelegramClient:
             return messages[-1]
 
     async def send_file(self, entity, file, caption=None, force_document=False, voice_note=False, reply_to=None,
-                        progress_callback=None):
+                        progress_callback=None, attributes=None, mime_type=None):
+        for attribute in attributes or ():
+            if isinstance(attribute, types.DocumentAttributeAudio):
+                # A sound sent as a song: what Telegram's apps show it by.
+                self.calls.append((
+                    "sound", telegram_client.get_peer_id(entity), file, attribute.title, attribute.performer,
+                    attribute.duration, attribute.voice, mime_type
+                ))
         for done in self.progress_steps if progress_callback else ():
             progress_callback(done, 200)
             if self.transfer_gate is not None:

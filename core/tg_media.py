@@ -10,12 +10,27 @@ from telethon.tl import functions, types
 from telethon.utils import get_display_name, get_input_peer, get_peer_id
 from core.constants import (
     STREAM_REQUEST_BYTES, EMPTY_STRING, DOWNLOADS_DIR, CHAT_FILES_LIMIT, DOWNLOADABLE_MEDIA, STORY_AUDIENCES,
-    STORY_SECONDS, CHAT_PHOTO_NAME_FORMAT,
+    STORY_SECONDS, CHAT_PHOTO_NAME_FORMAT, AUDIO_MIME_TYPES,
 )
 from core.tg_shared import PhoneHiddenError, CHAT_FILE_FILTERS
 
 logger = logging.getLogger(__name__)
 PARTIAL_SUFFIX = ".part"
+
+
+def sound_extension(path):
+    return os.path.splitext(path)[1].lower()
+
+
+def is_sound_path(path):
+    return sound_extension(path) in AUDIO_MIME_TYPES
+
+
+def sound_attribute(path):
+    """What makes Telegram's apps show a document as a song, with its length, title and singer."""
+    from core import audio
+    seconds, title, performer = audio.sound_details(path)
+    return types.DocumentAttributeAudio(duration=seconds, voice=False, title=title, performer=performer)
 
 
 class MediaMixin:
@@ -112,14 +127,16 @@ class MediaMixin:
             on_result, self._send_file_async, dialog_id, path, voice_note, self._percent_reporter(on_progress), reply_to
         )
 
-    def send_files(self, dialog_id, paths, caption, as_documents, on_result, reply_to=None, on_progress=None):
-        """Send one or more files as one message; several pictures or videos become an album.
+    def send_files(self, dialog_id, paths, caption, as_documents, on_result, reply_to=None, on_progress=None,
+                   audio_as_files=False):
+        """Send one or more files as one message; several pictures or videos become an album. Sound files go
+        as sounds, played in the chat with their title and singer, each its own message, unless `audio_as_files`.
         on_progress(progress) is called from this thread as the files go up, with progress
         {"percent", "done", "total", "file", "files"}: bytes up and in all over every file,
         and which file of how many is on its way (counted from 1). Returns what cancels the sending."""
         return self._request(
             on_result, self._send_files_async, dialog_id, paths, caption, as_documents, reply_to,
-            self._upload_reporter(on_progress, paths)
+            self._upload_reporter(on_progress, paths), audio_as_files
         )
 
     def _upload_reporter(self, on_progress, paths):
@@ -214,12 +231,27 @@ class MediaMixin:
             self.entities[dialog_id], path, voice_note=voice_note, progress_callback=report, reply_to=reply_to
         )
 
-    async def _send_files_async(self, dialog_id, paths, caption, as_documents, reply_to, report):
-        await self.client.send_file(
-            # A list, even of one, would be sent as an album.
-            self.entities[dialog_id], paths if len(paths) > 1 else paths[0],
-            caption=caption or None, force_document=as_documents, reply_to=reply_to, progress_callback=report
-        )
+    async def _send_files_async(self, dialog_id, paths, caption, as_documents, reply_to, report, audio_as_files=False):
+        sounds = [] if audio_as_files else [path for path in paths if is_sound_path(path)]
+        if not sounds:
+            await self.client.send_file(
+                # A list, even of one, would be sent as an album.
+                self.entities[dialog_id], paths if len(paths) > 1 else paths[0],
+                caption=caption or None, force_document=as_documents, reply_to=reply_to, progress_callback=report
+            )
+            return
+        # Each sound with its own details, so one by one, in the order given (the progress counts on it);
+        # the caption goes with the first.
+        for path in paths:
+            if path in sounds:
+                extras = {"attributes": [sound_attribute(path)], "mime_type": AUDIO_MIME_TYPES[sound_extension(path)]}
+            else:
+                extras = {"force_document": as_documents}
+            await self.client.send_file(
+                self.entities[dialog_id], path, caption=caption or None, reply_to=reply_to,
+                progress_callback=report, **extras
+            )
+            caption = None
 
     async def _send_media_async(self, dialog_id, get_media, reply_to):
         await self.client.send_file(self.entities[dialog_id], get_media(), reply_to=reply_to)
