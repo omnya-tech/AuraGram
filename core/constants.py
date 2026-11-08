@@ -1955,8 +1955,8 @@ CONTEXT_PASTE_KEY = "CONTEXT_PASTE"
 # leaves their paths in this folder and tells the running one, by this number, to pick them up.
 SHARE_INBOX_DIR = os.path.join(tempfile.gettempdir(), APP_NAME + "-shared")
 SHARE_HOTKEY_ID = 2
-# How files from the "Send to" menu go, by the entry of the AuraGram submenu they came from: the
-# installer gives each entry the flag, and the program asks no more how to send them.
+# How files go when the way is chosen already: by the attach menu's entry, or by the "Send to" entry,
+# which the installer starts with SEND_AS_FLAG + SEND_AS_AUTO; then the program asks no more how.
 SEND_AS_FLAG = "--send-as="
 SEND_AS_AUTO = "auto"
 SEND_AS_FILE = "file"
@@ -1964,8 +1964,9 @@ SEND_AS_AUDIO = "audio"
 SEND_AS_MEDIA = "media"
 # (pictures and videos as plain files, sounds as plain files) for each.
 SEND_AS_CHOICES = {
-    # By what each file is: a sound as a sound, a picture or video shown in the chat, the rest as files.
-    SEND_AS_AUTO: (False, False),
+    # By what each file is, as it is: a sound as a sound, with its length, title and singer; anything
+    # else as the file it is, a picture or video too, at its own quality.
+    SEND_AS_AUTO: (True, False),
     SEND_AS_FILE: (True, True),
     SEND_AS_AUDIO: (True, False),
     SEND_AS_MEDIA: (False, True),

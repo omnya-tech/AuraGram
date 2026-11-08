@@ -128,3 +128,31 @@ class SendAudioTest(WindowTestCase):
             self.assertIsNone(FakeChooser.last_choices)
             self.assertEqual(self.calls("send_file")[-1][4], as_documents)
             FakeTelegramClient.calls.clear()
+
+
+class SendToAudioTest(WindowTestCase):
+    """From Windows' "Send to": each file as it is, the sound as a sound with its details."""
+    chats = [(ALI, 0, False)]
+
+    def setUp(self):
+        super().setUp()
+        self.folder = tempfile.mkdtemp()
+
+    def sounds(self):
+        return self.calls("sound")
+
+    def test_a_sound_goes_as_a_song_and_anything_else_as_the_file_it_is(self):
+        song = make_song(self.folder, "song.flac", "Ya Msafer", "Fairuz")
+        picture = os.path.join(self.folder, "a.jpg")
+        open(picture, "wb").close()
+        FakeChooser.picked = [0]
+        FakeChooser.values = [""]
+        FakeChooser.last_choices = None
+        self.frame.share_files([picture, song], c.SEND_AS_AUTO)
+        self.assertTrue(pump(lambda: len(self.calls("send_file")) == 2))
+        # Not asked how, only the caption: the last list shown was the chats'.
+        self.assertEqual(FakeChooser.last_choices, ["Ali"])
+        self.assertEqual(FakeChooser.values, [])
+        self.assertEqual(self.sounds()[0][2:6], (song, "Ya Msafer", "Fairuz", 3))
+        sent = {call[2]: call[4] for call in self.calls("send_file")}
+        self.assertTrue(sent[picture])

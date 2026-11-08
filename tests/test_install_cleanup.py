@@ -59,19 +59,17 @@ class InstallerCleanupTest(unittest.TestCase):
 
 
 class SendToMenuTest(unittest.TestCase):
-    def test_send_to_has_an_auragram_entry_for_each_way_the_files_can_go_and_no_folder(self):
+    def test_send_to_has_the_one_auragram_entry_and_it_sends_each_file_as_it_is(self):
         with open(os.path.join(c.BASE_DIR, "installer.iss"), encoding="utf-8") as script_file:
             script = script_file.read()
-        entries = re.findall(r'Name: "\{usersendto\}\\\{#AppName\} - \{cm:(\w+)\}".*?Parameters: "--send-as=(\w+)"', script)
-        self.assertEqual(sorted(way for name, way in entries), sorted(c.SEND_AS_CHOICES))
-        for name, way in entries:
-            self.assertIn("arabic.%s=" % name, script)
-            self.assertIn("english.%s=" % name, script)
-        # Not inside a folder: Windows copies files into a folder in "Send to" when Enter is pressed on it.
-        self.assertNotRegex(script, r'Name: "\{usersendto\}\\\{#AppName\}\\')
-        # 1.0.0's single entry, and the folder a build in between made, are taken away by the whole installer.
-        self.assertIn('Type: files; Name: "{usersendto}\\{#AppName}.lnk"', script)
+        entries = re.findall(r'Name: "\{usersendto\}([^"]*)".*?Parameters: "--send-as=(\w+)"', script)
+        self.assertEqual(entries, [("\\{#AppName}", c.SEND_AS_AUTO)])
+        # Each as it is: a sound as a sound, anything else as the file it is.
+        self.assertEqual(c.SEND_AS_CHOICES[c.SEND_AS_AUTO], (True, False))
+        # What builds in between put there is taken away by the whole installer.
+        self.assertIn('Type: files; Name: "{usersendto}\\{#AppName} - *.lnk"', script)
         self.assertIn('Type: filesandordirs; Name: "{usersendto}\\{#AppName}"', script)
+        self.assertNotIn("{cm:SendTo", script.replace("{cm:SendToMenu}", ""))
 
 
 class SelfCheckTest(unittest.TestCase):

@@ -187,7 +187,7 @@ class ShareWindowTest(WindowTestCase):
         self.assertEqual(self.frame.all_dialogs[0]["id"], 2)
 
     def test_the_send_to_entry_chosen_is_how_they_go_and_nothing_more_is_asked(self):
-        for send_as, as_documents in ((c.SEND_AS_FILE, True), (c.SEND_AS_MEDIA, False)):
+        for send_as, as_documents in ((c.SEND_AS_FILE, True), (c.SEND_AS_MEDIA, False), (c.SEND_AS_AUTO, True)):
             FakeChooser.picked = [1]
             FakeChooser.values = [""]
             FakeChooser.last_choices = None
