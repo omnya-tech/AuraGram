@@ -1418,8 +1418,10 @@ EVENT_TYPING = "typing"
 EVENT_MESSAGE_NUMBERS = "message_numbers"
 # Keeping the open channel's numbers current: how often they are asked for, and for how many posts
 # around the one selected (Telegram takes up to a hundred at a time).
-LIVE_NUMBERS_SECONDS = 10
+LIVE_NUMBERS_SECONDS = 5
 LIVE_NUMBERS_AROUND = 25
+# How long the asking rests when Telegram says it is asked too often.
+LIVE_NUMBERS_REST_SECONDS = 60
 
 # What Telegram tells about when a person was last around, by the name of its answer
 # type. Each value is the text shown for it; only the first of the two carries a time.

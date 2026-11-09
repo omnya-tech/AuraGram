@@ -74,6 +74,13 @@ def _screen_reader():
         return output
     return _jaws if _jaws.is_running() else None
 
+def screen_reader_running():
+    """Whether a screen reader is there to speak, now: what is shown can then be told instead of only drawn."""
+    try:
+        return _screen_reader() is not None
+    except Exception:
+        return False
+
 def speak(text, interrupt=False):
     """Announce text through the running screen reader, if there is one.
 

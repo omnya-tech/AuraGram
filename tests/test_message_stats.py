@@ -50,21 +50,46 @@ class MessageStatsTest(WindowTestCase):
         self.frame.on_message_numbers(-1000000000099, {1: {"views": 5}})
         self.assertIn("1234", self.frame.messages_list.GetString(0))
 
-    def test_the_row_being_read_keeps_its_words_until_the_selection_moves_on(self):
+    def numbers_arrive(self, views, screen_reader, active=True):
+        messages = self.frame.messages_list
+        with mock.patch.object(wx.Window, "FindFocus", return_value=messages),                 mock.patch("core.speech.screen_reader_running", return_value=screen_reader),                 mock.patch.object(self.frame, "IsActive", return_value=active):
+            self.frame.on_message_numbers(self.frame.current_dialog_id, {1: {"views": views}})
+
+    def test_for_the_eyes_the_row_one_is_on_changes_with_each_new_view(self):
+        self.open_chat(0)
+        self.frame.messages_list.SetSelection(0)
+        self.numbers_arrive(2000, screen_reader=False)
+        self.assertIn(self.text(c.VIEWS_FORMAT_KEY).format(count=2000), self.frame.messages_list.GetString(0))
+        self.numbers_arrive(2001, screen_reader=False)
+        self.assertIn(self.text(c.VIEWS_FORMAT_KEY).format(count=2001), self.frame.messages_list.GetString(0))
+
+    def test_with_a_screen_reader_the_new_number_is_said_and_not_the_whole_post_again(self):
         self.open_chat(0)
         messages = self.frame.messages_list
         messages.SetSelection(0)
         before = messages.GetString(0)
-        with mock.patch.object(wx.Window, "FindFocus", return_value=messages):
-            self.frame.on_message_numbers(self.frame.current_dialog_id, {1: {"views": 2000}})
-        # Not changed under the screen reader: it would read the row out again.
+        spoken = len(self.spoken)
+        self.numbers_arrive(2000, screen_reader=True)
+        # Said, the number alone: a row whose words change is read out again, post and all.
+        self.assertEqual(self.spoken[spoken:], [self.text(c.VIEWS_FORMAT_KEY).format(count=2000)])
         self.assertEqual(messages.GetString(0), before)
-        # Its numbers are current all the same, where they are asked for, and in the preview.
+        # Nothing new, nothing said; and a channel left open in another window says nothing at all.
+        self.numbers_arrive(2000, screen_reader=True)
+        self.numbers_arrive(2001, screen_reader=True, active=False)
+        self.assertEqual(len(self.spoken), spoken + 1)
+        # Its numbers are current where they are asked for, and its row once the selection moves.
         self.frame.on_message_stats_menu(None)
-        self.assertIn(self.text(c.VIEWS_FORMAT_KEY).format(count=2000), self.spoken[-1])
+        self.assertIn(self.text(c.VIEWS_FORMAT_KEY).format(count=2001), self.spoken[-1])
         messages.SetSelection(1)
         self.frame.update_preview()
-        self.assertIn("2000", messages.GetString(0))
+        self.assertIn("2001", messages.GetString(0))
+
+    def test_told_it_is_asked_too_often_it_rests_a_while(self):
+        self.open_chat(0)
+        self.frame.on_numbers_answer(self.frame.current_dialog_id, None, c.ERR_FLOOD_KEY)
+        with mock.patch.object(self.frame, "IsShown", return_value=True):
+            self.frame.ask_live_numbers()
+        self.assertEqual(self.calls("GetMessagesViewsRequest"), [])
 
     def test_the_open_channel_is_asked_for_its_numbers_without_counting_a_view(self):
         from tests.harness import FakeTelegramClient, pump

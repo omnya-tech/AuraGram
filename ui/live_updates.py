@@ -1,3 +1,4 @@
+import time
 import wx
 from core import sounds, speech
 from core.speech import speak
@@ -10,7 +11,8 @@ from core.constants import (
     SOUND_MESSAGE_IN_CHAT, ANNOUNCE_WHEN_FOREGROUND, ANNOUNCE_WHEN_BACKGROUND,
     ANNOUNCE_WHAT_SENDER, ANNOUNCE_WHAT_WHOLE, ANNOUNCE_SENDER_FORMAT_KEY, EVENT_MESSAGES_READ, EVENT_USER_STATUS, EVENT_TYPING, TYPING_ACTION_TYPING, TYPING_ACTION_CANCEL, TYPING_ACTION_KEYS,
     TYPING_SHOWN_MS, EVENT_DRAFT, PREVIEW_SENDER_FORMAT_KEY, EVENT_MESSAGE_NUMBERS, LIVE_NUMBERS_SECONDS,
-    LIVE_NUMBERS_AROUND, CONNECTION_OFFLINE, MESSAGE_VIEW_SCHEDULED
+    LIVE_NUMBERS_AROUND, CONNECTION_OFFLINE, MESSAGE_VIEW_SCHEDULED, LIVE_NUMBERS_REST_SECONDS, ERR_FLOOD_KEY,
+    VIEWS_FORMAT_KEY, COMMENTS_FORMAT_KEY, AUDIENCE_FORWARDS_FORMAT_KEY, FILE_LABEL_SEPARATOR_KEY
 )
 
 class LiveUpdatesMixin:
@@ -129,6 +131,9 @@ class LiveUpdatesMixin:
         """Ask for the numbers of the posts around the selected one, when there is someone to see them."""
         if not self or self.numbers_pending or not self.IsShown() or self.IsIconized() or self.current_dialog_id is None:
             return
+        if time.monotonic() < getattr(self, "numbers_rest_until", 0):
+            # Telegram said it was asked too often: it is left alone for a while.
+            return
         if self.telegram_manager.connection_state == CONNECTION_OFFLINE or self.message_view == MESSAGE_VIEW_SCHEDULED:
             return
         posts = [message for message in self.messages if message["views"] is not None]
@@ -143,14 +148,16 @@ class LiveUpdatesMixin:
         self.numbers_pending = True
 
         def deliver(result, error_key):
-            # A failure is no news: the next round asks again.
-            wx.CallAfter(self.on_numbers_answer, dialog_id, result)
+            # A failure is no news: the next round asks again, or, asked too often, after a rest.
+            wx.CallAfter(self.on_numbers_answer, dialog_id, result, error_key)
         self.telegram_manager.load_message_views(self.peer(dialog_id), ids, deliver)
 
-    def on_numbers_answer(self, dialog_id, numbers):
+    def on_numbers_answer(self, dialog_id, numbers, error_key=None):
         if not self:
             return
         self.numbers_pending = False
+        if error_key == ERR_FLOOD_KEY:
+            self.numbers_rest_until = time.monotonic() + LIVE_NUMBERS_REST_SECONDS
         if numbers:
             self.on_message_numbers(dialog_id, numbers)
 
@@ -159,12 +166,14 @@ class LiveUpdatesMixin:
         if dialog_id != self.current_dialog_id:
             return
         selected = self.messages_list.GetSelection()
-        # The row the screen reader is on keeps its words while it is there: changed under it, they could be
-        # read out again at every change. Its numbers are current all the same, for the preview and the
-        # statistics (the arrow back), and its row catches up once the selection moves.
-        reading = selected if wx.Window.FindFocus() is self.messages_list else None
+        # Every row shows its new numbers, the one the eyes are on too. Only with a screen reader on that
+        # row does it keep its words, since a screen reader reads a row whose words change out again, post
+        # and all, at every new view: the new numbers are said instead, and the row catches up once the
+        # selection moves.
+        reading = selected if wx.Window.FindFocus() is self.messages_list and speech.screen_reader_running() else None
         offset = self.message_offset()
         selected_changed = False
+        told = []
         for index, message in enumerate(self.messages):
             changed = {
                 name: number for name, number in numbers.get(message["id"], {}).items()
@@ -178,10 +187,23 @@ class LiveUpdatesMixin:
                 selected_changed = True
             if row == reading:
                 self.stale_rows.add(message["id"])
+                told = self.numbers_words(changed)
             else:
                 self.messages_list.SetString(row, self.format_message(message))
         if selected_changed:
             self.update_preview()
+        if told and self.IsActive():
+            # Only while this window is the one in use: news from a channel left open is no interruption.
+            speech.speak(self.i18n.get_string(FILE_LABEL_SEPARATOR_KEY).join(told))
+
+    def numbers_words(self, changed):
+        """The new numbers in words, as the statistics say them: views, comments, forwards."""
+        text = self.i18n.get_string
+        words = []
+        for name, key in (("views", VIEWS_FORMAT_KEY), ("comments", COMMENTS_FORMAT_KEY), ("forwards", AUDIENCE_FORWARDS_FORMAT_KEY)):
+            if name in changed:
+                words.append(text(key).format(count=changed[name]))
+        return words
 
     def refresh_stale_rows(self):
         """Bring up to date the rows left as they were while being read, now that the selection is elsewhere."""
