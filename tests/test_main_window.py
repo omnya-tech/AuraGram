@@ -739,11 +739,11 @@ class MarkingTest(WindowTestCase):
         self.open_chat(0)
         FakeChooser.picked = [0, 1]
         self.frame.messages_list.SetSelection(self.frame.message_offset())
+        # Taken before: each chat forwarded to then goes up to the top of the list, as in Telegram.
+        ticked = [chat["id"] for chat in self.frame.all_dialogs[:2]]
         self.frame.on_forward_menu(None)
         self.assertTrue(pump(lambda: len(self.calls("forward")) == 2))
-        self.assertEqual(
-            [call[1] for call in self.calls("forward")], [chat["id"] for chat in self.frame.all_dialogs[:2]]
-        )
+        self.assertEqual([call[1] for call in self.calls("forward")], ticked)
         self.assertTrue(pump(
             lambda: self.spoken[-1:] == [self.text(c.MSG_FORWARDED_TO_CHATS_FORMAT_KEY).format(count=2)]
         ))

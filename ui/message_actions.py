@@ -274,6 +274,9 @@ class MessageActionsMixin:
     def on_forwarded(self, error_key, source, message_ids, targets, position, failures):
         if not self:
             return
+        if not error_key:
+            # As in Telegram: the chat forwarded to is the latest, its row saying what went there.
+            self.lift_dialog(targets[position]["id"])
         if error_key:
             failures.append(self.i18n.get_string(FORWARD_FAILURE_ROW_FORMAT_KEY).format(
                 title=targets[position]["title"], kind=self.chat_kind_text(targets[position]),

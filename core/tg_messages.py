@@ -21,6 +21,15 @@ class MessagesMixin:
         """Loads the latest page of a chat, or the page before message `before_id`."""
         self._request(on_result, self._load_messages_async, dialog_id, before_id, mark_read)
 
+    def load_last_message(self, dialog_id, on_result):
+        """A chat's newest message, for its row in the chat list; None for a chat with none. Telegram tells
+        this program nothing of what it sent itself, so after sending, its row asks."""
+        self._request(on_result, self._load_last_message_async, dialog_id)
+
+    async def _load_last_message_async(self, dialog_id):
+        messages = await self.client.get_messages(self.entities[dialog_id], limit=1)
+        return self._describe_message(messages[0], messages[0].sender) if messages else None
+
     def translate(self, dialog_id, message_id, on_result):
         """The result is the message's text in the interface language."""
         self._request(on_result, self._translate_async, dialog_id, message_id)

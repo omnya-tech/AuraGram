@@ -382,10 +382,29 @@ class ChatListMixin:
             self.dialogs_list.SetSelection(self.find_dialog_index(selected_id))
 
     def lift_dialog(self, dialog_id):
-        """A chat just written in is the most recent one: up it goes, as when a message arrives in it."""
+        """A chat just written in is the most recent one: up it goes, as when a message arrives in it, and its
+        row says what was sent. Telegram sends no news of what this program sent itself, so it is asked for."""
         dialog = self.find_known_dialog(dialog_id)
-        if dialog is not None:
-            self.move_dialog_to_top(self.find_dialog_index(dialog_id), dialog)
+        if dialog is None:
+            return
+        self.move_dialog_to_top(self.find_dialog_index(dialog_id), dialog)
+
+        def deliver(result, error_key):
+            # A failure is no news: the row is as it was, and opening the chat shows what is there.
+            wx.CallAfter(self.on_last_message, dialog_id, result)
+        self.telegram_manager.load_last_message(dialog_id, deliver)
+
+    def on_last_message(self, dialog_id, message):
+        if not self or message is None:
+            return
+        dialog = self.find_known_dialog(dialog_id)
+        if dialog is None:
+            return
+        shown = dialog.get("last_message")
+        # Something newer may have come in meanwhile, by the usual news.
+        if shown is None or message["id"] >= shown["id"]:
+            dialog["last_message"] = message
+            self.refresh_dialog_row(dialog)
 
     def on_open_dialog(self, event):
         self.open_selected_dialog(True)
