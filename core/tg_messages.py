@@ -4,7 +4,7 @@ Part of TelegramManager (core.telegram_client): its methods run as that thread's
 import os
 from telethon.errors import FloodWaitError, MessageNotModifiedError, RPCError
 from telethon.tl import functions, types
-from telethon.utils import get_display_name, get_input_peer, get_peer_id
+from telethon.utils import get_input_peer, get_peer_id
 from core.constants import (
     SERVICE_GROUP_CREATE_FORMAT_KEY, SERVICE_KEYS, SERVICE_JOINED_KEY, SERVICE_ADDED_FORMAT_KEY,
     SERVICE_LEFT_KEY, SERVICE_REMOVED_FORMAT_KEY, SERVICE_CALL_STARTED_KEY, SERVICE_CALL_ENDED_KEY,
@@ -13,7 +13,7 @@ from core.constants import (
     MESSAGE_VIEW_COMMENTS, MESSAGE_VIEW_MENTIONS, VOTERS_PAGE, VOTERS_LIMIT, MEDIA_FILE, MEDIA_AUDIO,
     AUDIO_EXTENSIONS, AUDIO_MIME_PREFIX,
 )
-from core.tg_shared import MESSAGE_VIEW_FILTERS
+from core.tg_shared import display_name, MESSAGE_VIEW_FILTERS
 
 
 class MessagesMixin:
@@ -257,7 +257,7 @@ class MessagesMixin:
     def _describe_message(self, message, sender):
         return {
             "id": message.id,
-            "sender": get_display_name(sender) if sender else EMPTY_STRING,
+            "sender": display_name(sender) if sender else EMPTY_STRING,
             # Set when a person wrote it, and so can be written to; None for a channel or a group writing as itself.
             "sender_id": sender.id if isinstance(sender, types.User) else None,
             # The writer's colour in Telegram's palette, as its apps draw the name over the message; None if unknown.
@@ -297,7 +297,7 @@ class MessagesMixin:
         if forward is None:
             return None
         origin = getattr(forward, "sender", None) or getattr(forward, "chat", None)
-        return getattr(forward, "from_name", None) or (get_display_name(origin) if origin else EMPTY_STRING)
+        return getattr(forward, "from_name", None) or (display_name(origin) if origin else EMPTY_STRING)
 
     def _count_comments(self, message):
         replies = getattr(message, "replies", None)
@@ -325,7 +325,7 @@ class MessagesMixin:
         kind = type(action).__name__
         title = getattr(action, "title", None) or EMPTY_STRING
         # Those the action names: who was added or removed.
-        names = [get_display_name(entity) for entity in getattr(message, "action_entities", None) or []]
+        names = [display_name(entity) for entity in getattr(message, "action_entities", None) or []]
         sender_id = getattr(sender, "id", None)
         if kind == "MessageActionChatAddUser":
             others = [name for entity, name in zip(message.action_entities or [], names) if entity.id != sender_id]
@@ -454,7 +454,7 @@ class MessagesMixin:
             # Channels do not tell who reacted, only how many.
             result = None
         names = {
-            get_peer_id(reactor): get_display_name(reactor)
+            get_peer_id(reactor): display_name(reactor)
             for reactor in list(getattr(result, "users", [])) + list(getattr(result, "chats", []))
         }
         reactions = [
@@ -467,7 +467,7 @@ class MessagesMixin:
             readers = []
             for reader in read or []:
                 try:
-                    readers.append(get_display_name(await self.client.get_entity(reader.user_id)))
+                    readers.append(display_name(await self.client.get_entity(reader.user_id)))
                 except ValueError:
                     # Someone this session has never seen: counted by Telegram, but nameless here.
                     pass
@@ -551,7 +551,7 @@ class MessagesMixin:
             page = await self.client(functions.messages.GetPollVotesRequest(
                 peer=entity, id=message_id, limit=VOTERS_PAGE, offset=offset
             ))
-            names = {get_peer_id(who): get_display_name(who) for who in list(page.users) + list(page.chats)}
+            names = {get_peer_id(who): display_name(who) for who in list(page.users) + list(page.chats)}
             for vote in page.votes:
                 name = names.get(get_peer_id(vote.peer), EMPTY_STRING)
                 # One option, or several where the poll lets more than one be chosen.

@@ -6,12 +6,11 @@ import asyncio
 from telethon.password import compute_check
 from telethon.errors import UsernameNotModifiedError
 from telethon.tl import functions, types
-from telethon.utils import get_display_name
 from core.constants import (
     EMPTY_STRING, STEP_DONE, ERR_LOGOUT_KEY, MUTE_FOREVER, PRIVACY_EVERYONE, PRIVACY_CONTACTS, PRIVACY_NOBODY,
     DELETE_ACCOUNT_REASON,
 )
-from core.tg_shared import EmailNotConfirmedError, NOTIFY_PEERS, PRIVACY_KEYS
+from core.tg_shared import display_name, EmailNotConfirmedError, NOTIFY_PEERS, PRIVACY_KEYS
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +162,7 @@ class AccountMixin:
 
     async def _load_me_async(self):
         me = await self.client.get_me()
-        return {"name": get_display_name(me), "phone": "+" + me.phone if getattr(me, "phone", None) else EMPTY_STRING}
+        return {"name": display_name(me), "phone": "+" + me.phone if getattr(me, "phone", None) else EMPTY_STRING}
 
     async def _load_profile_async(self):
         full = await self.client(functions.users.GetFullUserRequest("me"))

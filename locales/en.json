@@ -21,6 +21,7 @@
     "MESSAGE_FORMAT": "{sender}: {text}, {time}",
     "MESSAGE_NO_SENDER_FORMAT": "{text}, {time}",
     "SENDER_YOU": "You",
+    "DELETED_ACCOUNT": "Deleted Account",
     "MSG_NO_TEXT": "[empty message]",
     "MSG_LOAD_MORE_DIALOGS": "Load more chats",
     "MENU_REPLY": "Reply to the selected message",

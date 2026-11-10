@@ -20,7 +20,7 @@ from telethon.errors import (
     MessageAuthorRequiredError,
 )
 from telethon.tl import functions, types
-from telethon.utils import get_display_name, get_peer_id
+from telethon.utils import get_peer_id
 import core
 from core.config import load_credentials
 from core.proxy import client_arguments
@@ -46,6 +46,7 @@ from core.tg_admin import AdminMixin
 from core.tg_account import AccountMixin
 from core.tg_bots import BotsMixin
 from core.tg_shared import (
+    display_name,
     ChatNotFoundError, PhoneHiddenError, EmailNotConfirmedError, StatsUnavailableError, NoInviteLinkError,
 )
 
@@ -367,7 +368,7 @@ class TelegramManager(ChatsMixin, MessagesMixin, MediaMixin, AdminMixin, Account
             if not event.is_private:
                 # In a group, which of its members it is; Telethon usually has them already.
                 try:
-                    name = get_display_name(await event.get_user())
+                    name = display_name(await event.get_user())
                 except Exception:
                     logger.info("Could not tell who is typing", exc_info=True)
             self.message_listener(EVENT_TYPING, event.chat_id, action, name)

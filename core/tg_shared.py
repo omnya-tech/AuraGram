@@ -1,5 +1,8 @@
-"""What TelegramManager and its mixins share: the errors they raise to tell the UI why, and Telegram's tables."""
+"""What TelegramManager and its mixins share: the errors they raise to tell the UI why, Telegram's tables,
+and how a person or chat is named."""
 from telethon.tl import types
+from telethon.utils import get_display_name
+from core.constants import DEFAULT_LANG, DELETED_ACCOUNT_KEY
 from core.constants import (
     MESSAGE_VIEW_PINNED, MESSAGE_VIEW_PHOTOS, MESSAGE_VIEW_FILES, MESSAGE_VIEW_VOICE, MESSAGE_VIEW_MUSIC,
     MESSAGE_VIEW_LINKS, NOTIFY_USERS, NOTIFY_GROUPS, NOTIFY_CHANNELS, MESSAGE_VIEW_MENTIONS,
@@ -58,3 +61,24 @@ PRIVACY_KEYS = {
     "calls": types.InputPrivacyKeyPhoneCall,
     "forwards": types.InputPrivacyKeyForwards,
 }
+
+
+# What a deleted account is called, in the interface language (set_language): Telegram keeps the account,
+# with no name left, and its apps call it so.
+_deleted_name = None
+
+
+def set_language(language):
+    """Name deleted accounts in this language from now on."""
+    global _deleted_name
+    from core.i18n import I18NManager
+    _deleted_name = I18NManager(language).get_string(DELETED_ACCOUNT_KEY)
+
+
+def display_name(entity):
+    """A person's or a chat's name, as Telegram's apps show it: a deleted account by that, not by nothing."""
+    if isinstance(entity, types.User) and getattr(entity, "deleted", False):
+        if _deleted_name is None:
+            set_language(DEFAULT_LANG)
+        return _deleted_name
+    return get_display_name(entity)

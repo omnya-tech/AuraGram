@@ -7,12 +7,12 @@ import logging
 import os
 from telethon.errors import FloodWaitError
 from telethon.tl import functions, types
-from telethon.utils import get_display_name, get_input_peer, get_peer_id
+from telethon.utils import get_input_peer, get_peer_id
 from core.constants import (
     STREAM_REQUEST_BYTES, EMPTY_STRING, DOWNLOADS_DIR, CHAT_FILES_LIMIT, DOWNLOADABLE_MEDIA, STORY_AUDIENCES,
     STORY_SECONDS, CHAT_PHOTO_NAME_FORMAT, AUDIO_MIME_TYPES,
 )
-from core.tg_shared import PhoneHiddenError, CHAT_FILE_FILTERS
+from core.tg_shared import display_name, PhoneHiddenError, CHAT_FILE_FILTERS
 
 logger = logging.getLogger(__name__)
 PARTIAL_SUFFIX = ".part"
@@ -193,7 +193,7 @@ class MediaMixin:
     async def _load_stories_async(self):
         result = await self.client(functions.stories.GetAllStoriesRequest())
         owners = list(getattr(result, "users", [])) + list(getattr(result, "chats", []))
-        names = {get_peer_id(owner): get_display_name(owner) for owner in owners}
+        names = {get_peer_id(owner): display_name(owner) for owner in owners}
         self.story_peers = {get_peer_id(owner): get_input_peer(owner) for owner in owners}
         self.story_items = {}
         groups = []

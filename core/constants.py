@@ -1414,6 +1414,7 @@ EVENT_MESSAGES_DELETED = "messages_deleted"
 EVENT_MESSAGES_READ = "messages_read"
 EVENT_USER_STATUS = "user_status"
 EVENT_TYPING = "typing"
+DELETED_ACCOUNT_KEY = "DELETED_ACCOUNT"
 # A post's views, forwards or comments changed: (chat id, {message id: {"views"/"forwards"/"comments": number}}).
 EVENT_MESSAGE_NUMBERS = "message_numbers"
 # Keeping the open channel's numbers current: how often they are asked for, and for how many posts

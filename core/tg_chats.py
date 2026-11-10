@@ -7,14 +7,14 @@ import datetime
 import urllib.parse
 from telethon.errors import UserNotParticipantError, FloodWaitError, RPCError
 from telethon.tl import functions, types
-from telethon.utils import get_display_name, get_input_peer, get_peer_id, parse_username
+from telethon.utils import get_input_peer, get_peer_id, parse_username
 from core.constants import (
     EMPTY_STRING, DIALOGS_LIMIT, MUTE_FOREVER, FOLDER_CATEGORIES, CATEGORY_CONTACTS, CATEGORY_NON_CONTACTS,
     CATEGORY_GROUPS, CATEGORY_BROADCASTS, CATEGORY_BOTS, USER_STATUS_KEYS, SAVED_MESSAGES_PEER, BLOCKED_LIMIT,
     GLOBAL_SEARCH_LIMIT, NOTIFY_USERS, NOTIFY_GROUPS, NOTIFY_CHANNELS, TYPING_SEND_SECONDS, FOLDER_EXCLUSIONS,
     PLAIN_COLORS,
 )
-from core.tg_shared import ChatNotFoundError
+from core.tg_shared import display_name, ChatNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -191,7 +191,7 @@ class ChatsMixin:
             # What load_chat_photos fetches the photo through: the chat as Telegram sent it, photo and all.
             self.photo_owners[chat_id] = entity
         return {
-            "id": chat_id, "title": get_display_name(entity),
+            "id": chat_id, "title": display_name(entity),
             # Which photo the chat has, to fetch it once and know when it changes.
             "photo": photo_id,
             "color": self._chat_color(entity),

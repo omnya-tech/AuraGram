@@ -21,6 +21,7 @@
     "MESSAGE_FORMAT": "{sender}: {text}، {time}",
     "MESSAGE_NO_SENDER_FORMAT": "{text}، {time}",
     "SENDER_YOU": "أنت",
+    "DELETED_ACCOUNT": "حساب محذوف",
     "MSG_NO_TEXT": "[رسالة فارغة]",
     "MSG_LOAD_MORE_DIALOGS": "عرض محادثات أكثر",
     "MENU_REPLY": "رد على الرسالة المحددة",

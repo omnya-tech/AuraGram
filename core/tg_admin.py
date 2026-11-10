@@ -7,7 +7,7 @@ from telethon.errors import (
     FloodWaitError, ChatAdminRequiredError, ChatNotModifiedError, ChatAboutNotModifiedError, RPCError,
 )
 from telethon.tl import functions, types
-from telethon.utils import get_display_name, get_input_peer
+from telethon.utils import get_input_peer
 from core.constants import (
     MEDIA_PERMISSIONS, SENDING_PERMISSIONS, SETTING_ANTISPAM, SETTING_HIDE_MEMBERS,
     SETTING_SIGNATURE_PROFILES, SETTING_AUTOTRANSLATION, SETTING_NAME_COLOR, SETTING_PROFILE_COLOR,
@@ -21,7 +21,7 @@ from core.constants import (
     SETTING_PROTECTED, SETTING_JOIN_TO_SEND, SETTING_JOIN_REQUEST, SETTING_FORUM, SETTING_SLOW_MODE,
     SETTING_TTL, SETTING_REACTIONS, REACTIONS_ALL, REACTIONS_NONE, REACTIONS_SOME, COMMON_CHATS_LIMIT,
 )
-from core.tg_shared import StatsUnavailableError, NoInviteLinkError, ADMIN_LOG_ACTION_PREFIX, BANNED_RIGHT_NAMES, KEPT_BANNED_RIGHTS
+from core.tg_shared import display_name, StatsUnavailableError, NoInviteLinkError, ADMIN_LOG_ACTION_PREFIX, BANNED_RIGHT_NAMES, KEPT_BANNED_RIGHTS
 
 
 class AdminMixin:
@@ -302,7 +302,7 @@ class AdminMixin:
     async def _load_chat_info_async(self, dialog_id):
         entity = await self.client.get_entity(self.entities[dialog_id])
         info = {
-            "title": get_display_name(entity),
+            "title": display_name(entity),
             "username": getattr(entity, "username", None) or EMPTY_STRING,
             "about": EMPTY_STRING, "members_count": None,
             "can_edit": False, "can_ban": False, "can_promote": False, "can_invite": False,
@@ -317,7 +317,7 @@ class AdminMixin:
             common = await self.client(functions.messages.GetCommonChatsRequest(
                 user_id=entity, max_id=0, limit=COMMON_CHATS_LIMIT
             ))
-            info["common_chats"] = [get_display_name(chat) for chat in getattr(common, "chats", [])]
+            info["common_chats"] = [display_name(chat) for chat in getattr(common, "chats", [])]
             return info
 
         if isinstance(entity, types.Channel):
@@ -377,7 +377,7 @@ class AdminMixin:
         return [
             {
                 "id": user.id,
-                "name": get_display_name(user) or EMPTY_STRING,
+                "name": display_name(user) or EMPTY_STRING,
                 "username": getattr(user, "username", None),
                 "role": fixed_role or self._member_role(getattr(user, "participant", None)),
                 "rights": self._member_rights(getattr(user, "participant", None)),
@@ -616,7 +616,7 @@ class AdminMixin:
         admins = []
         for user in await self.client.get_participants(self.entities[dialog_id], filter=types.ChannelParticipantsAdmins):
             self.admin_entities[user.id] = get_input_peer(user)
-            admins.append({"id": user.id, "name": get_display_name(user)})
+            admins.append({"id": user.id, "name": display_name(user)})
         return admins
 
     async def _decide_all_requests_async(self, dialog_id, approved):
@@ -658,7 +658,7 @@ class AdminMixin:
             ))
             users = {user.id: user for user in result.users}
             joiners[name] = [
-                get_display_name(users[importer.user_id]) for importer in result.importers if importer.user_id in users
+                display_name(users[importer.user_id]) for importer in result.importers if importer.user_id in users
             ]
         return joiners
 
@@ -685,7 +685,7 @@ class AdminMixin:
                 event.action, types.ChannelAdminLogEventActionDeleteMessage
             ) else None
             events.append({
-                "user": get_display_name(event.user) if event.user else EMPTY_STRING,
+                "user": display_name(event.user) if event.user else EMPTY_STRING,
                 "date": event.date,
                 "message_id": getattr(deleted, "id", None),
                 "text": getattr(deleted, "message", None) or EMPTY_STRING,

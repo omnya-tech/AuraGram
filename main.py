@@ -42,7 +42,7 @@ from core.constants import (
     MSG_ACCOUNT_SWITCHED_FORMAT_KEY, LOG_STARTED_FORMAT, LOG_STOPPED, CONNECTION_ONLINE
 )
 from core.i18n import I18NManager
-from core import diagnostics, proxy, shortcuts, sounds
+from core import diagnostics, proxy, shortcuts, sounds, tg_shared
 from core.settings import (
     SETTING_ANNOUNCE_CONNECTION, SETTING_START_SOUND, SETTING_WINDOWS_START_SOUND, SETTING_THEME, SETTING_LANGUAGE, SETTING_ACCOUNTS,
     SETTING_CURRENT_ACCOUNT, Settings
@@ -131,8 +131,9 @@ class MainApplication(wx.App):
             lambda step, error_key=None: self.on_telegram_response(step, error_key, generation),
             accounts.session_path(self.settings.get(SETTING_CURRENT_ACCOUNT))
         )
-        # Messages are translated into the interface language.
+        # Messages are translated into the interface language, and deleted accounts named in it.
         self.telegram_manager.translate_lang = self.settings.get(SETTING_LANGUAGE)
+        tg_shared.set_language(self.settings.get(SETTING_LANGUAGE))
         self.telegram_manager.proxy = proxy.from_settings(self.settings)
         self.telegram_manager.set_connection_listener(self.on_connection_change)
         self.telegram_manager.wait_for_network = self.start_hidden
