@@ -21,6 +21,32 @@ DAY_SECONDS = 24 * 60 * 60
 PLACEHOLDER_COLOURS = ("#E17076", "#FAA774", "#A695E7", "#7BC862", "#6EC9CB", "#65AADD", "#EE7AAE")
 
 
+# The circle of a deleted account, as Telegram's apps draw it: grey, with a figure in place of initials.
+DELETED_COLOUR = "#9E9E9E"
+
+
+def deleted_picture(size, mirrored=False):
+    """A grey round bitmap with the figure of a person, for a deleted account; initials when there is no icon font."""
+    from ui import icons
+    face = icons.font_name()
+    if face is None:
+        return placeholder("?", DELETED_COLOUR, size, mirrored)
+    image = wx.Image(size, size)
+    image.InitAlpha()
+    image.SetAlpha(bytes(size * size))
+    context = wx.GraphicsContext.Create(image)
+    context.SetAntialiasMode(wx.ANTIALIAS_DEFAULT)
+    context.SetBrush(wx.Brush(wx.Colour(DELETED_COLOUR)))
+    context.SetPen(wx.TRANSPARENT_PEN)
+    context.DrawEllipse(0, 0, size, size)
+    context.SetFont(wx.Font(wx.FontInfo(wx.Size(0, size // 2)).FaceName(face)), wx.WHITE)
+    glyph = chr(icons.GLYPHS["contact"])
+    width, height = context.GetTextExtent(glyph)
+    context.DrawText(glyph, (size - width) / 2, (size - height) / 2)
+    del context
+    return wx.Bitmap(image.Mirror() if mirrored else image)
+
+
 def circle_colour(chat, palette=None):
     """The colour of the circle behind a chat's initials: its Telegram colour (see core's "color"), the main
     shade of a mixed one from `palette`, or the plain colour its number comes nearest to."""
@@ -134,7 +160,7 @@ class ChatPictures:
         """The image list index of a chat's picture, made the first time it is asked for, and made again
         when the chat changes its photo or its colour."""
         chat_id, photo_id = chat["id"], chat.get("photo")
-        colour = circle_colour(chat, self.palette)
+        colour = DELETED_COLOUR if chat.get("deleted") else circle_colour(chat, self.palette)
         known = self.indexes.get(chat_id)
         if known is not None and known[:2] == (photo_id, colour):
             return known[2]
@@ -143,6 +169,8 @@ class ChatPictures:
             bitmap = round_photo(photo_path(self.folder, chat_id, photo_id), self.size, self.mirrored)
             if bitmap is None:
                 self.missing.add((chat_id, photo_id))
+        if bitmap is None and chat.get("deleted"):
+            bitmap = deleted_picture(self.size, self.mirrored)
         if bitmap is None:
             bitmap = placeholder(chat["title"], colour, self.size, self.mirrored)
         if known is not None:

@@ -219,6 +219,8 @@ class ChatsMixin:
             "is_owner": not is_user and bool(getattr(entity, "creator", False)),
             # This account's chat with itself, Saved Messages: there is nobody else to delete it for.
             "is_self": is_user and bool(entity.is_self),
+            # An account deleted: Telegram's apps show it with a picture of its own, the same for all.
+            "deleted": is_user and bool(getattr(entity, "deleted", False)),
             # Text left unsent in this chat, as saved on the account by any device.
             "draft": draft,
             # For a person: when they were last around. Bots and this account itself have none.

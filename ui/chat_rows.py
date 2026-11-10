@@ -10,9 +10,33 @@ How each row looks is asked of `row_look(index)` whenever a row is written: (col
 picture index or -1). The pictures come from whatever is given to set_pictures: anything with an
 `image_list`.
 """
+import re
+
 import wx
 
 NO_LOOK = (None, False, -1)
+# Marks that change only how a right-to-left row is drawn, never what it says: taken off again whenever its
+# words are read back (GetString), so the rest of the program, type-ahead and screen readers see the words.
+LEFT_TO_RIGHT_MARK = "\u200e"
+RIGHT_TO_LEFT_MARK = "\u200f"
+DRAWING_MARKS = str.maketrans("", "", LEFT_TO_RIGHT_MARK + RIGHT_TO_LEFT_MARK)
+# A file's name: no spaces, and an extension with a letter in it after its last dot (not the 8.6 of a size).
+FILE_NAME = re.compile(r"[^\s\[\]\u060c,]+\.(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{1,5}(?![A-Za-z0-9])")
+# A number, whole: 7, 2.5, 1,200, 19:52.
+NUMBER = re.compile(r"\d(?:[\d.,:٫]*\d)?")
+
+
+def for_right_to_left(text):
+    """How a row reads in a right-to-left list, drawn the same way whatever is beside its parts.
+    Windows shapes the digits by the letters before them where the user's region says so: after Arabic
+    as Arabic-Indic, after Latin (a file's name) as Latin, so one list mixed 19:52 and ١٩:٥٢. A left-to-right
+    mark before each number has them all drawn alike, as Telegram's apps draw them, and a right-to-left one
+    after it keeps two numbers side by side in their order (a length and a size: "0:12, 29.3 KB"), which
+    would otherwise be drawn as one left-to-right stretch, the second first. And a file's name is
+    closed with a right-to-left mark, so the number after it ("report.pdf, 244 KB") is not drawn into it
+    (Windows' list draws the isolates of newer Unicode as boxes, so the older marks are used)."""
+    text = FILE_NAME.sub(lambda match: match.group(0) + RIGHT_TO_LEFT_MARK, text)
+    return NUMBER.sub(lambda match: LEFT_TO_RIGHT_MARK + match.group(0) + RIGHT_TO_LEFT_MARK, text)
 
 
 class ChatRows(wx.ListCtrl):
@@ -36,10 +60,10 @@ class ChatRows(wx.ListCtrl):
         return self.GetItemCount() == 0
 
     def GetString(self, index):
-        return self.GetItemText(index)
+        return self.GetItemText(index).translate(DRAWING_MARKS)
 
     def GetItems(self):
-        return [self.GetItemText(index) for index in range(self.GetItemCount())]
+        return [self.GetString(index) for index in range(self.GetItemCount())]
 
     GetStrings = GetItems
 
@@ -60,22 +84,25 @@ class ChatRows(wx.ListCtrl):
         finally:
             self.moving = False
 
+    def drawn(self, text):
+        return for_right_to_left(text) if self.GetLayoutDirection() == wx.Layout_RightToLeft else text
+
     def Set(self, items):
         self.Freeze()
         try:
             self.DeleteAllItems()
             for index, text in enumerate(items):
-                self.InsertItem(index, text)
+                self.InsertItem(index, self.drawn(text))
                 self.paint_row(index)
         finally:
             self.Thaw()
 
     def SetString(self, index, text):
-        self.SetItemText(index, text)
+        self.SetItemText(index, self.drawn(text))
         self.paint_row(index)
 
     def Insert(self, text, index):
-        self.InsertItem(index, text)
+        self.InsertItem(index, self.drawn(text))
         self.paint_row(index)
         return index
 
