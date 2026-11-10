@@ -10,6 +10,13 @@ from core.constants import (
     MENU_FORWARD_KEY, MENU_REACT_KEY, MENU_OPEN_MEDIA_KEY, MENU_COMMENTS_KEY, MENU_MESSAGE_STATS_KEY, MENU_REMIND_KEY,
     TOOLTIP_SEARCH_MESSAGES_KEY, MENU_SEARCH_MESSAGES_KEY, TOOLTIP_RECORD_KEY, MENU_RECORD_KEY, TOOLTIP_SEND_KEY,
     CONTEXT_DELETE_KEY, MENU_DELETE_KEY, BTN_DELETE_CHAT_SHORT_KEY, MENU_CHAT_LEAVE_KEY,
+    PLAYABLE_MEDIA, DOWNLOADABLE_MEDIA,
+)
+
+# The buttons below a chat that act on the selected message (the attachment's keeps BTN_OPEN_KEY as its key).
+MESSAGE_BAR_KEYS = (
+    CONTEXT_REPLY_KEY, CONTEXT_FORWARD_KEY, CONTEXT_REACT_KEY, BTN_PLAY_KEY, BTN_OPEN_KEY, BTN_COMMENTS_KEY,
+    BTN_STATS_KEY, BTN_REMIND_KEY, CONTEXT_DELETE_KEY, BTN_MORE_ACTIONS_KEY,
 )
 from core.settings import SETTING_ENTER_SENDS
 
@@ -55,7 +62,7 @@ class MouseBarsMixin:
             (BTN_MORE_ACTIONS_KEY, lambda event: self.on_message_context_menu(self.no_position(self.messages_list)), None),
         )
 
-    def build_mouse_bar(self, entries, first=()):
+    def build_mouse_bar(self, entries, first=(), on_message=False):
         """A row that wraps onto more lines when the window is narrow; `first` are buttons made elsewhere."""
         # Without the default stretch of the last button on each line to the window's edge.
         bar = wx.WrapSizer(wx.HORIZONTAL, 0)
@@ -66,9 +73,40 @@ class MouseBarsMixin:
             icons.put_on(button, BAR_ICONS.get(label_key))
             button.Bind(wx.EVT_BUTTON, handler)
             button.command = command
+            button.label_key = label_key
+            # The chat's row of buttons, which act on the message selected.
+            button.on_message = on_message
             bar.Add(button, flag=wx.RIGHT|wx.BOTTOM, border=6)
             self.mouse_buttons.append(button)
         return bar
+
+    def update_message_bar(self, message):
+        """Grey out what does nothing on the selected message, as Telegram's apps offer only what works on it:
+        no reply where one cannot write, no playing without sound, no comments where there are none."""
+        if message is None:
+            usable = set()
+        else:
+            chat = self.shown_chat() if self.current_dialog_id is not None else {}
+            usable = {CONTEXT_FORWARD_KEY, CONTEXT_REACT_KEY, BTN_REMIND_KEY, BTN_MORE_ACTIONS_KEY}
+            if chat.get("can_send", True) or self.in_comments():
+                usable.add(CONTEXT_REPLY_KEY)
+            if message["media"] in PLAYABLE_MEDIA:
+                usable.add(BTN_PLAY_KEY)
+            if message["media"] in DOWNLOADABLE_MEDIA:
+                usable.add(BTN_OPEN_KEY)
+            if message["comments"] is not None:
+                usable.add(BTN_COMMENTS_KEY)
+            if self.message_stats(message):
+                usable.add(BTN_STATS_KEY)
+            if self.can_delete(message):
+                usable.add(CONTEXT_DELETE_KEY)
+        # Whatever is selected, the button stops what is playing.
+        player = getattr(self, "player", None)
+        if player is not None and player.is_playing():
+            usable.add(BTN_PLAY_KEY)
+        for button in getattr(self, "mouse_buttons", ()):
+            if getattr(button, "label_key", None) in MESSAGE_BAR_KEYS and getattr(button, "on_message", False):
+                button.Enable(button.label_key in usable)
 
     def update_mouse_tooltips(self):
         """Each button's tooltip: its command, with the shortcut it has now."""

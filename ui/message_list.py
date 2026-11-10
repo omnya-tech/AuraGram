@@ -281,6 +281,7 @@ class MessageListMixin:
         """Show the selected message in full below the list."""
         message = self.selected_message()
         self.refresh_stale_rows()
+        self.update_message_bar(message)
         # What the attachment's button says follows the message selected.
         self.update_attachment_words()
         if message is None:

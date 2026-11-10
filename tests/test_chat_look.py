@@ -52,14 +52,15 @@ class IconTest(unittest.TestCase):
         self.addCleanup(frame.Destroy)
         frame.SetLayoutDirection(wx.Layout_RightToLeft)
         button = wx.Button(frame, label="send")
+        # Windows' own button: Windows turns its picture round itself, so the arrow is handed over as drawn
+        # (and comes out turned), and a picture that points nowhere is handed over turned (and comes out as drawn).
         icons.put_on(button, "send")
         drawn = button.GetBitmap().ConvertToImage()
-        turned = icons.draw("send", button.FromDIP(icons.ICON_SIZE), icons.icon_colour()).ConvertToImage().Mirror()
-        self.assertEqual(bytes(drawn.GetAlpha()), bytes(turned.GetAlpha()))
-        # A search glass points nowhere: the same either way.
+        plain = icons.draw("send", button.FromDIP(icons.ICON_SIZE), icons.icon_colour()).ConvertToImage()
+        self.assertEqual(bytes(drawn.GetAlpha()), bytes(plain.GetAlpha()))
         icons.put_on(button, "search")
-        plain = icons.draw("search", button.FromDIP(icons.ICON_SIZE), icons.icon_colour()).ConvertToImage()
-        self.assertEqual(bytes(button.GetBitmap().ConvertToImage().GetAlpha()), bytes(plain.GetAlpha()))
+        turned = icons.draw("search", button.FromDIP(icons.ICON_SIZE), icons.icon_colour()).ConvertToImage().Mirror()
+        self.assertEqual(bytes(button.GetBitmap().ConvertToImage().GetAlpha()), bytes(turned.GetAlpha()))
 
     def test_without_the_font_buttons_keep_their_words_alone(self):
         frame = wx.Frame(None)

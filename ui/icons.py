@@ -91,13 +91,34 @@ def draw(name, size, colour, mirrored=False):
     return bitmap
 
 
+BUTTON_TYPE_MASK = 0x0F
+BUTTON_OWNER_DRAWN = 0x0B
+WINDOW_STYLE = -16
+
+
+def is_drawn_by_wx(button):
+    """Whether wx draws the button itself (its colours set by a theme), rather than Windows: then nothing
+    of it is turned round for a right-to-left window, its picture included."""
+    try:
+        import ctypes
+        style = ctypes.windll.user32.GetWindowLongW(button.GetHandle(), WINDOW_STYLE)
+    except Exception:
+        return False
+    return style & BUTTON_TYPE_MASK == BUTTON_OWNER_DRAWN
+
+
 def put_on(button, name, colour=None):
     """Give a button (or toggle button) its picture beside its words, in the current theme's colours or
     in `colour`. Called again after the theme changes, it repaints the picture; None leaves it without one."""
     button.icon_name = name
     if name is None:
         return
-    mirrored = name in DIRECTIONAL and button.GetLayoutDirection() == wx.Layout_RightToLeft
+    # In a right-to-left window the arrows are to point the other way, and nothing else is. Windows itself
+    # turns round every picture of its own buttons there, so on those it is the rest that is turned here,
+    # to come out as drawn; a button wx draws itself (once a theme gives it colours) shows its picture as it
+    # is, so there only the arrows are.
+    right_to_left = button.GetLayoutDirection() == wx.Layout_RightToLeft
+    mirrored = right_to_left and ((name in DIRECTIONAL) == is_drawn_by_wx(button))
     bitmap = draw(name, button.FromDIP(ICON_SIZE), colour or icon_colour(), mirrored)
     if bitmap is None:
         return

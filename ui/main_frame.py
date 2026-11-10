@@ -245,7 +245,7 @@ class MainFrame(
         chat_box.Add(self.preview_label, flag=wx.BOTTOM, border=5)
         self.preview_text = ReadOnlyText(self.panel, size=(-1, PREVIEW_HEIGHT))
         chat_box.Add(self.preview_text, flag=wx.EXPAND|wx.BOTTOM, border=15)
-        chat_box.Add(self.build_mouse_bar(self.chat_bar_entries()), flag=wx.EXPAND|wx.BOTTOM, border=9)
+        chat_box.Add(self.build_mouse_bar(self.chat_bar_entries(), on_message=True), flag=wx.EXPAND|wx.BOTTOM, border=9)
 
         self.input_label = wx.StaticText(self.panel, label=self.i18n.get_string(MESSAGE_INPUT_LABEL_KEY))
         chat_box.Add(self.input_label, flag=wx.BOTTOM, border=5)

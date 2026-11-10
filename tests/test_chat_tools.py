@@ -210,3 +210,35 @@ class ChatToolsTest(WindowTestCase):
         self.assertIsNone(self.frame.reply_to)
         self.assertTrue(self.frame.on_escape())
         self.assertIsNone(self.frame.current_dialog_id)
+
+
+class MessageBarStateTest(WindowTestCase):
+    """The buttons below a chat offer what works on the selected message, as Telegram's apps do."""
+    from tests.harness import make_channel as _make_channel
+    NEWS = _make_channel(77, "News")
+    chats = [(ALI, 0, False), (NEWS, 0, False)]
+    history = {1: [make_message(1, "hi", sender=ALI), make_message(2, "mine", outgoing=True)],
+               -1000000000077: [make_message(1, "post", sender=NEWS, post=True, views=10)]}
+
+    def usable(self):
+        return {button.label_key for button in self.frame.mouse_buttons if getattr(button, "on_message", False) and button.IsEnabled()}
+
+    def test_what_does_nothing_on_the_selected_message_is_greyed_out(self):
+        self.open_chat(0)
+        self.frame.messages_list.SetSelection(self.frame.message_offset())
+        self.frame.update_preview()
+        # A text message: no sound to play, no attachment to open, no comments or numbers.
+        self.assertNotIn(c.BTN_PLAY_KEY, self.usable())
+        self.assertNotIn(c.BTN_OPEN_KEY, self.usable())
+        self.assertNotIn(c.BTN_COMMENTS_KEY, self.usable())
+        self.assertIn(c.CONTEXT_REPLY_KEY, self.usable())
+        self.assertIn(c.CONTEXT_DELETE_KEY, self.usable())
+
+    def test_in_a_channel_one_only_reads_there_is_no_reply_nor_delete(self):
+        self.open_chat(1)
+        self.frame.messages_list.SetSelection(self.frame.message_offset())
+        self.frame.update_preview()
+        self.assertNotIn(c.CONTEXT_REPLY_KEY, self.usable())
+        self.assertNotIn(c.CONTEXT_DELETE_KEY, self.usable())
+        # Its views are numbers to say.
+        self.assertIn(c.BTN_STATS_KEY, self.usable())

@@ -150,7 +150,8 @@ class SettingsDialog(wx.Dialog):
         # {shortcut: who else holds it}, as last looked for on this computer.
         self.shortcut_conflicts = key_conflicts.find(self.shortcut_table.values())
 
-        notebook = self.notebook = wx.Notebook(self)
+        # On as many lines as it takes: eleven tabs do not fit on one, and arrows hid the last ones.
+        notebook = self.notebook = wx.Notebook(self, style=wx.NB_MULTILINE)
         notebook.AddPage(self.create_app_page(notebook), i18n.get_string(SETTINGS_TAB_APP_KEY))
         notebook.AddPage(self.create_accessibility_page(notebook), i18n.get_string(SETTINGS_TAB_ACCESSIBILITY_KEY))
         notebook.AddPage(self.create_shortcuts_page(notebook), i18n.get_string(SETTINGS_TAB_SHORTCUTS_KEY))
